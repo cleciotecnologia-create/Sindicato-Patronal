@@ -1,0 +1,74 @@
+{
+  "entities": {
+    "Member": {
+      "title": "Member",
+      "description": "Company member of the union",
+      "type": "object",
+      "properties": {
+        "cnpj": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "pending", "inactive"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cnpj", "name", "email", "status"]
+    },
+    "Boleto": {
+      "title": "Boleto",
+      "description": "Financial document for a member",
+      "type": "object",
+      "properties": {
+        "memberId": { "type": "string" },
+        "title": { "type": "string" },
+        "amount": { "type": "number" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["paid", "pending", "overdue"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["memberId", "title", "amount", "dueDate", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Official announcement for all members",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["alert", "info", "event"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "message", "type", "createdAt"]
+    },
+    "Suggestion": {
+      "title": "Suggestion",
+      "description": "User feedback or suggestion",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "message": { "type": "string" },
+        "category": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["message", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/members/{memberId}": {
+      "schema": "Member",
+      "description": "Collection of union members"
+    },
+    "/members/{memberId}/boletos/{boletoId}": {
+      "schema": "Boleto",
+      "description": "Sub-collection of boletos for a specific member"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Global notifications"
+    },
+    "/suggestions/{suggestionId}": {
+      "schema": "Suggestion",
+      "description": "User suggestions and feedback"
+    }
+  }
+}
