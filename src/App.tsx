@@ -440,7 +440,14 @@ function LandingPage() {
       console.error("Erro no Login:", error);
       if (error.code === 'auth/unauthorized-domain') {
         const currentDomain = window.location.hostname;
-        setAuthError(`Domínio "${currentDomain}" não está autorizado no Firebase. No console do Firebase, acesse Autenticação > Configurações > Domínios autorizados e adicione "${currentDomain}".`);
+        const authDomain = firebaseConfig.authDomain;
+        setAuthError(`DOMÍNIO NÃO AUTORIZADO: O domínio "${currentDomain}" não está na lista de permissões do seu projeto Firebase. 
+
+Para corrigir:
+1. Acesse o Console do Firebase.
+2. Vá em Autenticação > Configurações > Domínios autorizados.
+3. Clique em "Adicionar domínio" e digite: ${currentDomain}
+4. Certifique-se também de que o domínio "${authDomain}" está configurado corretamente.`);
       } else {
         setAuthError(error.message || "Erro ao realizar autenticação.");
       }
@@ -732,12 +739,12 @@ function LandingPage() {
                 <div>
                   <h2 className="text-2xl font-bold font-display text-blue-900 capitalize">
                     {activeDashboardTab === 'overview' ? 'Visão Geral' : 
-                     activeDashboardTab === 'boletos' ? 'Meu Financeiro' :
-                     activeDashboardTab === 'docs' ? 'Central de Documentos' :
-                     activeDashboardTab === 'voting' ? 'Votação Online' : 
+                     activeDashboardTab === 'boletos' ? 'Financeiro' :
+                     activeDashboardTab === 'docs' ? 'Documentos' :
+                     activeDashboardTab === 'voting' ? 'Assembleia' : 
                      activeDashboardTab === 'partners' ? 'Clube de Vantagens' : 
-                     activeDashboardTab === 'accountant' ? 'Painel do Contador' : 
-                     activeDashboardTab === 'admin' ? 'Painel de Administração' : 'Configurações'}
+                     activeDashboardTab === 'accountant' ? 'Portal do Contador' : 
+                     activeDashboardTab === 'admin' ? 'Painel Administrativo' : 'Configurações'}
                   </h2>
                   <p className="text-sm text-gray-400 font-medium">Bem-vindo de volta ao portal corporativo.</p>
                 </div>
