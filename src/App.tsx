@@ -438,7 +438,11 @@ function LandingPage() {
       await signInWithPopup(auth, provider);
     } catch (error: any) {
       console.error("Login Error:", error);
-      setAuthError(error.message || "Erro ao realizar autenticação.");
+      if (error.code === 'auth/unauthorized-domain') {
+        setAuthError("Domínio não autorizado no Firebase. Por favor, adicione os domínios da aplicação às 'Origens autorizadas' no console do Firebase (Autenticação > Configurações > Domínios autorizados).");
+      } else {
+        setAuthError(error.message || "Erro ao realizar autenticação.");
+      }
     }
   };
 
