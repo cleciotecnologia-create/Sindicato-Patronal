@@ -54,6 +54,7 @@ import {
   QrCode,
   LayoutGrid,
   List,
+  Loader2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
@@ -166,7 +167,7 @@ function LandingPage() {
   const [calcAdjustment, setCalcAdjustment] = useState(5);
   
   const [activeDashboardTab, setActiveDashboardTab] = useState<'overview' | 'boletos' | 'docs' | 'voting' | 'accountant' | 'partners' | 'admin' | 'settings'>('overview');
-  const [adminSubTab, setAdminSubTab] = useState<'dashboard' | 'members' | 'finance' | 'billing' | 'docs' | 'partners' | 'media'>('dashboard');
+  const [adminSubTab, setAdminSubTab] = useState<'dashboard' | 'members' | 'finance' | 'billing' | 'docs' | 'partners' | 'media' | 'system'>('dashboard');
   const [memberLoggedIn, setMemberLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const SUPER_USER_EMAIL = 'cleciotecnologia@gmail.com';
@@ -227,6 +228,15 @@ function LandingPage() {
   const [certForm, setCertForm] = useState({ companyName: '', cnpj: '', validity: '90 dias' });
   const [isGeneratingCert, setIsGeneratingCert] = useState(false);
   const [adminLogo, setAdminLogo] = useState<string | null>(null);
+  const [domainConfig, setDomainConfig] = useState({
+    domain: 'sindicatodigital.org.br',
+    subdomain: 'portal',
+    isActive: true,
+    sslStatus: 'active' as 'active' | 'pending' | 'expired'
+  });
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [agreements, setAgreements] = useState<any[]>([]);
   const [delinquentCompanies] = useState([
     { id: 1, name: 'Transportes Rápidos Ltda', cnpj: '12.345.678/0001-90', debt: 4500.00, months: 3 },
@@ -237,10 +247,42 @@ function LandingPage() {
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setIsUploading(true);
+      setUploadProgress(0);
+      setUploadStatus(null);
+
+      // Simulação de progresso de upload para feedback visual
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress += Math.random() * 30;
+        if (progress >= 95) {
+          progress = 95;
+          clearInterval(interval);
+        }
+        setUploadProgress(progress);
+      }, 200);
+
       const reader = new FileReader();
       reader.onloadend = () => {
-        setAdminLogo(reader.result as string);
+        // Pequeno atraso para o usuário ver o progresso chegando ao fim
+        setTimeout(() => {
+          clearInterval(interval);
+          setUploadProgress(100);
+          setAdminLogo(reader.result as string);
+          setIsUploading(false);
+          setUploadStatus({ type: 'success', message: 'Logotipo carregado com sucesso!' });
+          
+          // Limpa o status após 4 segundos
+          setTimeout(() => setUploadStatus(null), 4000);
+        }, 800);
       };
+
+      reader.onerror = () => {
+        clearInterval(interval);
+        setIsUploading(false);
+        setUploadStatus({ type: 'error', message: 'Erro ao processar imagem. Tente outro arquivo.' });
+      };
+
       reader.readAsDataURL(file);
     }
   };
@@ -487,7 +529,7 @@ function LandingPage() {
         model: "gemini-3-flash-preview",
         contents: userInput,
         config: {
-          systemInstruction: `Você é o Assessor Jurídico Virtual de Elite do Sindicato Patronal. 
+          systemInstruction: `Você é o Assessor Jurídico Virtual de Elite do Sindicato Patronal SINPA. 
           Você foi treinado especificamente nas Convenções Coletivas de Trabalho (CCT) do setor.
           Ajude o usuário (contadores e empresários) com dúvidas sobre legislação trabalhista, 
           cálculos de reajuste, processos de associação e benefícios. 
@@ -620,7 +662,10 @@ function LandingPage() {
                   <div className="w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center text-blue-900 shadow-lg shadow-amber-400/20">
                     <Globe className="w-6 h-6" />
                   </div>
-                  <h1 className="text-xl font-bold font-display uppercase tracking-tighter">Sindicato <span className="text-amber-400">ID</span></h1>
+                  <h1 className="text-sm font-bold font-display uppercase mt-1 leading-tight tracking-wider">
+                    Sindicato Patronal<br/>
+                    <span className="text-amber-400 text-xl tracking-tighter">SINPA</span>
+                  </h1>
                 </div>
                 <p className="text-[10px] text-blue-200 font-bold tracking-widest uppercase opacity-40">Área do Associado</p>
               </div>
@@ -1304,6 +1349,7 @@ function LandingPage() {
                               { id: 'billing', label: 'Mensalidades', icon: Banknote },
                               { id: 'members', label: 'Associados', icon: Users },
                               { id: 'partners', label: 'Parceiros', icon: Gift },
+                              { id: 'system', label: 'Sistema', icon: Globe },
                               { id: 'media', label: 'Mídia', icon: Camera },
                               { id: 'docs', label: 'Certidões', icon: Printer },
                             ].map((tab) => (
@@ -1984,6 +2030,121 @@ function LandingPage() {
                            </motion.div>
                          )}
 
+                         {adminSubTab === 'system' && (
+                           <motion.div 
+                             key="admin_system"
+                             initial={{ opacity: 0, scale: 0.95 }} 
+                             animate={{ opacity: 1, scale: 1 }} 
+                             className="space-y-8"
+                           >
+                              <div className="bg-white border border-gray-100 rounded-[44px] p-8 lg:p-12 shadow-xl">
+                                 <div className="mb-12">
+                                   <h4 className="text-3xl font-bold text-blue-900 font-display">Configurações do Sistema</h4>
+                                   <p className="text-gray-500 font-medium">Gerencie o acesso, domínios e conectividade da plataforma.</p>
+                                 </div>
+
+                                 <div className="grid lg:grid-cols-2 gap-8">
+                                   {/* Domain Card */}
+                                   <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-8 space-y-6">
+                                     <div className="flex items-center gap-4 mb-2">
+                                       <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600">
+                                         <Globe className="w-6 h-6" />
+                                       </div>
+                                       <div>
+                                         <h5 className="font-bold text-blue-950">Domínio Personalizado</h5>
+                                         <p className="text-[10px] uppercase tracking-widest text-gray-400 font-black">DNS & Acesso Externo</p>
+                                       </div>
+                                     </div>
+
+                                     <div className="space-y-4">
+                                       <div>
+                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">Domínio Principal</label>
+                                         <input 
+                                           type="text" 
+                                           value={domainConfig.domain}
+                                           onChange={(e) => setDomainConfig({...domainConfig, domain: e.target.value})}
+                                           className="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                           placeholder="exemplo.org.br"
+                                         />
+                                       </div>
+                                       <div>
+                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">Subdomínio (Portal)</label>
+                                         <div className="flex items-center gap-3">
+                                           <input 
+                                             type="text" 
+                                             value={domainConfig.subdomain}
+                                             onChange={(e) => setDomainConfig({...domainConfig, subdomain: e.target.value})}
+                                             className="flex-1 bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-right"
+                                             placeholder="portal"
+                                           />
+                                           <span className="font-bold text-gray-400">.{domainConfig.domain}</span>
+                                         </div>
+                                       </div>
+                                     </div>
+
+                                     <div className="p-6 bg-white border border-gray-100 rounded-2xl space-y-4">
+                                       <div className="flex items-center justify-between text-sm">
+                                         <span className="text-gray-500 font-medium italic">Status da Propagação</span>
+                                         <span className="text-emerald-500 font-black uppercase tracking-widest text-[10px]">100% Conectado</span>
+                                       </div>
+                                       <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                         <div className="w-full h-full bg-emerald-500"></div>
+                                       </div>
+                                     </div>
+                                   </div>
+
+                                   {/* SSL & Security */}
+                                   <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-8 space-y-6">
+                                     <div className="flex items-center gap-4 mb-2">
+                                       <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600">
+                                         <ShieldCheck className="w-6 h-6" />
+                                       </div>
+                                       <div>
+                                         <h5 className="font-bold text-blue-950">Segurança & SSL</h5>
+                                         <p className="text-[10px] uppercase tracking-widest text-gray-400 font-black">Certificados & Criptografia</p>
+                                       </div>
+                                     </div>
+
+                                     <div className="space-y-4">
+                                       <div className="flex items-center justify-between p-6 bg-white border border-gray-100 rounded-2xl">
+                                         <div className="flex items-center gap-4">
+                                           <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
+                                             <Lock className="w-5 h-5" />
+                                           </div>
+                                           <div>
+                                             <p className="font-bold text-gray-900 text-sm">Certificado Let's Encrypt</p>
+                                             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">Renovação Automática Ativa</p>
+                                           </div>
+                                         </div>
+                                         <div className="w-12 h-6 bg-emerald-500 rounded-full relative shadow-inner"><div className="absolute top-1 right-1 w-4 h-4 bg-white rounded-full shadow-sm"></div></div>
+                                       </div>
+
+                                       <div className="flex items-center justify-between p-6 bg-white border border-gray-100 rounded-2xl opacity-60 grayscale cursor-not-allowed">
+                                         <div className="flex items-center gap-4">
+                                           <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400">
+                                             <ExternalLink className="w-5 h-5" />
+                                           </div>
+                                           <div>
+                                              <p className="font-bold text-gray-900 text-sm">Redirecionamento HTTP</p>
+                                              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">Sempre forçar HTTPS</p>
+                                           </div>
+                                         </div>
+                                         <div className="w-12 h-6 bg-gray-200 rounded-full relative"><div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full"></div></div>
+                                       </div>
+                                     </div>
+
+                                     <button 
+                                       onClick={() => alert('Configurações de rede salvas com sucesso!')}
+                                       className="w-full bg-blue-900 text-white py-5 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-blue-800 transition-all shadow-xl shadow-blue-900/20"
+                                     >
+                                       Aplicar Novas Configurações
+                                     </button>
+                                   </div>
+                                 </div>
+                              </div>
+                           </motion.div>
+                         )}
+
                                {adminSubTab === 'docs' && (
                                  <motion.div 
                                    key="docs"
@@ -2009,7 +2170,27 @@ function LandingPage() {
                                     <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-sm">
                                         <label className="text-[10px] font-black text-blue-900 uppercase tracking-[0.2em] mb-6 block px-2">1. Identidade Visual</label>
                                         <div className="relative group">
-                                           {!adminLogo ? (
+                                           {isUploading ? (
+                                              <div className="border-2 border-dashed border-blue-200 bg-blue-50/30 p-10 rounded-[32px] text-center min-h-[224px] flex flex-col items-center justify-center">
+                                                <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-gray-100">
+                                                  <motion.div
+                                                    animate={{ rotate: 360 }}
+                                                    transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                                                  >
+                                                    <Loader2 className="w-8 h-8 text-blue-600" />
+                                                  </motion.div>
+                                                </div>
+                                                <p className="text-sm font-black text-blue-900 mb-4 uppercase tracking-widest leading-none">Enviando Logotipo...</p>
+                                                <div className="w-full max-w-[160px] mx-auto h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                                   <motion.div 
+                                                     className="h-full bg-blue-600"
+                                                     initial={{ width: 0 }}
+                                                     animate={{ width: `${uploadProgress}%` }}
+                                                   />
+                                                </div>
+                                                <p className="text-[10px] font-bold text-blue-400 mt-2 font-mono">{Math.round(uploadProgress)}%</p>
+                                              </div>
+                                            ) : !adminLogo ? (
                                               <label className="block cursor-pointer">
                                                  <div className="border-2 border-dashed border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 p-10 rounded-[32px] text-center transition-all bg-gray-50/30 relative overflow-hidden group">
                                                     <div className="relative z-10">
@@ -2047,6 +2228,20 @@ function LandingPage() {
                                                        <p className="text-[10px] font-bold text-gray-300 italic">Este logo aparecerá no cabeçalho do PDF</p>
                                                     </div>
                                                  </div>
+                                              </motion.div>
+                                           )}
+                                           {uploadStatus && (
+                                              <motion.div 
+                                                initial={{ opacity: 0, y: 10 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                className={`mt-4 p-4 rounded-2xl border flex items-center gap-3 ${
+                                                  uploadStatus.type === 'success' 
+                                                    ? 'bg-emerald-50 border-emerald-100 text-emerald-700' 
+                                                    : 'bg-rose-50 border-rose-100 text-rose-700'
+                                                }`}
+                                              >
+                                                {uploadStatus.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+                                                <span className="text-[10px] font-black uppercase tracking-wider">{uploadStatus.message}</span>
                                               </motion.div>
                                            )}
                                         </div>
@@ -2174,7 +2369,7 @@ function LandingPage() {
               <Building2 className="text-blue-900 w-8 h-8" />
             </div>
             <div>
-              <h1 className="text-xl font-bold leading-none">Sindicato Patronal</h1>
+              <h1 className="text-xl font-bold leading-none">Sindicato Patronal Sinpa</h1>
               <p className="text-[10px] uppercase tracking-widest opacity-70 mt-1 font-semibold">Portal Digital</p>
             </div>
           </div>
@@ -3502,7 +3697,7 @@ function LandingPage() {
                 <div className="bg-white p-2 rounded-xl">
                   <Building2 className="text-blue-900 w-6 h-6" />
                 </div>
-                <h3 className="text-2xl font-bold tracking-tight">Sindicato Patronal Digital</h3>
+                <h3 className="text-2xl font-bold tracking-tight">Sindicato Patronal Sinpa Digital</h3>
               </div>
               <p className="text-gray-400 max-w-sm mb-8 leading-relaxed">
                 Transformando a gestão sindical com tecnologia, transparência 
@@ -3539,7 +3734,7 @@ function LandingPage() {
           </div>
 
           <div className="pt-8 border-t border-white/5 text-center text-gray-500 text-sm font-medium">
-            <p>&copy; 2026 Sindicato Patronal Digital. Todos os direitos reservados.</p>
+            <p>&copy; 2026 Sindicato Patronal Sinpa Digital. Todos os direitos reservados.</p>
           </div>
         </div>
       </footer>
