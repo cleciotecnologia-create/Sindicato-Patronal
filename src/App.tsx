@@ -437,9 +437,10 @@ function LandingPage() {
     try {
       await signInWithPopup(auth, provider);
     } catch (error: any) {
-      console.error("Login Error:", error);
+      console.error("Erro no Login:", error);
       if (error.code === 'auth/unauthorized-domain') {
-        setAuthError("Domínio não autorizado no Firebase. Por favor, adicione os domínios da aplicação às 'Origens autorizadas' no console do Firebase (Autenticação > Configurações > Domínios autorizados).");
+        const currentDomain = window.location.hostname;
+        setAuthError(`Domínio "${currentDomain}" não está autorizado no Firebase. No console do Firebase, acesse Autenticação > Configurações > Domínios autorizados e adicione "${currentDomain}".`);
       } else {
         setAuthError(error.message || "Erro ao realizar autenticação.");
       }
@@ -450,7 +451,7 @@ function LandingPage() {
     try {
       await auth.signOut();
     } catch (error) {
-      console.error("Logout Error:", error);
+      console.error("Erro no Logout:", error);
     }
   };
 
@@ -676,7 +677,7 @@ function LandingPage() {
 
               <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto custom-scrollbar">
                 {[
-                  { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
+                  { id: 'overview', label: 'Painel Geral', icon: LayoutDashboard },
                   { id: 'boletos', label: 'Financeiro', icon: CreditCard },
                   { id: 'docs', label: 'Documentos', icon: FileText },
                   { id: 'voting', label: 'Assembleia', icon: Vote },
@@ -702,7 +703,7 @@ function LandingPage() {
 
               <div className="p-6 border-t border-white/10 bg-blue-950/30">
                 <div className="flex items-center gap-4 mb-6 p-3 rounded-2xl bg-white/5 border border-white/5">
-                  {currentUser.photoURL && <img src={currentUser.photoURL} alt="Profile" className="w-10 h-10 rounded-xl border border-white/10" />}
+                  {currentUser.photoURL && <img src={currentUser.photoURL} alt="Foto de Perfil" className="w-10 h-10 rounded-xl border border-white/10" />}
                   <div className="flex-1 overflow-hidden">
                     <p className="text-sm font-bold truncate leading-none mb-1">{currentUser.displayName}</p>
                     <p className="text-[10px] text-blue-300/50 truncate font-mono uppercase tracking-widest">ID: 99283-PR</p>
@@ -1348,7 +1349,7 @@ function LandingPage() {
                          {/* Admin Sub-Navigation */}
                          <div className="flex bg-white/50 p-2 rounded-[32px] border border-gray-100 gap-2 mb-8 relative">
                             {[
-                              { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+                              { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
                               { id: 'finance', label: 'Financeiro', icon: CreditCard },
                               { id: 'billing', label: 'Mensalidades', icon: Banknote },
                               { id: 'members', label: 'Associados', icon: Users },
@@ -1856,7 +1857,7 @@ function LandingPage() {
                                       <h4 className="text-xl font-bold mb-8 text-blue-900 font-display uppercase tracking-widest text-sm">Logs de Atividade do Sistema</h4>
                                       <div className="space-y-4">
                                          {[
-                                           { user: 'empresa@metal.com', action: 'Download CCT 2026', time: 'Há 5 min', state: 'PR' },
+                                           { user: 'empresa@metal.com', action: 'Baixou CCT 2026', time: 'Há 5 min', state: 'PR' },
                                            { user: 'contador@office.com', action: 'Cadastro nova empresa', time: 'Há 12 min', state: 'SP' },
                                            { user: 'rh@indus.com', action: 'Pagamento efetuado', time: 'Há 45 min', state: 'RJ' },
                                            { user: 'diretoria@sind.com', action: 'Nova assembleia criada', time: 'Há 2h', state: 'SC' },
@@ -2216,7 +2217,7 @@ function LandingPage() {
                                                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.05),transparent)] pointer-events-none" />
                                                  <div className="relative z-10">
                                                     <div className="relative group/logo p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                                       <img src={adminLogo} className="max-h-24 w-auto object-contain drop-shadow-2xl" alt="Logo Preview" />
+                                                       <img src={adminLogo} className="max-h-24 w-auto object-contain drop-shadow-2xl" alt="Prévia do Logo" />
                                                        <button 
                                                          onClick={() => setAdminLogo(null)}
                                                          className="absolute -top-3 -right-3 bg-white text-rose-500 p-2 rounded-xl shadow-xl hover:bg-rose-500 hover:text-white transition-all transform hover:scale-110 border border-gray-100"
@@ -2484,7 +2485,7 @@ function LandingPage() {
                     className="relative group focus:outline-none"
                   >
                     {currentUser.photoURL ? (
-                      <img src={currentUser.photoURL} alt="User" className="w-10 h-10 rounded-xl border border-white/20 group-hover:border-amber-400 transition-colors" referrerPolicy="no-referrer" />
+                      <img src={currentUser.photoURL} alt="Foto do Usuário" className="w-10 h-10 rounded-xl border border-white/20 group-hover:border-amber-400 transition-colors" referrerPolicy="no-referrer" />
                     ) : (
                       <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20 group-hover:border-amber-400 transition-colors">
                         <Users className="w-6 h-6 text-white" />
@@ -3229,7 +3230,7 @@ function LandingPage() {
                     className="bg-amber-400 text-blue-950 px-10 py-5 rounded-2xl font-bold text-lg hover:bg-amber-300 transition-all shadow-xl shadow-amber-900/20 active:scale-95 flex items-center justify-center gap-3"
                   >
                     <Fingerprint className="w-6 h-6 border-r border-blue-900/20 pr-3" />
-                    {currentUser ? 'Acessar Meu Painel' : 'Login / Entrar no Portal'}
+                    {currentUser ? 'Acessar Meu Painel' : 'Entrar no Portal'}
                   </button>
                   {!currentUser && (
                     <button className="bg-white/10 border border-white/20 px-8 py-5 rounded-2xl font-bold hover:bg-white/20 transition-all text-sm uppercase tracking-widest">
