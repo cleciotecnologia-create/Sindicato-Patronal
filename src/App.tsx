@@ -233,6 +233,7 @@ function LandingPage() {
   
   const [suggestionForm, setSuggestionForm] = useState({ name: '', email: '', message: '' });
   const [isSendingSuggestion, setIsSendingSuggestion] = useState(false);
+  const [suggestionStatus, setSuggestionStatus] = useState<{ type: 'error' | 'success', message: string } | null>(null);
   
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [certForm, setCertForm] = useState({ companyName: 'Ind. Metalúrgica Ltda', cnpj: '12.345.678/0001-90', validity: '90 dias' });
@@ -484,6 +485,7 @@ function LandingPage() {
     setAuthError(null);
     try {
       await signInWithPopup(auth, provider);
+      setShowAuthModal(false);
     } catch (error: any) {
       console.error("Erro no Login:", error);
       if (error.code === 'auth/unauthorized-domain') {
@@ -530,6 +532,7 @@ Para corrigir:
 
     try {
       await signInWithEmailAndPassword(auth, loginEmail, password);
+      setShowAuthModal(false);
     } catch (error: any) {
       setAuthError('Erro de autenticação: Credenciais inválidas.');
     } finally {
@@ -546,6 +549,7 @@ Para corrigir:
       if (userCredential.user) {
         await updateProfile(userCredential.user, { displayName: fullName });
       }
+      setShowAuthModal(false);
     } catch (error: any) {
       setAuthError(`Erro ao registrar: ${error.message}`);
     } finally {
@@ -569,7 +573,34 @@ Para corrigir:
 
   const submitSuggestion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!suggestionForm.message) return;
+    setSuggestionStatus(null);
+
+    // Validation
+    if (!suggestionForm.name.trim()) {
+      setSuggestionStatus({ type: 'error', message: 'Por favor, informe seu nome completo.' });
+      return;
+    }
+    
+    if (!suggestionForm.email.trim()) {
+      setSuggestionStatus({ type: 'error', message: 'O e-mail é obrigatório.' });
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(suggestionForm.email)) {
+      setSuggestionStatus({ type: 'error', message: 'Por favor, insira um e-mail válido.' });
+      return;
+    }
+
+    if (!suggestionForm.message.trim()) {
+      setSuggestionStatus({ type: 'error', message: 'A mensagem da sugestão não pode estar vazia.' });
+      return;
+    }
+
+    if (suggestionForm.message.length < 10) {
+      setSuggestionStatus({ type: 'error', message: 'Por favor, descreva sua sugestão com pelo menos 10 caracteres.' });
+      return;
+    }
     
     setIsSendingSuggestion(true);
     try {
@@ -581,8 +612,9 @@ Para corrigir:
         createdAt: Timestamp.now()
       });
       setSuggestionForm({ name: '', email: '', message: '' });
-      alert("Sugestão enviada com sucesso!");
+      setSuggestionStatus({ type: 'success', message: 'Sugestão enviada com sucesso! Agradecemos sua contribuição.' });
     } catch (error) {
+      setSuggestionStatus({ type: 'error', message: 'Erro ao enviar sugestão. Tente novamente mais tarde.' });
       handleFirestoreError(error, OperationType.WRITE, 'suggestions');
     } finally {
       setIsSendingSuggestion(false);
@@ -822,15 +854,31 @@ Para corrigir:
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              className="bg-white border-2 border-amber-100 p-8 sm:p-12 rounded-[48px] text-blue-900 shadow-2xl flex flex-col gap-8 max-w-md w-full relative z-10"
+              className="bg-white border-2 border-amber-100 p-6 sm:p-10 rounded-[40px] text-blue-900 shadow-2xl flex flex-col gap-6 max-w-md w-full relative z-10 max-h-[calc(100vh-2rem)] overflow-y-auto"
             >
+              <button 
+                onClick={() => setShowAuthModal(false)}
+                className="absolute top-6 right-6 p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Fechar"
+              >
+                <X className="w-6 h-6" />
+              </button>
+
               <div className="text-center">
-                <div className="w-20 h-20 bg-amber-50 text-amber-600 rounded-[32px] flex items-center justify-center shadow-inner mx-auto mb-6">
-                  <Fingerprint className="w-10 h-10" />
+                <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-[28px] flex items-center justify-center shadow-inner mx-auto mb-4">
+                  <Fingerprint className="w-8 h-8" />
                 </div>
-                <h3 className="text-3xl font-black mb-2">{isRegistering ? 'Criar Conta' : 'Acesse o Portal'}</h3>
-                <p className="text-gray-500 font-medium">{isRegistering ? 'Junte-se ao sindicato digital' : 'Entre com seus dados de acesso'}</p>
+                <h3 className="text-2xl font-black mb-1">{isRegistering ? 'Criar Conta' : 'Acesse o Portal'}</h3>
+                <p className="text-gray-500 font-medium text-sm">{isRegistering ? 'Junte-se ao sindicato digital' : 'Entre com seus dados de acesso'}</p>
               </div>
+
+              {authError && (
+                <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl">
+                  <p className="text-xs font-bold text-rose-600 leading-relaxed whitespace-pre-wrap">
+                    {authError}
+                  </p>
+                </div>
+              )}
 
               <form onSubmit={isRegistering ? handleEmailRegister : handleEmailLogin} className="space-y-4">
                 {isRegistering && (
@@ -872,24 +920,26 @@ Para corrigir:
                 <button 
                   type="submit" 
                   disabled={authLoading}
-                  className="w-full bg-blue-950 text-white py-5 rounded-2xl font-bold text-lg shadow-xl shadow-blue-900/20 hover:scale-[1.02] transition-all active:scale-95 disabled:opacity-50"
+                  className="w-full bg-blue-950 text-white py-4 rounded-2xl font-bold text-base shadow-xl shadow-blue-900/20 hover:scale-[1.02] transition-all active:scale-95 disabled:opacity-50"
                 >
-                  {authLoading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : (isRegistering ? 'Registrar Agora' : 'Entrar no Sistema')}
+                  {authLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (isRegistering ? 'Registrar Agora' : 'Entrar no Sistema')}
                 </button>
               </form>
 
               <div className="relative">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
-                <div className="relative flex justify-center text-xs uppercase font-bold"><span className="bg-white px-4 text-gray-400">Ou continue com</span></div>
+                <div className="relative flex justify-center text-[10px] uppercase font-black"><span className="bg-white px-4 text-gray-400">Ou continue com</span></div>
               </div>
 
-              <button 
-                onClick={handleGoogleLogin}
-                className="w-full bg-white border-2 border-gray-100 py-4 rounded-2xl font-bold text-gray-700 flex items-center justify-center gap-3 hover:bg-gray-50 transition-all"
-              >
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-                Google Account
-              </button>
+              <div className="grid gap-3">
+                <button 
+                  onClick={handleGoogleLogin}
+                  className="w-full bg-white border-2 border-gray-100 py-3 rounded-2xl font-bold text-gray-700 flex items-center justify-center gap-3 hover:bg-gray-50 transition-all text-sm"
+                >
+                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
+                  Google Account
+                </button>
+              </div>
 
               <button 
                 onClick={() => setIsRegistering(!isRegistering)}
@@ -4044,6 +4094,22 @@ Para corrigir:
             className="bg-gray-50 p-8 lg:p-12 rounded-[40px] border border-gray-100 shadow-sm"
           >
             <form onSubmit={submitSuggestion} className="space-y-6">
+              {suggestionStatus && (
+                <motion.div 
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  className={`p-4 rounded-2xl flex items-center gap-3 ${
+                    suggestionStatus.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-rose-50 text-rose-700 border border-rose-100'
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                    suggestionStatus.type === 'success' ? 'bg-emerald-100' : 'bg-rose-100'
+                  }`}>
+                    {suggestionStatus.type === 'success' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                  </div>
+                  <p className="text-sm font-bold">{suggestionStatus.message}</p>
+                </motion.div>
+              )}
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-gray-700 ml-1">Nome Completo</label>
