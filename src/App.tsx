@@ -874,17 +874,67 @@ Para corrigir:
 
               {authError && (
                 <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl overflow-hidden">
-                  <div className="max-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
-                    <p className="text-[11px] font-bold text-rose-600 leading-relaxed whitespace-pre-wrap">
-                      {authError}
-                    </p>
+                  <div className="max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
+                    {authError.includes('DOMÍNIO NÃO AUTORIZADO') ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2 text-rose-700">
+                          <ShieldAlert className="w-4 h-4 shrink-0" />
+                          <p className="text-[11px] font-black uppercase tracking-tight">Domínio não autorizado no Firebase</p>
+                        </div>
+                        <div className="bg-white/50 p-3 rounded-xl border border-rose-100 space-y-2">
+                          <p className="text-[10px] text-rose-600 font-bold leading-tight">
+                            Este endereço ainda não tem permissão para usar Login Google neste projeto.
+                          </p>
+                          <div className="flex items-center gap-2 bg-rose-100/50 p-2 rounded-lg border border-rose-200">
+                            <code className="text-[10px] font-mono font-black text-rose-800 break-all flex-1">
+                              {window.location.hostname}
+                            </code>
+                            <button 
+                              onClick={() => {
+                                navigator.clipboard.writeText(window.location.hostname);
+                                const btn = document.getElementById('copy-domain-auth');
+                                if (btn) btn.innerText = "Copiado";
+                                setTimeout(() => { if (btn) btn.innerText = "Copiar"; }, 2000);
+                              }}
+                              id="copy-domain-auth"
+                              className="bg-rose-600 text-white px-2 py-1 rounded text-[9px] font-black active:scale-95 transition-all"
+                            >
+                              Copiar
+                            </button>
+                          </div>
+                        </div>
+                        <a 
+                          href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center justify-center gap-2 w-full py-2.5 bg-blue-900 text-white text-[10px] font-black rounded-xl hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/10"
+                        >
+                          <ExternalLink className="w-3 h-3" /> Abrir Configurações do Firebase
+                        </a>
+                        <p className="text-[9px] text-rose-400 font-bold italic text-center">Cole o domínio em "Domínios autorizados" e aguarde 2 min.</p>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] font-bold text-rose-600 leading-relaxed whitespace-pre-wrap">
+                        {authError}
+                      </p>
+                    )}
                   </div>
-                  <button 
-                    onClick={() => setAuthError(null)}
-                    className="mt-3 w-full py-2 bg-white border border-rose-200 text-rose-600 text-[10px] font-black rounded-lg hover:bg-rose-100 transition-colors"
-                  >
-                    Tentar Novamente
-                  </button>
+                  {!authError.includes('DOMÍNIO NÃO AUTORIZADO') && (
+                    <button 
+                      onClick={() => setAuthError(null)}
+                      className="mt-3 w-full py-2 bg-white border border-rose-200 text-rose-600 text-[10px] font-black rounded-lg hover:bg-rose-100 transition-colors"
+                    >
+                      Tentar Novamente
+                    </button>
+                  )}
+                  {authError.includes('DOMÍNIO NÃO AUTORIZADO') && (
+                    <button 
+                      onClick={() => setAuthError(null)}
+                      className="mt-3 w-full py-2 text-rose-400 text-[10px] font-black hover:text-rose-600 transition-colors"
+                    >
+                      Ignorar e fechar
+                    </button>
+                  )}
                 </div>
               )}
 
