@@ -248,6 +248,15 @@ function LandingPage() {
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newPhotoURL, setNewPhotoURL] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  
+  const [showAddPartnerModal, setShowAddPartnerModal] = useState(false);
+  const [newPartnerForm, setNewPartnerForm] = useState({
+    name: '',
+    logo: '',
+    description: '',
+    discount: '',
+    category: 'servicos' as Partner['category']
+  });
 
   const handleUpdateProfile = async () => {
     if (!currentUser) return;
@@ -592,6 +601,27 @@ Para corrigir:
     } finally {
       setAiLoading(false);
     }
+  };
+
+  const handleAddPartner = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPartnerForm.name) return;
+
+    const partner: Partner = {
+      id: Date.now().toString(),
+      ...newPartnerForm,
+      logo: newPartnerForm.logo || 'https://images.unsplash.com/photo-1560179707-f14e90ef3623?auto=format&fit=crop&q=80'
+    };
+
+    setPartners([partner, ...partners]);
+    setShowAddPartnerModal(false);
+    setNewPartnerForm({
+      name: '',
+      logo: '',
+      description: '',
+      discount: '',
+      category: 'servicos'
+    });
   };
 
   const handleCreateAgreement = (companyId: number, type: 'avista' | 'parcelado') => {
@@ -1268,7 +1298,18 @@ Para corrigir:
                               <h3 className="text-3xl font-bold font-display text-blue-900 mb-2">Clube de Vantagens</h3>
                               <p className="text-gray-500 font-medium">Benefícios exclusivos para empresas associadas e seus colaboradores.</p>
                             </div>
-                            <div className="flex bg-gray-50 p-1 rounded-2xl border border-gray-100">
+                            
+                            <div className="flex flex-wrap items-center gap-4">
+                              {isAdmin && (
+                                <button 
+                                  onClick={() => setShowAddPartnerModal(true)}
+                                  className="bg-amber-400 text-blue-950 px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-amber-500 transition-all shadow-lg shadow-amber-400/20"
+                                >
+                                  <Plus className="w-5 h-5" /> Novo Parceiro (Admin)
+                                </button>
+                              )}
+                              
+                              <div className="flex bg-gray-50 p-1 rounded-2xl border border-gray-100">
                               {['todos', 'saude', 'educacao', 'lazer', 'servicos'].map((cat) => (
                                 <button 
                                   key={cat}
@@ -1279,8 +1320,9 @@ Para corrigir:
                               ))}
                             </div>
                           </div>
+                        </div>
 
-                          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                             {partners.map((partner) => (
                               <motion.div 
                                 key={partner.id}
@@ -2011,22 +2053,7 @@ Para corrigir:
                                      <p className="text-gray-500 font-medium">Gestão de parceiros que oferecem descontos aos associados.</p>
                                    </div>
                                    <button 
-                                     onClick={() => {
-                                       const name = prompt('Nome da Empresa Parceira:');
-                                       if (name) {
-                                         const discount = prompt('Valor do Desconto (ex: 15%):', '10%');
-                                         const category = prompt('Categoria (saude, educacao, lazer, servicos):', 'servicos');
-                                         const newPartner: Partner = {
-                                           id: Date.now().toString(),
-                                           name,
-                                           category: category as any,
-                                           discount: discount || '10%',
-                                           description: 'Novo benefício exclusivo para nossos associados.',
-                                           logo: 'https://images.unsplash.com/photo-1560179707-f14e90ef3623?auto=format&fit=crop&q=80'
-                                         };
-                                         setPartners([...partners, newPartner]);
-                                       }
-                                     }}
+                                     onClick={() => setShowAddPartnerModal(true)}
                                      className="bg-blue-900 text-white px-8 py-4 rounded-2xl font-bold flex items-center gap-3 hover:bg-blue-800 transition-all shadow-xl shadow-blue-900/20"
                                    >
                                      <Plus className="w-5 h-5" /> Adicionar Novo Parceiro
@@ -2589,8 +2616,29 @@ Para corrigir:
           </div>
         </div>
         {authError && (
-          <div className="bg-rose-500 text-white text-[10px] font-bold py-2 px-4 text-center animate-bounce">
-            {authError} - Verifique se popups estão permitidos.
+          <div className="fixed inset-x-4 top-24 z-[200] max-w-lg mx-auto">
+            <div className="bg-white border-2 border-rose-100 p-8 rounded-[40px] text-rose-900 shadow-2xl flex flex-col gap-6 animate-in fade-in slide-in-from-top-4 duration-500">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-3xl flex items-center justify-center shadow-inner">
+                  <AlertCircle className="w-7 h-7" />
+                </div>
+                <div>
+                  <p className="font-black text-[10px] uppercase tracking-widest text-rose-400 mb-1">Aviso do Sistema</p>
+                  <h4 className="text-xl font-bold text-rose-900">Bloqueio de Autenticação</h4>
+                </div>
+              </div>
+              <div className="bg-rose-50/50 p-6 rounded-3xl border border-rose-50">
+                <div className="text-sm font-bold leading-relaxed whitespace-pre-wrap text-rose-800">
+                  {authError}
+                </div>
+              </div>
+              <button 
+                onClick={() => setAuthError(null)}
+                className="w-full py-5 bg-rose-900 text-white rounded-2xl font-bold text-sm hover:after:bg-rose-800 transition-all shadow-xl shadow-rose-900/20 active:scale-95"
+              >
+                Entendido, vou verificar
+              </button>
+            </div>
           </div>
         )}
       </header>
@@ -3452,16 +3500,22 @@ Para corrigir:
 
                 {aiLoading && (
                   <motion.div 
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="flex justify-start"
+                    initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    className="flex justify-start my-8"
                   >
-                    <div className="bg-white border border-gray-100 p-6 rounded-[24px] rounded-tl-none shadow-sm flex items-center gap-4">
-                      <div className="relative flex items-center justify-center">
-                        <Loader2 className="w-5 h-5 text-blue-900 animate-spin" />
-                        <div className="absolute inset-0 bg-blue-900/10 rounded-full animate-ping scale-150"></div>
+                    <div className="bg-blue-900 border border-blue-800 p-8 rounded-[32px] rounded-tl-none shadow-2xl flex flex-col items-center gap-6 max-w-sm mx-auto text-center">
+                      <div className="relative w-24 h-24 flex items-center justify-center">
+                        {/* Multiple rings for extra circular loader prominence */}
+                        <div className="absolute inset-0 border-4 border-white/10 rounded-full"></div>
+                        <div className="absolute inset-0 border-4 border-amber-400 rounded-full border-t-transparent animate-spin"></div>
+                        <Loader2 className="w-8 h-8 text-white" />
+                        <div className="absolute -inset-4 bg-amber-400/20 rounded-full animate-ping"></div>
                       </div>
-                      <span className="text-sm font-bold text-blue-900 animate-pulse">Processando sua solicitação...</span>
+                      <div className="space-y-2">
+                        <p className="text-white font-bold text-lg animate-pulse">Processando sua solicitação...</p>
+                        <p className="text-blue-200 text-xs font-medium opacity-70">O Assessor Jurídico está analisando sua dúvida com base na CCT.</p>
+                      </div>
                     </div>
                   </motion.div>
                 )}
@@ -3824,6 +3878,114 @@ Para corrigir:
           </div>
         </div>
       </footer>
+
+      {/* Add Partner Modal */}
+      <AnimatePresence>
+        {showAddPartnerModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddPartnerModal(false)}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-2xl rounded-[44px] overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-8 lg:p-12">
+                <div className="flex items-center justify-between mb-10">
+                  <div>
+                    <h3 className="text-3xl font-bold text-blue-900 font-display">Novo Parceiro</h3>
+                    <p className="text-gray-500 font-medium">Preencha os dados do novo convênio do clube.</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowAddPartnerModal(false)}
+                    className="w-12 h-12 bg-gray-50 flex items-center justify-center rounded-2xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleAddPartner} className="grid grid-cols-2 gap-6">
+                  <div className="col-span-2 space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Nome da Empresa</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newPartnerForm.name}
+                      onChange={(e) => setNewPartnerForm({...newPartnerForm, name: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      placeholder="Ex: Unimed Saúde"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Desconto</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newPartnerForm.discount}
+                      onChange={(e) => setNewPartnerForm({...newPartnerForm, discount: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      placeholder="Ex: 20%"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Categoria</label>
+                    <select 
+                      value={newPartnerForm.category}
+                      onChange={(e) => setNewPartnerForm({...newPartnerForm, category: e.target.value as any})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none appearance-none"
+                    >
+                      <option value="saude">Saúde</option>
+                      <option value="educacao">Educação</option>
+                      <option value="lazer">Lazer</option>
+                      <option value="servicos">Serviços</option>
+                      <option value="comercio">Comércio</option>
+                    </select>
+                  </div>
+
+                  <div className="col-span-2 space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Logo URL (Imagem)</label>
+                    <input 
+                      type="text" 
+                      value={newPartnerForm.logo}
+                      onChange={(e) => setNewPartnerForm({...newPartnerForm, logo: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      placeholder="https://images.unsplash.com..."
+                    />
+                  </div>
+
+                  <div className="col-span-2 space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Descrição</label>
+                    <textarea 
+                      required
+                      value={newPartnerForm.description}
+                      onChange={(e) => setNewPartnerForm({...newPartnerForm, description: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none h-32 resize-none"
+                      placeholder="Descreva o benefício..."
+                    />
+                  </div>
+
+                  <div className="col-span-2 pt-4">
+                    <button 
+                      type="submit"
+                      className="w-full bg-blue-900 text-white py-5 rounded-2xl font-bold text-lg shadow-xl shadow-blue-900/20 hover:bg-blue-800 hover:scale-[1.02] transition-all"
+                    >
+                      Salvar Novo Parceiro
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>
