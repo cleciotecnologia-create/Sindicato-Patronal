@@ -2616,29 +2616,111 @@ Para corrigir:
           </div>
         </div>
         {authError && (
-          <div className="fixed inset-x-4 top-24 z-[200] max-w-lg mx-auto">
-            <div className="bg-white border-2 border-rose-100 p-8 rounded-[40px] text-rose-900 shadow-2xl flex flex-col gap-6 animate-in fade-in slide-in-from-top-4 duration-500">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-3xl flex items-center justify-center shadow-inner">
-                  <AlertCircle className="w-7 h-7" />
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setAuthError(null)}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="bg-white border-2 border-rose-100 p-8 sm:p-12 rounded-[48px] text-rose-900 shadow-[0_32px_64px_-16px_rgba(225,29,72,0.25)] flex flex-col gap-8 max-w-2xl w-full relative z-10 overflow-hidden"
+            >
+              {/* Background accent */}
+              <div className="absolute top-0 right-0 w-64 h-64 bg-rose-50 rounded-full blur-[80px] -mr-32 -mt-32 opacity-50"></div>
+              
+              <div className="flex items-start gap-6 relative">
+                <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-[24px] flex items-center justify-center shadow-inner flex-shrink-0">
+                  <AlertCircle className="w-8 h-8" />
                 </div>
                 <div>
-                  <p className="font-black text-[10px] uppercase tracking-widest text-rose-400 mb-1">Aviso do Sistema</p>
-                  <h4 className="text-xl font-bold text-rose-900">Bloqueio de Autenticação</h4>
+                  <p className="font-black text-[12px] uppercase tracking-[0.2em] text-rose-400 mb-2">Protocolo de Segurança</p>
+                  <h4 className="text-3xl font-bold text-rose-950 leading-tight">Configuração de Domínio Necessária</h4>
+                </div>
+                <button 
+                  onClick={() => setAuthError(null)}
+                  className="absolute -top-4 -right-4 p-2 text-rose-300 hover:text-rose-600 transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="bg-rose-50/50 p-8 rounded-[32px] border border-rose-100/50">
+                  <div className="text-rose-900 font-bold leading-relaxed whitespace-pre-wrap mb-6">
+                    {authError}
+                  </div>
+                  
+                  {authError.toUpperCase().includes('DOMÍNIO NÃO AUTORIZADO') && (
+                    <div className="space-y-6 mt-8 pt-8 border-t border-rose-100">
+                      <div className="space-y-4">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-rose-500">Passo a passo para liberar:</p>
+                        <div className="grid gap-3">
+                          {[
+                            { step: 1, text: "Acesse o Console do Firebase" },
+                            { step: 2, text: "Vá em Autenticação > Configurações" },
+                            { step: 3, text: "Aba 'Domínios autorizados'" },
+                            { step: 4, text: "Adicione o domínio abaixo:" }
+                          ].map((item) => (
+                            <div key={item.step} className="flex items-center gap-3 bg-white/50 p-3 rounded-2xl border border-rose-100/30">
+                              <span className="w-6 h-6 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center text-[10px] font-black">{item.step}</span>
+                              <span className="text-xs font-bold text-rose-800">{item.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center gap-2 bg-white px-5 py-4 rounded-2xl border-2 border-rose-200 shadow-sm">
+                          <code className="text-xs font-mono font-black text-rose-700 flex-1 truncate select-all">
+                            {window.location.hostname}
+                          </code>
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText(window.location.hostname);
+                              const btn = document.getElementById('copy-domain-btn');
+                              if (btn) btn.innerText = "Copiado!";
+                              setTimeout(() => { if (btn) btn.innerText = "Copiar"; }, 2000);
+                            }}
+                            className="bg-rose-600 text-white px-4 py-2 rounded-xl text-[10px] font-black hover:bg-rose-700 transition-all active:scale-95"
+                            id="copy-domain-btn"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                        <p className="text-[9px] text-rose-400 font-bold text-center uppercase tracking-widest">Clique acima para copiar o domínio exato</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <a 
+                    href="https://console.firebase.google.com" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-3 py-5 bg-blue-900 text-white rounded-[28px] font-bold text-sm hover:bg-blue-800 transition-all shadow-2xl shadow-blue-900/20 active:scale-95 group"
+                  >
+                    <ExternalLink className="w-5 h-5 group-hover:rotate-12 transition-transform" /> 
+                    Abrir Console Firebase
+                  </a>
+                  <button 
+                    onClick={() => setAuthError(null)}
+                    className="py-5 bg-rose-50 text-rose-600 border border-rose-100 rounded-[28px] font-bold text-sm hover:bg-rose-100 transition-all active:scale-95"
+                  >
+                    Entendido, vou ajustar
+                  </button>
                 </div>
               </div>
-              <div className="bg-rose-50/50 p-6 rounded-3xl border border-rose-50">
-                <div className="text-sm font-bold leading-relaxed whitespace-pre-wrap text-rose-800">
-                  {authError}
-                </div>
+
+              <div className="flex items-center gap-3 justify-center pt-2 border-t border-rose-100/50">
+                <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>
+                <p className="text-[10px] font-bold text-rose-300 uppercase tracking-widest">Suporte Técnico SINPA</p>
               </div>
-              <button 
-                onClick={() => setAuthError(null)}
-                className="w-full py-5 bg-rose-900 text-white rounded-2xl font-bold text-sm hover:after:bg-rose-800 transition-all shadow-xl shadow-rose-900/20 active:scale-95"
-              >
-                Entendido, vou verificar
-              </button>
-            </div>
+            </motion.div>
           </div>
         )}
       </header>
