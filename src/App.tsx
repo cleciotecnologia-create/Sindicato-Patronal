@@ -82,7 +82,10 @@ import {
   GoogleAuthProvider, 
   onAuthStateChanged,
   User,
-  updateProfile
+  updateProfile,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut
 } from 'firebase/auth';
 import { 
   collection, 
@@ -167,10 +170,16 @@ function LandingPage() {
   const [calcBaseSalary, setCalcBaseSalary] = useState(2500);
   const [calcAdjustment, setCalcAdjustment] = useState(5);
   
-  const [activeDashboardTab, setActiveDashboardTab] = useState<'overview' | 'boletos' | 'docs' | 'voting' | 'accountant' | 'partners' | 'admin' | 'settings'>('overview');
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'overview' | 'boletos' | 'docs' | 'voting' | 'accountant' | 'partners' | 'admin' | 'settings' | 'suggestions'>('overview');
   const [adminSubTab, setAdminSubTab] = useState<'dashboard' | 'members' | 'finance' | 'billing' | 'docs' | 'partners' | 'media' | 'system'>('dashboard');
   const [memberLoggedIn, setMemberLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const SUPER_USER_EMAIL = 'cleciotecnologia@gmail.com';
 
   const [expenses, setExpenses] = useState<any[]>([
@@ -470,7 +479,7 @@ function LandingPage() {
 
   const [authError, setAuthError] = useState<string | null>(null);
   
-  const handleLogin = async () => {
+  const handleGoogleLogin = async () => {
     const provider = new GoogleAuthProvider();
     setAuthError(null);
     try {
@@ -497,12 +506,65 @@ Para corrigir:
     }
   };
 
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthLoading(true);
+    let loginEmail = email;
+
+    if (!email.includes('@')) {
+      try {
+        const q = query(collection(db, 'members'), where('cnpj', '==', email));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          loginEmail = snap.docs[0].data().email;
+        } else {
+          setAuthError('Usuário/CNPJ não encontrado ou senha incorreta.');
+          setAuthLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.error("Erro ao buscar usuário:", err);
+      }
+    }
+
+    try {
+      await signInWithEmailAndPassword(auth, loginEmail, password);
+    } catch (error: any) {
+      setAuthError('Erro de autenticação: Credenciais inválidas.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleEmailRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      if (userCredential.user) {
+        await updateProfile(userCredential.user, { displayName: fullName });
+      }
+    } catch (error: any) {
+      setAuthError(`Erro ao registrar: ${error.message}`);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const handleLogout = async () => {
     try {
-      await auth.signOut();
+      await signOut(auth);
+      setMemberLoggedIn(false);
+      setCurrentUser(null);
     } catch (error) {
-      console.error("Erro no Logout:", error);
+      console.error("Erro ao sair:", error);
     }
+  };
+
+  const handleLogin = () => {
+    setShowAuthModal(true);
   };
 
   const submitSuggestion = async (e: React.FormEvent) => {
@@ -720,8 +782,125 @@ Para corrigir:
     transition: { staggerChildren: 0.1 }
   };
 
+  const { data: userSuggestions, refetch: refetchSuggestions } = useQuery({
+    queryKey: ['userSuggestions', currentUser?.uid],
+    queryFn: async () => {
+      if (!currentUser) return [];
+      const q = query(
+        collection(db, 'suggestions'), 
+        where('userId', '==', currentUser.uid),
+        orderBy('createdAt', 'desc')
+      );
+      const snap = await getDocs(q);
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    },
+    enabled: !!currentUser && activeDashboardTab === 'suggestions',
+  });
+
+  const deleteSuggestion = async (id: string) => {
+    if (!window.confirm("Tem certeza que deseja remover esta sugestão?")) return;
+    try {
+      await deleteDoc(doc(db, 'suggestions', id));
+      refetchSuggestions();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `suggestions/${id}`);
+    }
+  };
+
   return (
     <>
+      <AnimatePresence>
+        {showAuthModal && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAuthModal(false)}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="bg-white border-2 border-amber-100 p-8 sm:p-12 rounded-[48px] text-blue-900 shadow-2xl flex flex-col gap-8 max-w-md w-full relative z-10"
+            >
+              <div className="text-center">
+                <div className="w-20 h-20 bg-amber-50 text-amber-600 rounded-[32px] flex items-center justify-center shadow-inner mx-auto mb-6">
+                  <Fingerprint className="w-10 h-10" />
+                </div>
+                <h3 className="text-3xl font-black mb-2">{isRegistering ? 'Criar Conta' : 'Acesse o Portal'}</h3>
+                <p className="text-gray-500 font-medium">{isRegistering ? 'Junte-se ao sindicato digital' : 'Entre com seus dados de acesso'}</p>
+              </div>
+
+              <form onSubmit={isRegistering ? handleEmailRegister : handleEmailLogin} className="space-y-4">
+                {isRegistering && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Nome Completo</label>
+                    <input 
+                      type="text" 
+                      required 
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      placeholder="Seu nome"
+                    />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">E-mail ou CNPJ</label>
+                  <input 
+                    type="text" 
+                    required 
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none"
+                    placeholder="ex@email.com ou 00.000.000/0001-00"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Senha</label>
+                  <input 
+                    type="password" 
+                    required 
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none"
+                    placeholder="••••••••"
+                  />
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={authLoading}
+                  className="w-full bg-blue-950 text-white py-5 rounded-2xl font-bold text-lg shadow-xl shadow-blue-900/20 hover:scale-[1.02] transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {authLoading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : (isRegistering ? 'Registrar Agora' : 'Entrar no Sistema')}
+                </button>
+              </form>
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
+                <div className="relative flex justify-center text-xs uppercase font-bold"><span className="bg-white px-4 text-gray-400">Ou continue com</span></div>
+              </div>
+
+              <button 
+                onClick={handleGoogleLogin}
+                className="w-full bg-white border-2 border-gray-100 py-4 rounded-2xl font-bold text-gray-700 flex items-center justify-center gap-3 hover:bg-gray-50 transition-all"
+              >
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
+                Google Account
+              </button>
+
+              <button 
+                onClick={() => setIsRegistering(!isRegistering)}
+                className="text-center text-sm font-bold text-blue-600 hover:underline w-full"
+              >
+                {isRegistering ? 'Já tem conta? Faça login' : 'Não tem conta? Registre-se'}
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       <AnimatePresence mode="wait">
         {isPortalView && currentUser ? (
           <motion.div 
@@ -752,6 +931,7 @@ Para corrigir:
                   { id: 'boletos', label: 'Financeiro', icon: CreditCard },
                   { id: 'docs', label: 'Documentos', icon: FileText },
                   { id: 'voting', label: 'Assembleia', icon: Vote },
+                  { id: 'suggestions', label: 'Minhas Sugestões', icon: MessageSquare },
                   { id: 'partners', label: 'Vantagens', icon: Gift },
                   { id: 'accountant', label: 'Contadores', icon: UserCheck },
                   ...(isAdmin ? [{ id: 'admin', label: 'Administração', icon: ShieldAlert }] : []),
@@ -806,6 +986,7 @@ Para corrigir:
                      activeDashboardTab === 'boletos' ? 'Financeiro' :
                      activeDashboardTab === 'docs' ? 'Documentos' :
                      activeDashboardTab === 'voting' ? 'Assembleia' : 
+                     activeDashboardTab === 'suggestions' ? 'Minhas Sugestões' : 
                      activeDashboardTab === 'partners' ? 'Clube de Vantagens' : 
                      activeDashboardTab === 'accountant' ? 'Portal do Contador' : 
                      activeDashboardTab === 'admin' ? 'Painel Administrativo' : 'Configurações'}
@@ -986,6 +1167,74 @@ Para corrigir:
                                 ))}
                               </div>
                             </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ) : activeDashboardTab === 'suggestions' ? (
+                      <motion.div 
+                        key="suggestions"
+                        initial={{ opacity: 0, y: 30 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="max-w-5xl mx-auto space-y-8"
+                      >
+                        <div className="bg-white border border-gray-100 rounded-[40px] p-8 lg:p-12 shadow-xl">
+                          <div className="flex items-center justify-between mb-10">
+                            <div>
+                              <h3 className="text-3xl font-bold font-display text-blue-900">Minhas Sugestões</h3>
+                              <p className="text-gray-500 font-medium mt-1">Gerencie suas contribuições para o sindicato.</p>
+                            </div>
+                            <button 
+                              onClick={() => {
+                                setIsPortalView(false);
+                                setTimeout(() => {
+                                  const contactSection = document.getElementById('contato');
+                                  if (contactSection) contactSection.scrollIntoView({ behavior: 'smooth' });
+                                }, 100);
+                              }}
+                              className="bg-blue-900 text-white px-6 py-3 rounded-2xl font-bold hover:bg-blue-800 transition-all shadow-xl shadow-blue-900/10 flex items-center gap-2"
+                            >
+                              <Plus className="w-5 h-5" /> Nova Sugestão
+                            </button>
+                          </div>
+
+                          <div className="space-y-4">
+                            {userSuggestions && userSuggestions.length > 0 ? (
+                              userSuggestions.map((s: any) => (
+                                <div key={s.id} className="p-8 rounded-[32px] bg-gray-50 border border-gray-100 hover:border-blue-200 transition-all group">
+                                  <div className="flex justify-between items-start mb-6">
+                                    <div className="flex items-center gap-4">
+                                      <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-blue-600 shadow-sm">
+                                        <MessageSquare className="w-6 h-6" />
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-1">
+                                          Enviada em {s.createdAt?.toDate().toLocaleDateString('pt-BR')}
+                                        </p>
+                                        <h4 className="font-bold text-lg text-gray-900">Sugestão #{s.id.substring(0, 6).toUpperCase()}</h4>
+                                      </div>
+                                    </div>
+                                    <button 
+                                      onClick={() => deleteSuggestion(s.id)}
+                                      className="w-10 h-10 bg-white text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl flex items-center justify-center transition-all border border-gray-100"
+                                      title="Remover Sugestão"
+                                    >
+                                      <X className="w-5 h-5" />
+                                    </button>
+                                  </div>
+                                  <div className="bg-white p-6 rounded-2xl border border-gray-100 text-gray-700 leading-relaxed font-medium">
+                                    {s.message}
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-center py-20 bg-gray-50 rounded-[40px] border border-dashed border-gray-200">
+                                <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-gray-300 mx-auto mb-6 shadow-sm">
+                                  <MessageCircle className="w-10 h-10" />
+                                </div>
+                                <h4 className="text-xl font-bold text-gray-400">Nenhuma sugestão enviada</h4>
+                                <p className="text-sm text-gray-300 mt-1 uppercase tracking-widest font-black">Suas contribuições aparecerão aqui</p>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </motion.div>

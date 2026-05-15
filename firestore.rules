@@ -141,7 +141,8 @@ service cloud.firestore {
 
     match /suggestions/{suggestionId} {
       allow create: if isSignedIn() && isValidSuggestion(incoming());
-      allow read, update, delete: if isAdmin();
+      allow read, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin();
     }
   }
 }
