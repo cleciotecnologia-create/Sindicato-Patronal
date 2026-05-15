@@ -76,12 +76,13 @@ import {
   Area,
   Cell
 } from 'recharts';
-import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
+import { auth, db, handleFirestoreError, OperationType, firebaseConfig } from './lib/firebase';
 import { 
   signInWithPopup, 
   GoogleAuthProvider, 
   onAuthStateChanged,
-  User
+  User,
+  updateProfile
 } from 'firebase/auth';
 import { 
   collection, 
@@ -225,7 +226,7 @@ function LandingPage() {
   const [isSendingSuggestion, setIsSendingSuggestion] = useState(false);
   
   const [newAdminEmail, setNewAdminEmail] = useState('');
-  const [certForm, setCertForm] = useState({ companyName: '', cnpj: '', validity: '90 dias' });
+  const [certForm, setCertForm] = useState({ companyName: 'Ind. Metalúrgica Ltda', cnpj: '12.345.678/0001-90', validity: '90 dias' });
   const [isGeneratingCert, setIsGeneratingCert] = useState(false);
   const [adminLogo, setAdminLogo] = useState<string | null>(null);
   const [domainConfig, setDomainConfig] = useState({
@@ -243,6 +244,31 @@ function LandingPage() {
     { id: 2, name: 'Indústrias Metalúrgicas ABC', cnpj: '98.765.432/0001-10', debt: 1200.50, months: 1 },
     { id: 3, name: 'Comércio de Frutas Silva', cnpj: '45.678.901/0001-22', debt: 8900.00, months: 6 },
   ]);
+
+  const [newDisplayName, setNewDisplayName] = useState('');
+  const [newPhotoURL, setNewPhotoURL] = useState('');
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+
+  const handleUpdateProfile = async () => {
+    if (!currentUser) return;
+    setIsUpdatingProfile(true);
+    try {
+      await updateProfile(currentUser, {
+        displayName: newDisplayName,
+        photoURL: newPhotoURL
+      });
+      // Force refresh local state
+      if (auth.currentUser) {
+        setCurrentUser({...auth.currentUser});
+      }
+      alert("Perfil atualizado com sucesso!");
+    } catch (error) {
+      console.error("Erro ao atualizar perfil:", error);
+      alert("Falha ao atualizar perfil.");
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -425,6 +451,10 @@ function LandingPage() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setMemberLoggedIn(!!user);
+      if (user) {
+        setNewDisplayName(user.displayName || '');
+        setNewPhotoURL(user.photoURL || '');
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -440,16 +470,18 @@ function LandingPage() {
       console.error("Erro no Login:", error);
       if (error.code === 'auth/unauthorized-domain') {
         const currentDomain = window.location.hostname;
-        const authDomain = firebaseConfig.authDomain;
         setAuthError(`DOMÍNIO NÃO AUTORIZADO: O domínio "${currentDomain}" não está na lista de permissões do seu projeto Firebase. 
 
 Para corrigir:
-1. Acesse o Console do Firebase.
-2. Vá em Autenticação > Configurações > Domínios autorizados.
-3. Clique em "Adicionar domínio" e digite: ${currentDomain}
-4. Certifique-se também de que o domínio "${authDomain}" está configurado corretamente.`);
+1. Acesse console.firebase.google.com
+2. Vá em Autenticação > Configurações > Domínios autorizados
+3. Adicione o domínio: ${currentDomain}`);
+      } else if (error.code === 'auth/popup-blocked') {
+        setAuthError('POPUP BLOQUEADA: Por favor, permita popups para este site para realizar o login.');
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        setAuthError('LOGIN CANCELADO: A janela de login foi fechada antes da conclusão.');
       } else {
-        setAuthError(error.message || "Erro ao realizar autenticação.");
+        setAuthError(`ERRO AO CONECTAR: ${error.message || "Tente novamente mais tarde."}`);
       }
     }
   };
@@ -2325,14 +2357,14 @@ Para corrigir:
                                      </div>
                                   </div>
                                 </div>
-                              </div>
-                           </motion.div>
-                               )}
-                            </AnimatePresence>
-                         </div>
-                      </motion.div>
-                    ) : (
-                      <motion.div 
+                             </div>
+                          </motion.div>
+                                )}
+                             </AnimatePresence>
+                          </div>
+                       </motion.div>
+                     ) : (
+                       <motion.div 
                         key="settings"
                         initial={{ opacity: 0, y: 30 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -2341,22 +2373,56 @@ Para corrigir:
                         <h3 className="text-3xl font-bold mb-8 font-display">Configurações da Conta</h3>
                         <div className="space-y-8">
                             <div className="p-8 bg-gray-50 rounded-3xl space-y-6">
-                              <div className="flex items-center justify-between pb-6 border-b border-gray-200">
+                              <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-4">Nome de Exibição</label>
+                                  <input 
+                                    type="text"
+                                    value={newDisplayName}
+                                    onChange={(e) => setNewDisplayName(e.target.value)}
+                                    placeholder="Seu nome"
+                                    className="w-full bg-white border border-gray-100 px-6 py-4 rounded-2xl text-sm font-bold focus:border-blue-900 outline-none transition-all shadow-sm"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-4">URL da Foto de Perfil</label>
+                                  <input 
+                                    type="text"
+                                    value={newPhotoURL}
+                                    onChange={(e) => setNewPhotoURL(e.target.value)}
+                                    placeholder="https://..."
+                                    className="w-full bg-white border border-gray-100 px-6 py-4 rounded-2xl text-sm font-bold focus:border-blue-900 outline-none transition-all shadow-sm"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between pb-6 border-b border-gray-200 mt-6">
                                 <div>
                                     <p className="font-bold text-gray-900">Notificações por E-mail</p>
                                     <p className="text-xs text-gray-500">Receba alertas de vencimentos e assembleias.</p>
                                 </div>
-                                <div className="w-12 h-6 bg-emerald-500 rounded-full relative"><div className="absolute top-1 right-1 w-4 h-4 bg-white rounded-full"></div></div>
+                                <div className="w-12 h-6 bg-emerald-500 rounded-full relative cursor-pointer"><div className="absolute top-1 right-1 w-4 h-4 bg-white rounded-full transition-all"></div></div>
                               </div>
                               <div className="flex items-center justify-between">
                                 <div>
                                     <p className="font-bold text-gray-900">Autenticação SindicalID</p>
                                     <p className="text-xs text-gray-500">Login seguro e assinatura digital de documentos.</p>
                                 </div>
-                                <div className="w-12 h-6 bg-gray-300 rounded-full relative"><div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full"></div></div>
+                                <div className="w-12 h-6 bg-gray-300 rounded-full relative cursor-pointer"><div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-all"></div></div>
                               </div>
                             </div>
-                            <button className="w-full py-5 bg-blue-900 text-white rounded-2xl font-bold text-lg hover:bg-blue-800 transition-all">Salvar Alterações</button>
+                            <button 
+                              onClick={handleUpdateProfile}
+                              disabled={isUpdatingProfile}
+                              className="w-full py-5 bg-blue-900 text-white rounded-2xl font-bold text-lg hover:bg-blue-800 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                            >
+                              {isUpdatingProfile ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="w-5 h-5" />
+                              )}
+                              Salvar Alterações
+                            </button>
                         </div>
                       </motion.div>
                     )}
