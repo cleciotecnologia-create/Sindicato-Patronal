@@ -470,12 +470,14 @@ function LandingPage() {
       console.error("Erro no Login:", error);
       if (error.code === 'auth/unauthorized-domain') {
         const currentDomain = window.location.hostname;
-        setAuthError(`DOMÍNIO NÃO AUTORIZADO: O domínio "${currentDomain}" não está na lista de permissões do seu projeto Firebase. 
+        const projectId = firebaseConfig.projectId;
+        setAuthError(`DOMÍNIO NÃO AUTORIZADO: O domínio "${currentDomain}" não está na lista de permissões do seu projeto Firebase (ID: ${projectId}). 
 
 Para corrigir:
-1. Acesse console.firebase.google.com
-2. Vá em Autenticação > Configurações > Domínios autorizados
-3. Adicione o domínio: ${currentDomain}`);
+1. Acesse console.firebase.google.com e selecione o projeto "${projectId}".
+2. Vá em Autenticação > Configurações > Domínios autorizados.
+3. Adicione o domínio: ${currentDomain}
+4. Se já adicionou, aguarde 10 minutos para a propagação do Google.`);
       } else if (error.code === 'auth/popup-blocked') {
         setAuthError('POPUP BLOQUEADA: Por favor, permita popups para este site para realizar o login.');
       } else if (error.code === 'auth/popup-closed-by-user') {
@@ -3449,13 +3451,19 @@ Para corrigir:
                 ))}
 
                 {aiLoading && (
-                  <div className="flex justify-start">
-                    <div className="bg-white border border-gray-100 p-5 rounded-[24px] rounded-tl-none shadow-sm flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 bg-blue-900 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                      <span className="w-1.5 h-1.5 bg-blue-900 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                      <span className="w-1.5 h-1.5 bg-blue-900 rounded-full animate-bounce"></span>
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex justify-start"
+                  >
+                    <div className="bg-white border border-gray-100 p-6 rounded-[24px] rounded-tl-none shadow-sm flex items-center gap-4">
+                      <div className="relative flex items-center justify-center">
+                        <Loader2 className="w-5 h-5 text-blue-900 animate-spin" />
+                        <div className="absolute inset-0 bg-blue-900/10 rounded-full animate-ping scale-150"></div>
+                      </div>
+                      <span className="text-sm font-bold text-blue-900 animate-pulse">Processando sua solicitação...</span>
                     </div>
-                  </div>
+                  </motion.div>
                 )}
               </div>
 
