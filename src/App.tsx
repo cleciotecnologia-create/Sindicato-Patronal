@@ -865,54 +865,62 @@ Para corrigir:
               </button>
 
               <div className="text-center">
-                <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-[28px] flex items-center justify-center shadow-inner mx-auto mb-4">
-                  <Fingerprint className="w-8 h-8" />
+                <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-inner mx-auto mb-3">
+                  <Fingerprint className="w-7 h-7" />
                 </div>
-                <h3 className="text-2xl font-black mb-1">{isRegistering ? 'Criar Conta' : 'Acesse o Portal'}</h3>
-                <p className="text-gray-500 font-medium text-sm">{isRegistering ? 'Junte-se ao sindicato digital' : 'Entre com seus dados de acesso'}</p>
+                <h3 className="text-xl font-black mb-1">{isRegistering ? 'Criar Conta' : 'Acesse o Portal'}</h3>
+                <p className="text-gray-400 font-bold text-[10px] uppercase tracking-wider">{isRegistering ? 'Sindicato Digital' : 'Área do Associado'}</p>
               </div>
 
               {authError && (
-                <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl">
-                  <p className="text-xs font-bold text-rose-600 leading-relaxed whitespace-pre-wrap">
-                    {authError}
-                  </p>
+                <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl overflow-hidden">
+                  <div className="max-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
+                    <p className="text-[11px] font-bold text-rose-600 leading-relaxed whitespace-pre-wrap">
+                      {authError}
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => setAuthError(null)}
+                    className="mt-3 w-full py-2 bg-white border border-rose-200 text-rose-600 text-[10px] font-black rounded-lg hover:bg-rose-100 transition-colors"
+                  >
+                    Tentar Novamente
+                  </button>
                 </div>
               )}
 
-              <form onSubmit={isRegistering ? handleEmailRegister : handleEmailLogin} className="space-y-4">
+              <form onSubmit={isRegistering ? handleEmailRegister : handleEmailLogin} className="space-y-3">
                 {isRegistering && (
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Nome Completo</label>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-3">Nome</label>
                     <input 
                       type="text" 
                       required 
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none"
-                      placeholder="Seu nome"
+                      className="w-full bg-gray-50 border border-gray-100 px-4 py-3 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
+                      placeholder="Nome completo"
                     />
                   </div>
                 )}
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">E-mail ou CNPJ</label>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-3">E-mail ou CNPJ</label>
                   <input 
                     type="text" 
                     required 
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none"
-                    placeholder="ex@email.com ou 00.000.000/0001-00"
+                    className="w-full bg-gray-50 border border-gray-100 px-4 py-3 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
+                    placeholder="ex@email.com ou 00..."
                   />
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Senha</label>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-3">Senha</label>
                   <input 
                     type="password" 
                     required 
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none"
+                    className="w-full bg-gray-50 border border-gray-100 px-4 py-3 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
                     placeholder="••••••••"
                   />
                 </div>
@@ -920,32 +928,32 @@ Para corrigir:
                 <button 
                   type="submit" 
                   disabled={authLoading}
-                  className="w-full bg-blue-950 text-white py-4 rounded-2xl font-bold text-base shadow-xl shadow-blue-900/20 hover:scale-[1.02] transition-all active:scale-95 disabled:opacity-50"
+                  className="w-full bg-blue-950 text-white py-3.5 rounded-xl font-bold text-sm shadow-xl shadow-blue-900/20 hover:scale-[1.02] transition-all active:scale-95 disabled:opacity-50 mt-2"
                 >
-                  {authLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (isRegistering ? 'Registrar Agora' : 'Entrar no Sistema')}
+                  {authLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (isRegistering ? 'Confirmar Cadastro' : 'Entrar Agora')}
                 </button>
               </form>
 
               <div className="relative">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
-                <div className="relative flex justify-center text-[10px] uppercase font-black"><span className="bg-white px-4 text-gray-400">Ou continue com</span></div>
+                <div className="relative flex justify-center text-[9px] uppercase font-black"><span className="bg-white px-3 text-gray-300">Ou use sua conta</span></div>
               </div>
 
-              <div className="grid gap-3">
+              <div className="grid gap-2">
                 <button 
                   onClick={handleGoogleLogin}
-                  className="w-full bg-white border-2 border-gray-100 py-3 rounded-2xl font-bold text-gray-700 flex items-center justify-center gap-3 hover:bg-gray-50 transition-all text-sm"
+                  className="w-full bg-white border border-gray-200 py-3 rounded-xl font-bold text-gray-700 flex items-center justify-center gap-2 hover:bg-gray-50 transition-all text-xs"
                 >
-                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-                  Google Account
+                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-4 h-4" alt="Google" />
+                  Google
                 </button>
               </div>
 
               <button 
                 onClick={() => setIsRegistering(!isRegistering)}
-                className="text-center text-sm font-bold text-blue-600 hover:underline w-full"
+                className="text-center text-[11px] font-bold text-blue-600 hover:underline w-full"
               >
-                {isRegistering ? 'Já tem conta? Faça login' : 'Não tem conta? Registre-se'}
+                {isRegistering ? 'Já possui conta? Entrar' : 'Não tem conta? Cadastre-se'}
               </button>
             </motion.div>
           </div>
