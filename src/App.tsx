@@ -142,6 +142,14 @@ interface Partner {
   featured?: boolean;
 }
 
+interface TeamMember {
+  id: string;
+  name: string;
+  role: string;
+  category: 'presidencia' | 'diretoria' | 'gerencia' | 'atendimento';
+  photo?: string;
+}
+
 function LandingPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -173,7 +181,7 @@ function LandingPage() {
   const [calcAdjustment, setCalcAdjustment] = useState(5);
   
   const [activeDashboardTab, setActiveDashboardTab] = useState<'overview' | 'boletos' | 'docs' | 'voting' | 'accountant' | 'partners' | 'admin' | 'settings' | 'suggestions'>('overview');
-  const [adminSubTab, setAdminSubTab] = useState<'dashboard' | 'members' | 'finance' | 'billing' | 'docs' | 'partners' | 'media' | 'system'>('dashboard');
+  const [adminSubTab, setAdminSubTab] = useState<'dashboard' | 'finance' | 'billing' | 'associates' | 'partners' | 'system' | 'media' | 'docs' | 'team' | 'publications'>('dashboard');
   const [memberLoggedIn, setMemberLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -249,10 +257,36 @@ function LandingPage() {
     isActive: true,
     sslStatus: 'active' as 'active' | 'pending' | 'expired'
   });
+  const [systemTime, setSystemTime] = useState(new Date());
+  const [userRole, setUserRole] = useState<'admin' | 'presidencia' | 'diretoria' | 'gerencia' | 'atendimento' | 'associado'>('associado');
+  const [selectedAssociate, setSelectedAssociate] = useState<any | null>(null);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [docType, setDocType] = useState<'cct' | 'news' | 'internal'>('cct');
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setSystemTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Determina se o usuário logado tem poderes de gestão plena
+  const hasManagementPower = ['admin', 'presidencia', 'diretoria'].includes(userRole);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [agreements, setAgreements] = useState<any[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([
+    { id: '1', name: 'Dr. Roberto Santos', role: 'Presidente', category: 'presidencia' },
+    { id: '2', name: 'Maria Oliveira', role: 'Vice-presidente', category: 'presidencia' },
+    { id: '3', name: 'Luiz Gustavo', role: 'Diretor Financeiro', category: 'diretoria' },
+    { id: '4', name: 'Dr. André Fonseca', role: 'Diretor Jurídico', category: 'diretoria' },
+    { id: '5', name: 'Ana Beatriz', role: 'Gerente Administrativa', category: 'gerencia' },
+    { id: '6', name: 'Ricardo Souze', role: 'Gerente de TI', category: 'gerencia' },
+    { id: '7', name: 'Juliana Mendes', role: 'Atendimento ao Associado', category: 'atendimento' },
+    { id: '8', name: 'Carlos Eduardo', role: 'Suporte Técnico', category: 'atendimento' },
+  ]);
+  const [teamFilter, setTeamFilter] = useState<'all' | TeamMember['category']>('all');
   const [delinquentCompanies] = useState([
     { id: 1, name: 'Transportes Rápidos Ltda', cnpj: '12.345.678/0001-90', debt: 4500.00, months: 3 },
     { id: 2, name: 'Indústrias Metalúrgicas ABC', cnpj: '98.765.432/0001-10', debt: 1200.50, months: 1 },
@@ -270,6 +304,13 @@ function LandingPage() {
     description: '',
     discount: '',
     category: 'servicos' as Partner['category']
+  });
+
+  const [newMemberForm, setNewMemberForm] = useState({
+    name: '',
+    role: '',
+    category: 'atendimento' as TeamMember['category'],
+    photo: ''
   });
 
   const handleUpdateProfile = async () => {
@@ -710,9 +751,37 @@ Para corrigir:
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
+  const markAsRead = (id: string) => {
+    setNotifications(notifications.map(n => n.id === id ? { ...n, read: true } : n));
+  };
+
   const markAllAsRead = () => {
     setNotifications(notifications.map(n => ({ ...n, read: true })));
   };
+
+  React.useEffect(() => {
+    // Add sample notifications if empty for demo
+    if (notifications.length === 0) {
+      setNotifications([
+        {
+          id: '1',
+          title: 'Nova CCT Publicada',
+          description: 'A nova Convenção Coletiva de Trabalho 2026/2027 já está disponível para consulta.',
+          date: 'Hoje, 09:15',
+          read: false,
+          type: 'publication'
+        },
+        {
+          id: '2',
+          title: 'Boleto de Contribuição',
+          description: 'Seu boleto referente à contribuição assistencial vence em 5 dias.',
+          date: 'Ontem, 14:30',
+          read: false,
+          type: 'payment'
+        }
+      ]);
+    }
+  }, []);
 
   const handleAISend = async () => {
     if (!userInput.trim()) return;
@@ -1237,14 +1306,87 @@ Para corrigir:
                 </div>
                 
                 <div className="flex items-center gap-6">
-                  <button className="relative w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-gray-400 hover:text-blue-900 hover:bg-blue-50 transition-all border border-gray-100 cursor-pointer">
+                  <button 
+                    onClick={() => setShowNotifications(!showNotifications)}
+                    className="relative w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-gray-400 hover:text-blue-900 hover:bg-blue-50 transition-all border border-gray-100 cursor-pointer"
+                  >
                     <Bell className="w-6 h-6" />
-                    <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 bg-rose-500 border-2 border-white rounded-full"></span>
+                    {unreadCount > 0 && (
+                      <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 bg-rose-500 border-2 border-white rounded-full"></span>
+                    )}
                   </button>
+
+                  <AnimatePresence>
+                    {showNotifications && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setShowNotifications(false)}
+                        ></div>
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          className="absolute right-12 top-20 w-80 bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden z-50 text-gray-900"
+                        >
+                          <div className="p-5 border-b border-gray-50 flex items-center justify-between">
+                            <h3 className="font-bold text-lg">Notificações</h3>
+                            {unreadCount > 0 && (
+                              <button 
+                                onClick={markAllAsRead}
+                                className="text-xs text-blue-600 font-bold hover:underline"
+                              >
+                                Marcar tudo como lido
+                              </button>
+                            )}
+                          </div>
+                          <div className="max-h-[400px] overflow-y-auto custom-scrollbar">
+                            {notifications.length > 0 ? (
+                              notifications.map((n) => (
+                                <div 
+                                  key={n.id} 
+                                  onClick={() => {
+                                    markAsRead(n.id);
+                                    // Optionally close or perform action
+                                  }}
+                                  className={`p-4 border-b border-gray-50 flex gap-4 hover:bg-gray-50 transition cursor-pointer ${!n.read ? 'bg-blue-50/50' : ''}`}
+                                >
+                                  <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+                                    n.type === 'publication' ? 'bg-blue-100 text-blue-600' :
+                                    n.type === 'payment' ? 'bg-amber-100 text-amber-600' :
+                                    'bg-purple-100 text-purple-600'
+                                  }`}>
+                                    {n.type === 'publication' && <FileText className="w-5 h-5" />}
+                                    {n.type === 'payment' && <AlertCircle className="w-5 h-5" />}
+                                    {n.type === 'announcement' && <Info className="w-5 h-5" />}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className={`text-sm font-bold mb-0.5 truncate ${!n.read ? 'text-blue-900' : 'text-gray-900'}`}>{n.title}</h4>
+                                    <p className="text-xs text-gray-500 mb-2 line-clamp-2">{n.description}</p>
+                                    <span className="text-[10px] text-gray-400 font-medium">{n.date}</span>
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="p-10 text-center text-gray-400">
+                                Nenhuma notificação encontrada.
+                              </div>
+                            )}
+                          </div>
+                          <button className="w-full py-4 text-sm font-bold text-blue-900 bg-gray-50 hover:bg-gray-100 transition">
+                            Configurações de Alerta
+                          </button>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+
                   <div className="h-10 w-[1px] bg-gray-100"></div>
                   <div className="text-right hidden md:block">
-                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Último Acesso</p>
-                    <p className="text-sm font-bold text-gray-900 font-mono">13/05/2026 - 15:42</p>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Horário do Sistema</p>
+                    <p className="text-sm font-bold text-gray-900 font-mono">
+                      {systemTime.toLocaleDateString('pt-BR')} - {systemTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
                   </div>
                 </div>
               </header>
@@ -1926,10 +2068,10 @@ Para corrigir:
                               { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
                               { id: 'finance', label: 'Financeiro', icon: CreditCard },
                               { id: 'billing', label: 'Mensalidades', icon: Banknote },
-                              { id: 'members', label: 'Associados', icon: Users },
-                              { id: 'partners', label: 'Parceiros', icon: Gift },
-                              { id: 'system', label: 'Sistema', icon: Globe },
-                              { id: 'media', label: 'Mídia', icon: Camera },
+                              { id: 'associates', label: 'Associados', icon: Users },
+                              { id: 'team', label: 'Liderança', icon: ShieldCheck },
+                              { id: 'publications', label: 'Publicações', icon: Globe },
+                              { id: 'system', label: 'Painel', icon: Settings },
                               { id: 'docs', label: 'Certidões', icon: Printer },
                             ].map((tab) => (
                               <button
@@ -2162,12 +2304,111 @@ Para corrigir:
                                         <Printer className="w-4 h-4" /> Imprimir Relatório
                                       </button>
                                     )}
+
+                                    </div>
                                  </div>
                               </div>
                            </motion.div>
                          )}
 
-                               {adminSubTab === 'media' && (
+                         {/* Admin Viewing Associate Profile overlay/view */}
+                         {selectedAssociate && (
+                            <motion.div 
+                              initial={{ opacity: 0, scale: 0.95 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              className="fixed inset-0 z-[100] bg-gray-50 flex flex-col overflow-y-auto"
+                            >
+                               <div className="bg-blue-900 px-8 py-4 text-white flex items-center justify-between sticky top-0 z-50 shadow-2xl">
+                                  <div className="flex items-center gap-4">
+                                     <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center border border-white/20">
+                                        <ShieldCheck className="w-6 h-6 text-amber-400" />
+                                     </div>
+                                     <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-200">Visão de Auditoria / Perfil</p>
+                                        <h4 className="font-bold text-lg">{selectedAssociate.name}</h4>
+                                     </div>
+                                  </div>
+                                  <button 
+                                    onClick={() => setSelectedAssociate(null)}
+                                    className="bg-white text-blue-900 px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-50 transition-all flex items-center gap-2"
+                                  >
+                                     <ArrowLeft className="w-4 h-4" /> Sair da Visualização
+                                  </button>
+                               </div>
+                               <div className="flex-1 p-8">
+                                  {/* Reusing existing dashboard components but for the selected associate */}
+                                  <div className="max-w-6xl mx-auto space-y-8 pb-32">
+                                     <div className="grid md:grid-cols-3 gap-8">
+                                        <div className="md:col-span-2 space-y-8">
+                                           <div className="bg-white rounded-[40px] p-10 border border-gray-100 shadow-xl">
+                                              <div className="flex items-center gap-4 mb-8">
+                                                 <div className="w-16 h-16 bg-blue-50 rounded-[20px] flex items-center justify-center text-blue-900 font-black text-2xl border border-blue-100">
+                                                    {selectedAssociate.name.charAt(0)}
+                                                 </div>
+                                                 <div>
+                                                    <h3 className="text-3xl font-black text-blue-900">{selectedAssociate.name}</h3>
+                                                    <p className="text-sm text-gray-400 font-bold uppercase tracking-widest">{selectedAssociate.cnpj}</p>
+                                                 </div>
+                                              </div>
+                                              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                                 {[
+                                                   { label: 'Status Sindical', val: 'Regular', color: 'emerald' },
+                                                   { label: 'Plano Atual', val: 'Diamante', color: 'indigo' },
+                                                   { label: 'Colaboradores', val: '145', color: 'blue' },
+                                                   { label: 'Última CCT', val: '2026', color: 'amber' },
+                                                 ].map((stat, i) => (
+                                                   <div key={i} className="bg-gray-50 border border-gray-100 p-4 rounded-3xl">
+                                                      <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">{stat.label}</p>
+                                                      <p className={`text-sm font-black text-${stat.color}-600`}>{stat.val}</p>
+                                                   </div>
+                                                 ))}
+                                              </div>
+                                           </div>
+                                           {/* Simulated associate dash content */}
+                                           <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl">
+                                              <h4 className="text-xl font-bold mb-8 text-blue-900 font-display">Histórico de Contribuições</h4>
+                                              <div className="space-y-3">
+                                                 {[1, 2, 3].map((m) => (
+                                                   <div key={m} className="flex items-center justify-between p-5 bg-gray-50 rounded-2xl border border-gray-100">
+                                                      <div className="flex items-center gap-4">
+                                                         <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center">
+                                                            <Calendar className="w-5 h-5 text-gray-400" />
+                                                         </div>
+                                                         <div>
+                                                            <p className="text-sm font-bold text-gray-800">Mensalidade 0{m}/2026</p>
+                                                            <p className="text-[10px] text-emerald-600 font-bold uppercase">Pago em 10/0{m}/26</p>
+                                                         </div>
+                                                      </div>
+                                                      <p className="text-xs font-black text-gray-900">R$ 450,00</p>
+                                                   </div>
+                                                 ))}
+                                              </div>
+                                           </div>
+                                        </div>
+                                        <div className="space-y-8">
+                                           <div className="bg-blue-950 text-white rounded-[40px] p-8 shadow-2xl">
+                                              <h5 className="font-bold mb-6 text-xs uppercase tracking-widest text-blue-300">Resumo Financeiro</h5>
+                                              <div className="space-y-6">
+                                                 <div>
+                                                    <p className="text-[10px] text-blue-300 uppercase font-black mb-1">Total Contribuído 2026</p>
+                                                    <p className="text-3xl font-black">R$ 1.350,00</p>
+                                                 </div>
+                                                 <div className="pt-6 border-t border-white/10">
+                                                    <p className="text-[10px] text-blue-300 uppercase font-black mb-1">Status de Débitos</p>
+                                                    <div className="flex items-center gap-2">
+                                                       <div className="w-2 h-2 bg-emerald-400 rounded-full"></div>
+                                                       <p className="font-bold text-sm">Nada consta</p>
+                                                    </div>
+                                                 </div>
+                                              </div>
+                                           </div>
+                                        </div>
+                                     </div>
+                                  </div>
+                               </div>
+                            </motion.div>
+                         )}
+                         {adminSubTab === 'media' && (
                                  <motion.div 
                                    key="media"
                                    initial={{ opacity: 0, scale: 0.95 }} 
@@ -2709,6 +2950,284 @@ Para corrigir:
                            </motion.div>
                          )}
 
+                               {adminSubTab === 'team' && (
+                                 <motion.div 
+                                   key="team"
+                                   initial={{ opacity: 0, x: 20 }} 
+                                   animate={{ opacity: 1, x: 0 }} 
+                                   exit={{ opacity: 0, x: -20 }}
+                                   className="space-y-8"
+                                 >
+                                    <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl">
+                                       <div className="flex items-center gap-4 mb-8 pb-4 border-b border-gray-50">
+                                         <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shadow-inner">
+                                           <Users className="w-6 h-6" />
+                                         </div>
+                                         <div>
+                                           <h4 className="text-xl font-bold text-blue-900 leading-tight">Liderança & Colaboradores</h4>
+                                           <p className="text-xs text-gray-500 font-medium tracking-tight">Gerencie os membros da presidência, diretoria, gerência e atendimento.</p>
+                                         </div>
+                                       </div>
+
+                                       <div className="grid md:grid-cols-2 gap-6 mb-10 bg-gray-50 p-6 rounded-3xl border border-gray-100">
+                                         <div className="space-y-4">
+                                           <div>
+                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">Nome do Membro</label>
+                                             <input 
+                                               type="text" 
+                                               placeholder="Nome completo"
+                                               value={newMemberForm.name}
+                                               onChange={(e) => setNewMemberForm({...newMemberForm, name: e.target.value})}
+                                               className="w-full bg-white border border-gray-200 px-6 py-3 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold"
+                                             />
+                                           </div>
+                                           <div>
+                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">Cargo / Função</label>
+                                             <input 
+                                               type="text" 
+                                               placeholder="Ex: Diretor Financeiro"
+                                               value={newMemberForm.role}
+                                               onChange={(e) => setNewMemberForm({...newMemberForm, role: e.target.value})}
+                                               className="w-full bg-white border border-gray-200 px-6 py-3 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold"
+                                             />
+                                           </div>
+                                         </div>
+                                         <div className="space-y-4">
+                                           <div>
+                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">Categoria</label>
+                                             <select 
+                                               value={newMemberForm.category}
+                                               onChange={(e) => setNewMemberForm({...newMemberForm, category: e.target.value as any})}
+                                               className="w-full bg-white border border-gray-200 px-6 py-3 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold appearance-none cursor-pointer"
+                                             >
+                                               <option value="presidencia">Presidência</option>
+                                               <option value="diretoria">Diretoria</option>
+                                               <option value="gerencia">Gerência</option>
+                                               <option value="atendimento">Atendimento</option>
+                                             </select>
+                                           </div>
+                                           <button 
+                                             onClick={() => {
+                                               if (!newMemberForm.name || !newMemberForm.role) {
+                                                 alert("Preencha nome e cargo.");
+                                                 return;
+                                               }
+                                               const member: TeamMember = {
+                                                 id: Math.random().toString(36).substr(2, 9),
+                                                 ...newMemberForm
+                                               };
+                                               setTeamMembers([...teamMembers, member]);
+                                               setNewMemberForm({ name: '', role: '', category: member.category, photo: '' });
+                                             }}
+                                             className="w-full bg-blue-950 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-950/20 flex items-center justify-center gap-2 mt-4"
+                                           >
+                                             <Plus className="w-4 h-4" /> Cadastrar Novo Membro
+                                           </button>
+                                         </div>
+                                       </div>
+
+                                       <div className="grid md:grid-cols-2 gap-4">
+                                          {['presidencia', 'diretoria', 'gerencia', 'atendimento'].map((cat) => (
+                                            <div key={cat} className="space-y-3">
+                                              <h5 className="text-[10px] font-black text-blue-900 uppercase tracking-widest px-2 flex items-center gap-2">
+                                                <div className="w-1.5 h-1.5 bg-blue-600 rounded-full"></div>
+                                                {cat === 'presidencia' ? 'Presidência' : cat === 'diretoria' ? 'Diretoria' : cat === 'gerencia' ? 'Gerência' : 'Atendimento'}
+                                              </h5>
+                                              <div className="space-y-2">
+                                                {teamMembers.filter(m => m.category === cat).map((member) => (
+                                                  <div key={member.id} className="flex items-center justify-between p-3.5 bg-gray-50 border border-gray-100 rounded-2xl group hover:border-blue-300 hover:bg-white transition-all shadow-sm">
+                                                    <div className="flex items-center gap-3">
+                                                      <div className="w-9 h-9 bg-white rounded-xl shadow-inner flex items-center justify-center">
+                                                        <Users className="w-4 h-4 text-blue-300" />
+                                                      </div>
+                                                      <div>
+                                                        <p className="text-xs font-bold text-gray-800">{member.name}</p>
+                                                        <p className="text-[9px] text-gray-400 font-bold uppercase">{member.role}</p>
+                                                      </div>
+                                                    </div>
+                                                    <button 
+                                                      onClick={() => setTeamMembers(teamMembers.filter(m => m.id !== member.id))}
+                                                      className="p-2 text-gray-300 hover:text-rose-600 rounded-lg transition-colors"
+                                                      title="Remover"
+                                                    >
+                                                      <X className="w-4 h-4" />
+                                                    </button>
+                                                  </div>
+                                                ))}
+                                                {teamMembers.filter(m => m.category === cat).length === 0 && (
+                                                  <p className="text-[10px] text-gray-300 italic px-2">Nenhum membro cadastrado.</p>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ))}
+                                       </div>
+                                    </div>
+                                 </motion.div>
+                               )}
+
+                               {adminSubTab === 'publications' && (
+                                 <motion.div 
+                                   key="publications"
+                                   initial={{ opacity: 0, y: 20 }} 
+                                   animate={{ opacity: 1, y: 0 }} 
+                                   exit={{ opacity: 0, y: -20 }}
+                                   className="space-y-8"
+                                 >
+                                    <div className="grid lg:grid-cols-2 gap-8">
+                                       <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl">
+                                          <div className="flex items-center gap-4 mb-8">
+                                             <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">
+                                                <FileText className="w-6 h-6" />
+                                             </div>
+                                             <div>
+                                                <h4 className="text-xl font-bold text-blue-900">Upload de Documentos</h4>
+                                                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">CCT, Notícias e Editais</p>
+                                             </div>
+                                          </div>
+
+                                          <div className="space-y-4">
+                                             <div className="border-2 border-dashed border-gray-100 rounded-3xl p-8 text-center hover:border-blue-300 transition-all cursor-pointer bg-gray-50/50 group">
+                                                <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm group-hover:scale-110 transition-transform">
+                                                   <Upload className="w-8 h-8 text-blue-300" />
+                                                </div>
+                                                <p className="text-sm font-bold text-gray-600 mb-1">Arraste seus documentos aqui</p>
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">PDF, DOCX até 50MB</p>
+                                             </div>
+                                             
+                                             <div className="grid grid-cols-3 gap-2">
+                                                {['CCT', 'Notícia', 'Edital'].map((t) => (
+                                                   <button key={t} className="py-2.5 rounded-xl border border-gray-100 text-xs font-bold text-gray-500 hover:bg-blue-900 hover:text-white hover:border-blue-900 transition-all">
+                                                      {t}
+                                                   </button>
+                                                ))}
+                                             </div>
+                                             
+                                             <button className="w-full bg-blue-950 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-950/20 active:scale-95">
+                                                Publicar no Portal
+                                             </button>
+                                          </div>
+                                       </div>
+
+                                       <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl">
+                                          <h4 className="text-xl font-bold mb-8 text-blue-900 font-display uppercase tracking-widest text-xs">Publicações Ativas</h4>
+                                          <div className="space-y-4">
+                                             {[
+                                               { title: 'CCT 2026/2027 - Setor Metalúrgico', type: 'CCT', date: 'Hoje, 10:45' },
+                                               { title: 'Informativo Mensal - Maio 2026', type: 'Notícia', date: 'Ontem' },
+                                               { title: 'Edital de Convocação - Assembleia Geral', type: 'Edital', date: '12/05/2026' },
+                                             ].map((pub, i) => (
+                                               <div key={i} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between group hover:bg-white hover:border-blue-200 transition-all">
+                                                  <div className="flex items-center gap-3">
+                                                     <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center">
+                                                        <FileText className="w-5 h-5 text-blue-600" />
+                                                     </div>
+                                                     <div>
+                                                        <p className="text-xs font-bold text-gray-800 line-clamp-1">{pub.title}</p>
+                                                        <div className="flex items-center gap-2">
+                                                           <span className="text-[8px] font-black bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded uppercase">{pub.type}</span>
+                                                           <span className="text-[9px] text-gray-400 font-bold">{pub.date}</span>
+                                                        </div>
+                                                     </div>
+                                                  </div>
+                                                  <button className="p-2 text-gray-300 hover:text-blue-600">
+                                                     <Eye className="w-4 h-4" />
+                                                  </button>
+                                               </div>
+                                             ))}
+                                          </div>
+                                       </div>
+                                    </div>
+                                 </motion.div>
+                               )}
+
+                               {adminSubTab === 'associates' && (
+                                 <motion.div 
+                                   key="associates"
+                                   initial={{ opacity: 0, x: -20 }} 
+                                   animate={{ opacity: 1, x: 0 }} 
+                                   exit={{ opacity: 0, x: 20 }}
+                                   className="space-y-8"
+                                 >
+                                    <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl overflow-hidden relative">
+                                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
+                                          <div>
+                                             <h4 className="text-2xl font-black text-blue-900 leading-tight">Painel de Associados</h4>
+                                             <p className="text-sm text-gray-400 font-bold">Gerencie perfis e visualize dados de cada associado.</p>
+                                          </div>
+                                          <div className="flex gap-2">
+                                             <div className="relative">
+                                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                                <input 
+                                                  type="text" 
+                                                  placeholder="Buscar associado..."
+                                                  className="bg-gray-100 border-none px-12 py-3 rounded-2xl text-sm font-bold focus:bg-white focus:ring-2 focus:ring-blue-900/10 transition-all outline-none w-64"
+                                                />
+                                             </div>
+                                          </div>
+                                       </div>
+
+                                       <div className="overflow-x-auto">
+                                          <table className="w-full text-left">
+                                             <thead>
+                                                <tr className="border-b border-gray-50">
+                                                   <th className="pb-6 text-[10px] font-black text-gray-300 uppercase tracking-widest">Associado</th>
+                                                   <th className="pb-6 text-[10px] font-black text-gray-300 uppercase tracking-widest hidden md:table-cell">CNPJ</th>
+                                                   <th className="pb-6 text-[10px] font-black text-gray-300 uppercase tracking-widest">Nível</th>
+                                                   <th className="pb-6 text-[10px] font-black text-gray-300 uppercase tracking-widest">Status</th>
+                                                   <th className="pb-6 text-right text-[10px] font-black text-gray-300 uppercase tracking-widest">Ações</th>
+                                                </tr>
+                                             </thead>
+                                             <tbody className="divide-y divide-gray-50">
+                                                {[
+                                                  { name: 'Transportes Rápidos Ltda', cnpj: '12.345.678/0001-90', level: 'Ouro', status: 'Ativo' },
+                                                  { name: 'Indústrias Metalúrgicas ABC', cnpj: '98.765.432/0001-10', level: 'Prata', status: 'Ativo' },
+                                                  { name: 'Comércio de Ferragens Silva', cnpj: '45.678.901/0001-22', level: 'Bronze', status: 'Inativo' },
+                                                  { name: 'Logística Expressa Global', cnpj: '00.111.222/0001-33', level: 'Diamante', status: 'Ativo' },
+                                                ].map((company, i) => (
+                                                  <tr key={i} className="group hover:bg-gray-50/50 transition-colors">
+                                                     <td className="py-6">
+                                                        <div className="flex items-center gap-4">
+                                                           <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-900 font-black text-[10px]">
+                                                              {company.name.charAt(0)}
+                                                           </div>
+                                                           <p className="text-sm font-bold text-gray-800">{company.name}</p>
+                                                        </div>
+                                                     </td>
+                                                     <td className="py-6 hidden md:table-cell">
+                                                        <p className="text-xs font-mono text-gray-400">{company.cnpj}</p>
+                                                     </td>
+                                                     <td className="py-6">
+                                                        <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${
+                                                          company.level === 'Diamante' ? 'bg-indigo-50 text-indigo-600' :
+                                                          company.level === 'Ouro' ? 'bg-amber-50 text-amber-600' :
+                                                          'bg-gray-100 text-gray-500'
+                                                        }`}>
+                                                           {company.level}
+                                                        </span>
+                                                     </td>
+                                                     <td className="py-6">
+                                                        <div className="flex items-center gap-1.5">
+                                                           <div className={`w-1.5 h-1.5 rounded-full ${company.status === 'Ativo' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                                                           <span className="text-[10px] font-bold text-gray-600">{company.status}</span>
+                                                        </div>
+                                                     </td>
+                                                     <td className="py-6 text-right">
+                                                        <button 
+                                                          onClick={() => setSelectedAssociate(company)}
+                                                          className="px-4 py-2 bg-blue-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-lg shadow-blue-900/10 active:scale-95"
+                                                        >
+                                                           Acessar Perfil
+                                                        </button>
+                                                     </td>
+                                                  </tr>
+                                                ))}
+                                             </tbody>
+                                          </table>
+                                       </div>
+                                    </div>
+                                 </motion.div>
+                               )}
+
                                {adminSubTab === 'docs' && (
                                  <motion.div 
                                    key="docs"
@@ -3026,7 +3545,8 @@ Para corrigir:
                           notifications.map((n) => (
                             <div 
                               key={n.id} 
-                              className={`p-4 border-b border-gray-50 flex gap-4 hover:bg-gray-50 transition ${!n.read ? 'bg-blue-50/50' : ''}`}
+                              onClick={() => markAsRead(n.id)}
+                              className={`p-4 border-b border-gray-50 flex gap-4 hover:bg-gray-50 transition cursor-pointer ${!n.read ? 'bg-blue-50/50' : ''}`}
                             >
                               <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
                                 n.type === 'publication' ? 'bg-blue-100 text-blue-600' :
@@ -3864,33 +4384,58 @@ Para corrigir:
       <section id="diretoria" className="py-24 bg-gray-50">
         <div className="max-w-7xl mx-auto px-6 text-center">
           <div className="max-w-xl mx-auto mb-16">
-            <h2 className="text-4xl font-bold mb-6">Liderança Executiva</h2>
+            <h2 className="text-4xl font-bold mb-6">Nossa Equipe</h2>
             <p className="text-gray-600 text-lg leading-relaxed">
-              Equipe dedicada à defesa dos interesses patronais e ao desenvolvimento 
-              sustentável do nosso setor econômico.
+              Equipe dedicada à excelência no atendimento e à defesa dos interesses do setor.
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="flex flex-wrap justify-center gap-2 mb-12">
             {[
-              { role: 'Presidente', name: 'Dr. Roberto Santos' },
-              { role: 'Vice-presidente', name: 'Maria Oliveira' },
-              { role: 'Diretor Financeiro', name: 'Luiz Gustavo' },
-              { role: 'Diretor Jurídico', name: 'Dr. André Fonseca' },
-            ].map((p, i) => (
+              { id: 'all', label: 'Todos' },
+              { id: 'presidencia', label: 'Presidência' },
+              { id: 'diretoria', label: 'Diretoria' },
+              { id: 'gerencia', label: 'Gerência' },
+              { id: 'atendimento', label: 'Atendimento' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setTeamFilter(tab.id as any)}
+                className={`px-6 py-2 rounded-full text-sm font-bold transition-all border ${
+                  teamFilter === tab.id 
+                    ? 'bg-blue-900 border-blue-900 text-white shadow-lg shadow-blue-900/20' 
+                    : 'bg-white border-gray-200 text-gray-600 hover:border-blue-600 hover:text-blue-600'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            {teamMembers
+              .filter(m => teamFilter === 'all' || m.category === teamFilter)
+              .map((p, i) => (
               <motion.div 
-                key={i} 
+                key={p.id} 
                 {...fadeInUp}
                 transition={{ delay: i * 0.1 }}
                 className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 text-center hover:shadow-xl transition-shadow"
               >
                 <div className="w-24 h-24 bg-gray-100 rounded-2xl mx-auto mb-6 flex items-center justify-center overflow-hidden">
                   <div className="w-full h-full bg-blue-100 flex items-center justify-center">
-                    <Users className="text-blue-300 w-10 h-10" />
+                    {p.photo ? (
+                      <img src={p.photo} alt={p.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <Users className="text-blue-300 w-10 h-10" />
+                    )}
                   </div>
                 </div>
                 <h3 className="text-xl font-bold mb-1">{p.name}</h3>
                 <p className="text-blue-600 font-semibold text-sm mb-6 uppercase tracking-wide">{p.role}</p>
+                <div className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-4">
+                  {p.category}
+                </div>
                 <button className="w-full bg-gray-50 text-gray-700 py-2.5 rounded-lg font-bold text-sm hover:bg-blue-900 hover:text-white transition-colors">
                   Ver Perfil
                 </button>
