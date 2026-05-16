@@ -43,6 +43,7 @@ import {
   Globe,
   Settings,
   LogOut,
+  Check,
   Home,
   HelpCircle,
   Image,
@@ -85,7 +86,8 @@ import {
   updateProfile,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signOut
+  signOut,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { 
   collection, 
@@ -179,7 +181,9 @@ function LandingPage() {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
   const SUPER_USER_EMAIL = 'cleciotecnologia@gmail.com';
 
   const [expenses, setExpenses] = useState<any[]>([
@@ -534,7 +538,16 @@ Para corrigir:
       await signInWithEmailAndPassword(auth, loginEmail, password);
       setShowAuthModal(false);
     } catch (error: any) {
-      setAuthError('Erro de autenticação: Credenciais inválidas.');
+      console.error("Erro ao logar:", error);
+      let message = 'E-mail ou senha incorretos.';
+      
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        message = 'Credenciais inválidas. Verifique seu e-mail/CNPJ e senha.';
+      } else if (error.code === 'auth/too-many-requests') {
+        message = 'Muitas tentativas malsucedidas. Sua conta foi temporariamente bloqueada. Tente recuperar sua senha.';
+      }
+      
+      setAuthError(message);
     } finally {
       setAuthLoading(false);
     }
@@ -551,19 +564,57 @@ Para corrigir:
       }
       setShowAuthModal(false);
     } catch (error: any) {
-      setAuthError(`Erro ao registrar: ${error.message}`);
+      console.error("Erro ao registrar:", error);
+      let message = 'Ocorreu um erro ao criar sua conta. Tente novamente.';
+      
+      if (error.code === 'auth/email-already-in-use') {
+        message = 'Este e-mail já está cadastrado. Que tal fazer login ou recuperar sua senha?';
+      } else if (error.code === 'auth/invalid-email') {
+        message = 'O formato do e-mail informado não é válido.';
+      } else if (error.code === 'auth/weak-password') {
+        message = 'A senha deve ter pelo menos 6 caracteres.';
+      }
+      
+      setAuthError(message);
     } finally {
       setAuthLoading(false);
     }
   };
 
   const handleLogout = async () => {
+    setAuthLoading(true);
     try {
       await signOut(auth);
       setMemberLoggedIn(false);
       setCurrentUser(null);
+      setActiveDashboardTab('overview');
+      // Pequeno delay para suavizar a transição
+      setTimeout(() => {
+        setIsPortalView(false);
+        setAuthLoading(false);
+      }, 500);
     } catch (error) {
       console.error("Erro ao sair:", error);
+      setAuthLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) {
+      setAuthError("Por favor, informe seu e-mail para recuperar a senha.");
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetSent(true);
+    } catch (error: any) {
+      console.error("Erro ao enviar reset:", error);
+      setAuthError(`Erro: ${error.message}`);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -854,157 +905,238 @@ Para corrigir:
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              className="bg-white border-2 border-amber-100 p-6 sm:p-10 rounded-[40px] text-blue-900 shadow-2xl flex flex-col gap-6 max-w-md w-full relative z-10 max-h-[calc(100vh-2rem)] overflow-y-auto"
+              className="bg-white border border-amber-100 p-6 sm:p-8 rounded-[40px] text-blue-900 shadow-2xl flex flex-col gap-5 max-w-sm w-full relative z-10 max-h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar"
             >
               <button 
-                onClick={() => setShowAuthModal(false)}
-                className="absolute top-6 right-6 p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                onClick={() => {
+                  setShowAuthModal(false);
+                  setIsForgotPassword(false);
+                  setResetSent(false);
+                  setAuthError(null);
+                }}
+                className="absolute top-6 right-6 p-2 text-gray-300 hover:text-gray-500 transition-colors"
                 aria-label="Fechar"
               >
-                <X className="w-6 h-6" />
+                <X className="w-5 h-5" />
               </button>
 
               <div className="text-center">
-                <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-inner mx-auto mb-3">
-                  <Fingerprint className="w-7 h-7" />
+                <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-inner mx-auto mb-3">
+                  {resetSent ? <Check className="w-6 h-6" /> : <Fingerprint className="w-6 h-6" />}
                 </div>
-                <h3 className="text-xl font-black mb-1">{isRegistering ? 'Criar Conta' : 'Acesse o Portal'}</h3>
-                <p className="text-gray-400 font-bold text-[10px] uppercase tracking-wider">{isRegistering ? 'Sindicato Digital' : 'Área do Associado'}</p>
+                <h3 className="text-lg font-black mb-0.5 leading-tight">
+                  {resetSent ? 'Link Enviado!' : 
+                   isForgotPassword ? 'Recuperar Senha' : 
+                   isRegistering ? 'Criar Conta' : 'Acesse o Portal'}
+                </h3>
+                <p className="text-gray-400 font-bold text-[9px] uppercase tracking-wider mb-1">
+                  {resetSent ? 'Confira seu e-mail' :
+                   isForgotPassword ? 'Enviaremos instruções' :
+                   isRegistering ? 'Cadastro Sindicato' : 'Área do Associado'}
+                </p>
               </div>
 
-              {authError && (
-                <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl overflow-hidden">
-                  <div className="max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
-                    {authError.includes('DOMÍNIO NÃO AUTORIZADO') ? (
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-2 text-rose-700">
-                          <ShieldAlert className="w-4 h-4 shrink-0" />
-                          <p className="text-[11px] font-black uppercase tracking-tight">Domínio não autorizado no Firebase</p>
-                        </div>
-                        <div className="bg-white/50 p-3 rounded-xl border border-rose-100 space-y-2">
-                          <p className="text-[10px] text-rose-600 font-bold leading-tight">
-                            Este endereço ainda não tem permissão para usar Login Google neste projeto.
-                          </p>
-                          <div className="flex items-center gap-2 bg-rose-100/50 p-2 rounded-lg border border-rose-200">
-                            <code className="text-[10px] font-mono font-black text-rose-800 break-all flex-1">
-                              {window.location.hostname}
-                            </code>
-                            <button 
-                              onClick={() => {
-                                navigator.clipboard.writeText(window.location.hostname);
-                                const btn = document.getElementById('copy-domain-auth');
-                                if (btn) btn.innerText = "Copiado";
-                                setTimeout(() => { if (btn) btn.innerText = "Copiar"; }, 2000);
-                              }}
-                              id="copy-domain-auth"
-                              className="bg-rose-600 text-white px-2 py-1 rounded text-[9px] font-black active:scale-95 transition-all"
+              {resetSent ? (
+                <div className="space-y-5 text-center">
+                  <p className="text-xs text-gray-500 font-medium leading-relaxed px-2">
+                    Enviamos um link de recuperação para <span className="font-bold text-blue-900 break-all">{email}</span>. Verifique também sua pasta de spam.
+                  </p>
+                  <button 
+                    onClick={() => {
+                      setResetSent(false);
+                      setIsForgotPassword(false);
+                    }}
+                    className="w-full bg-blue-950 text-white py-3 rounded-xl font-bold text-xs shadow-lg shadow-blue-900/10 active:scale-95 transition-all"
+                  >
+                    Voltar para Login
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {authError && (
+                    <div className="bg-rose-50 border border-rose-100 p-3.5 rounded-2xl">
+                      <div className="max-h-[140px] overflow-y-auto pr-1 custom-scrollbar">
+                        {authError.includes('DOMÍNIO NÃO AUTORIZADO') ? (
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2 text-rose-700">
+                              <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                              <p className="text-[10px] font-black uppercase tracking-tight">Domínio Bloqueado</p>
+                            </div>
+                            <div className="bg-white/50 p-2.5 rounded-xl border border-rose-100 space-y-2">
+                              <p className="text-[9px] text-rose-500 font-bold leading-tight">
+                                Este site ainda não está autorizado nas configurações do seu Firebase.
+                              </p>
+                              <div className="flex items-center gap-1.5 bg-rose-100/50 p-1.5 rounded-lg border border-rose-200">
+                                <code className="text-[9px] font-mono font-black text-rose-800 break-all flex-1">
+                                  {window.location.hostname}
+                                </code>
+                                <button 
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(window.location.hostname);
+                                    const btn = document.getElementById('copy-domain-auth');
+                                    if (btn) btn.innerText = "OK";
+                                    setTimeout(() => { if (btn) btn.innerText = "Copia"; }, 2000);
+                                  }}
+                                  id="copy-domain-auth"
+                                  className="bg-rose-600 text-white px-2 py-1 rounded text-[8px] font-black"
+                                >
+                                  Copia
+                                </button>
+                              </div>
+                            </div>
+                            <a 
+                              href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center justify-center gap-1.5 w-full py-2 bg-blue-900 text-white text-[9px] font-black rounded-lg hover:bg-blue-800 transition-all shadow-md active:scale-95"
                             >
-                              Copiar
-                            </button>
+                              <ExternalLink className="w-3 h-3" /> Configurar Firebase
+                            </a>
                           </div>
-                        </div>
-                        <a 
-                          href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center justify-center gap-2 w-full py-2.5 bg-blue-900 text-white text-[10px] font-black rounded-xl hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/10"
-                        >
-                          <ExternalLink className="w-3 h-3" /> Abrir Configurações do Firebase
-                        </a>
-                        <p className="text-[9px] text-rose-400 font-bold italic text-center">Cole o domínio em "Domínios autorizados" e aguarde 2 min.</p>
+                        ) : (
+                          <div className="flex gap-2">
+                            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                            <p className="text-[10px] font-bold text-rose-600 leading-tight">
+                              {authError}
+                            </p>
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <p className="text-[11px] font-bold text-rose-600 leading-relaxed whitespace-pre-wrap">
-                        {authError}
-                      </p>
+                      
+                      {authError.includes('cadastrado') && (
+                        <button 
+                          onClick={() => {
+                            setIsRegistering(false);
+                            setAuthError(null);
+                          }}
+                          className="mt-2 w-full py-1.5 text-[9px] font-black text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-all uppercase tracking-tighter"
+                        >
+                          Ir para tela de Login
+                        </button>
+                      )}
+                      
+                      {!authError.includes('DOMÍNIO') && !authError.includes('cadastrado') && (
+                        <button 
+                          onClick={() => setAuthError(null)}
+                          className="mt-2 w-full py-1.5 text-[9px] font-black text-rose-600 hover:text-rose-800 transition-all uppercase tracking-widest text-center"
+                        >
+                          Limpar Erro
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  <form 
+                    onSubmit={
+                      isForgotPassword ? handleForgotPassword : 
+                      isRegistering ? handleEmailRegister : handleEmailLogin
+                    } 
+                    className="space-y-2.5"
+                  >
+                    {isRegistering && (
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-black uppercase tracking-widest text-gray-400 px-3">Nome Completo</label>
+                        <input 
+                          type="text" 
+                          required 
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-100 px-4 py-2.5 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-xs"
+                          placeholder="Informe seu nome"
+                        />
+                      </div>
                     )}
-                  </div>
-                  {!authError.includes('DOMÍNIO NÃO AUTORIZADO') && (
+                    <div className="space-y-1">
+                      <label className="text-[8px] font-black uppercase tracking-widest text-gray-400 px-3">E-mail ou Usuário</label>
+                      <input 
+                        type="text" 
+                        required 
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-100 px-4 py-2.5 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-xs"
+                        placeholder="ex@email.com ou login"
+                      />
+                    </div>
+                    {!isForgotPassword && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between px-3">
+                          <label className="text-[8px] font-black uppercase tracking-widest text-gray-400">Senha</label>
+                          {!isRegistering && (
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                setIsForgotPassword(true);
+                                setAuthError(null);
+                              }}
+                              className="text-[8px] font-black uppercase tracking-widest text-blue-600 hover:underline"
+                            >
+                              Perdeu?
+                            </button>
+                          )}
+                        </div>
+                        <input 
+                          type="password" 
+                          required 
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-100 px-4 py-2.5 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-xs"
+                          placeholder="••••••••"
+                        />
+                      </div>
+                    )}
+
                     <button 
-                      onClick={() => setAuthError(null)}
-                      className="mt-3 w-full py-2 bg-white border border-rose-200 text-rose-600 text-[10px] font-black rounded-lg hover:bg-rose-100 transition-colors"
+                      type="submit" 
+                      disabled={authLoading}
+                      className="w-full bg-blue-950 text-white py-3 rounded-xl font-bold text-xs shadow-xl shadow-blue-900/10 hover:scale-[1.01] transition-all active:scale-95 disabled:opacity-50 mt-1"
                     >
-                      Tentar Novamente
+                      {authLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : (
+                        isForgotPassword ? 'Enviar Instruções' :
+                        isRegistering ? 'Confirmar Cadastro' : 'Entrar no Sistema'
+                      )}
+                    </button>
+                  </form>
+
+                  {!isForgotPassword && (
+                    <>
+                      <div className="relative py-1">
+                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
+                        <div className="relative flex justify-center text-[8px] uppercase font-black"><span className="bg-white px-2 text-gray-300">Ou use sua conta</span></div>
+                      </div>
+
+                      <button 
+                        onClick={handleGoogleLogin}
+                        className="w-full bg-white border border-gray-200 py-2.5 rounded-xl font-bold text-gray-700 flex items-center justify-center gap-2 hover:bg-gray-50 transition-all text-[10px]"
+                      >
+                        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-3.5 h-3.5" alt="Google" />
+                        Google Account
+                      </button>
+
+                      <button 
+                        onClick={() => {
+                          setIsRegistering(!isRegistering);
+                          setAuthError(null);
+                        }}
+                        className="text-center text-[10px] font-bold text-blue-600 hover:underline w-full py-1"
+                      >
+                        {isRegistering ? 'Já possui conta? Entrar agora' : 'Não tem conta? Registre-se aqui'}
+                      </button>
+                    </>
+                  )}
+
+                  {isForgotPassword && (
+                    <button 
+                      onClick={() => {
+                        setIsForgotPassword(false);
+                        setAuthError(null);
+                      }}
+                      className="text-center text-[10px] font-bold text-gray-400 hover:text-blue-600 transition-colors w-full py-1"
+                    >
+                      Voltar ao login
                     </button>
                   )}
-                  {authError.includes('DOMÍNIO NÃO AUTORIZADO') && (
-                    <button 
-                      onClick={() => setAuthError(null)}
-                      className="mt-3 w-full py-2 text-rose-400 text-[10px] font-black hover:text-rose-600 transition-colors"
-                    >
-                      Ignorar e fechar
-                    </button>
-                  )}
-                </div>
+                </>
               )}
-
-              <form onSubmit={isRegistering ? handleEmailRegister : handleEmailLogin} className="space-y-3">
-                {isRegistering && (
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-3">Nome</label>
-                    <input 
-                      type="text" 
-                      required 
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      className="w-full bg-gray-50 border border-gray-100 px-4 py-3 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
-                      placeholder="Nome completo"
-                    />
-                  </div>
-                )}
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-3">E-mail ou CNPJ</label>
-                  <input 
-                    type="text" 
-                    required 
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-100 px-4 py-3 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
-                    placeholder="ex@email.com ou 00..."
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase tracking-widest text-gray-400 px-3">Senha</label>
-                  <input 
-                    type="password" 
-                    required 
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-100 px-4 py-3 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
-                    placeholder="••••••••"
-                  />
-                </div>
-
-                <button 
-                  type="submit" 
-                  disabled={authLoading}
-                  className="w-full bg-blue-950 text-white py-3.5 rounded-xl font-bold text-sm shadow-xl shadow-blue-900/20 hover:scale-[1.02] transition-all active:scale-95 disabled:opacity-50 mt-2"
-                >
-                  {authLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (isRegistering ? 'Confirmar Cadastro' : 'Entrar Agora')}
-                </button>
-              </form>
-
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
-                <div className="relative flex justify-center text-[9px] uppercase font-black"><span className="bg-white px-3 text-gray-300">Ou use sua conta</span></div>
-              </div>
-
-              <div className="grid gap-2">
-                <button 
-                  onClick={handleGoogleLogin}
-                  className="w-full bg-white border border-gray-200 py-3 rounded-xl font-bold text-gray-700 flex items-center justify-center gap-2 hover:bg-gray-50 transition-all text-xs"
-                >
-                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-4 h-4" alt="Google" />
-                  Google
-                </button>
-              </div>
-
-              <button 
-                onClick={() => setIsRegistering(!isRegistering)}
-                className="text-center text-[11px] font-bold text-blue-600 hover:underline w-full"
-              >
-                {isRegistering ? 'Já possui conta? Entrar' : 'Não tem conta? Cadastre-se'}
-              </button>
             </motion.div>
           </div>
         )}
@@ -1077,9 +1209,11 @@ Para corrigir:
                   </button>
                   <button 
                     onClick={handleLogout}
-                    className="flex items-center justify-center gap-2 py-3 px-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-bold uppercase tracking-widest transition-all"
+                    disabled={authLoading}
+                    className="flex items-center justify-center gap-2 py-3 px-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-50"
                   >
-                    <LogOut className="w-3.5 h-3.5" /> Sair
+                    {authLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
+                    <span>{authLoading ? 'Saindo...' : 'Sair'}</span>
                   </button>
                 </div>
               </div>
@@ -2954,10 +3088,11 @@ Para corrigir:
                   </button>
                   <button 
                     onClick={handleLogout}
-                    className="p-2 text-white/50 hover:text-rose-400 hover:bg-white/10 rounded-xl transition-all group"
+                    disabled={authLoading}
+                    className="p-2 text-white/50 hover:text-rose-400 hover:bg-white/10 rounded-xl transition-all group disabled:opacity-50"
                     title="Sair da Conta"
                   >
-                    <LogOut className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                    {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogOut className="w-5 h-5 group-hover:scale-110 transition-transform" />}
                   </button>
                 </div>
               ) : (
