@@ -66,6 +66,7 @@ import {
   Calendar,
   Eye,
   Loader2,
+  Pencil,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
@@ -475,6 +476,16 @@ function LandingPage() {
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   
   const [showAddPartnerModal, setShowAddPartnerModal] = useState(false);
+  const [showAgreementModal, setShowAgreementModal] = useState(false);
+  const [agreementType, setAgreementType] = useState<'avista' | 'parcelado'>('avista');
+  const [agreementCompany, setAgreementCompany] = useState<any>(null);
+  const [agreementAccepted, setAgreementAccepted] = useState(false);
+  const [showLGPD, setShowLGPD] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return !localStorage.getItem('lgpd_accepted');
+    }
+    return true;
+  });
   const [newPartnerForm, setNewPartnerForm] = useState({
     name: '',
     logo: '',
@@ -1153,21 +1164,34 @@ Para corrigir:
     });
   };
 
-  const handleCreateAgreement = (companyId: number, type: 'avista' | 'parcelado') => {
+  const handleInitiateAgreement = (companyId: number, type: 'avista' | 'parcelado') => {
     const company = delinquentCompanies.find(c => c.id === companyId);
     if (!company) return;
+    setAgreementCompany(company);
+    setAgreementType(type);
+    setAgreementAccepted(false);
+    setShowAgreementModal(true);
+  };
+
+  const handleFinalizeAgreement = () => {
+    if (!agreementCompany || !agreementAccepted) return;
+
+    const company = agreementCompany;
+    const type = agreementType;
 
     const newAgreement = {
       id: Date.now(),
       company: company.name,
       amount: type === 'avista' ? company.debt * 0.9 : company.debt,
       type: type === 'avista' ? 'À Vista (10% desc)' : 'Parcelado (Sem juros)',
-      status: 'Aguardando Assinatura',
-      date: new Date().toLocaleDateString()
+      status: 'Acordo Firmado',
+      date: new Date().toLocaleDateString(),
+      acceptedAt: new Date().toISOString()
     };
 
     setAgreements([newAgreement, ...agreements]);
-    alert(`Acordo ${type === 'avista' ? 'À VISTA' : 'PARCELADO'} gerado para ${company.name}`);
+    setShowAgreementModal(false);
+    showNotification('success', `Acordo ${type === 'avista' ? 'À VISTA' : 'PARCELADO'} gerado com sucesso!`);
   };
 
   const handleAddExpense = (e: React.FormEvent) => {
@@ -2522,18 +2546,18 @@ Para corrigir:
                                       </div>
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                                   <div className="flex items-center gap-2 opacity-60 group-hover:opacity-100 transition-all">
                                     <button 
-                                      className="p-2 bg-gray-50 text-gray-400 hover:text-blue-900 hover:bg-blue-100 rounded-lg transition-all"
+                                      className="p-2.5 bg-blue-50 text-blue-900 hover:bg-blue-100 rounded-xl transition-all shadow-sm"
                                       title="Visualizar Detalhes"
                                     >
-                                      <Eye className="w-3.5 h-3.5" />
+                                      <Eye className="w-4 h-4" />
                                     </button>
                                     <button 
-                                      className="p-2 bg-gray-50 text-gray-400 hover:text-blue-900 hover:bg-blue-100 rounded-lg transition-all"
+                                      className="p-2.5 bg-amber-50 text-amber-600 hover:bg-amber-100 rounded-xl transition-all shadow-sm"
                                       title="Editar Perfil"
                                     >
-                                      <Settings className="w-3.5 h-3.5" />
+                                      <Settings className="w-4 h-4" />
                                     </button>
                                   </div>
                                 </div>
@@ -2554,54 +2578,74 @@ Para corrigir:
                          className="flex flex-col lg:flex-row gap-10 items-start min-h-[800px] relative"
                        >
                          {/* Persistent Sidebar Navigation */}
-                         <aside className="w-full lg:w-72 lg:sticky lg:top-24 space-y-8">
-                            <div className="bg-white border border-gray-100 rounded-[40px] p-2 shadow-xl overflow-hidden">
+                         <aside className="w-full lg:w-72 lg:sticky lg:top-24 space-y-6">
+                            <div className="bg-blue-950 border border-white/10 rounded-[32px] p-3 shadow-2xl overflow-hidden ring-1 ring-white/10">
                                <div className="flex flex-col gap-1">
                                   {[
-                                    { section: 'Administrativo', items: [
-                                      { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard },
-                                      { id: 'syndicate', label: 'Perfil Sindicato', icon: Building2 },
-                                    ]},
-                                    { section: 'Gestão de Membros', items: [
-                                      { id: 'associates', label: 'Associados', icon: Users },
-                                      { id: 'team', label: 'Liderança', icon: ShieldCheck },
-                                    ]},
-                                    { section: 'Financeiro', items: [
-                                      { id: 'finance', label: 'Fluxo de Caixa', icon: CreditCard },
-                                      { id: 'billing', label: 'Faturamento/Boleto', icon: Banknote },
-                                    ]},
-                                    { section: 'Serviços & Digital', items: [
-                                      { id: 'juceb', label: 'Processos JUCEB', icon: Briefcase },
-                                      { id: 'docs', label: 'Certidões/Docs', icon: Printer },
-                                      { id: 'ai_faq', label: 'IA FAQ Assist', icon: Bot },
-                                    ]},
-                                    { section: 'Conteúdo Site', items: [
-                                      { id: 'publications', label: 'Notícias/Blog', icon: Globe },
-                                      { id: 'cms', label: 'Gerenciar Site', icon: LayoutGrid },
-                                    ]},
-                                    { section: 'Configurações', items: [
-                                      { id: 'system', label: 'Ajustes Sistema', icon: Settings },
-                                    ]},
+                                    { 
+                                      section: 'Principal', 
+                                      items: [
+                                        { id: 'dashboard', label: 'Monitoramento', icon: LayoutDashboard, color: 'text-blue-400' },
+                                        { id: 'syndicate', label: 'Institucional', icon: Building2, color: 'text-indigo-400' },
+                                      ]
+                                    },
+                                    { 
+                                      section: 'Membros & Equipe', 
+                                      items: [
+                                        { id: 'associates', label: 'Base de Associados', icon: Users, color: 'text-emerald-400' },
+                                        { id: 'team', label: 'Conselho e Diretoria', icon: ShieldCheck, color: 'text-cyan-400' },
+                                      ]
+                                    },
+                                    { 
+                                      section: 'Gestão Financeira', 
+                                      items: [
+                                        { id: 'finance', label: 'Movimentação', icon: CreditCard, color: 'text-rose-500' },
+                                        { id: 'billing', label: 'Emissão de Boletos', icon: Banknote, color: 'text-orange-500' },
+                                      ]
+                                    },
+                                    { 
+                                      section: 'Digital & Processos', 
+                                      items: [
+                                        { id: 'juceb', label: 'Integração JUCEB', icon: Briefcase, color: 'text-amber-500' },
+                                        { id: 'docs', label: 'Gerador de Documentos', icon: Printer, color: 'text-violet-500' },
+                                        { id: 'ai_faq', label: 'Assistente (IA)', icon: Bot, color: 'text-fuchsia-500' },
+                                      ]
+                                    },
+                                    { 
+                                      section: 'Presença Digital', 
+                                      items: [
+                                        { id: 'publications', label: 'Notícias & Blog', icon: Globe, color: 'text-sky-500' },
+                                        { id: 'cms', label: 'Editor do Site', icon: LayoutGrid, color: 'text-teal-500' },
+                                      ]
+                                    },
+                                    { 
+                                      section: 'Sistema', 
+                                      items: [
+                                        { id: 'system', label: 'Parâmetros Gerais', icon: Settings, color: 'text-gray-500' },
+                                      ]
+                                    },
                                   ].map((group, idx) => (
-                                    <div key={idx} className={`${idx !== 0 ? 'mt-4 border-t border-gray-50 pt-4' : ''} px-2`}>
-                                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 ml-4">{group.section}</p>
-                                      <div className="space-y-1">
+                                    <div key={idx} className={`${idx !== 0 ? 'mt-6 pt-4 border-t border-white/10' : ''}`}>
+                                      <p className="px-4 text-[10px] font-black text-blue-300/60 uppercase tracking-[0.25em] mb-4">{group.section}</p>
+                                      <div className="space-y-1.5">
                                         {group.items.map((tab) => (
                                           <button
                                             key={tab.id}
                                             onClick={() => setAdminSubTab(tab.id as any)}
-                                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs transition-all relative group ${
+                                            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-xs transition-all relative group ${
                                               adminSubTab === tab.id 
-                                              ? 'bg-blue-900 text-white shadow-lg shadow-blue-900/20' 
-                                              : 'text-gray-500 hover:bg-gray-50 hover:text-blue-900'
+                                              ? 'bg-white/10 text-white active-nav-glow shadow-lg shadow-black/20' 
+                                              : 'text-blue-100/70 hover:bg-white/5 hover:text-white'
                                             }`}
                                           >
-                                            <tab.icon className={`w-4 h-4 ${adminSubTab === tab.id ? 'text-amber-400' : 'text-gray-400 group-hover:text-blue-900'}`} />
-                                            <span>{tab.label}</span>
+                                            <div className={`p-2 rounded-xl transition-colors ${adminSubTab === tab.id ? 'bg-blue-600 shadow-lg shadow-blue-600/40' : 'bg-white/5 group-hover:bg-white/10'}`}>
+                                              <tab.icon className={`w-4 h-4 ${adminSubTab === tab.id ? 'text-white' : 'text-blue-200'}`} />
+                                            </div>
+                                            <span className="flex-1 text-left">{tab.label}</span>
                                             {adminSubTab === tab.id && (
                                               <motion.div
                                                 layoutId="activeIndicator"
-                                                className="absolute right-2 w-1.5 h-1.5 bg-amber-400 rounded-full"
+                                                className="absolute left-0 w-1 h-6 bg-amber-400 rounded-r-full shadow-[0_0_15px_rgba(251,191,36,0.6)]"
                                               />
                                             )}
                                           </button>
@@ -3005,13 +3049,13 @@ Para corrigir:
                                                   </td>
                                                   <td className="py-6 text-right space-x-2">
                                                      <button 
-                                                       onClick={() => handleCreateAgreement(company.id, 'avista')}
+                                                       onClick={() => handleInitiateAgreement(company.id, 'avista')}
                                                        className="px-3 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all uppercase tracking-tighter"
                                                      >
                                                        Acordo À Vista
                                                      </button>
                                                      <button 
-                                                       onClick={() => handleCreateAgreement(company.id, 'parcelado')}
+                                                       onClick={() => handleInitiateAgreement(company.id, 'parcelado')}
                                                        className="px-3 py-2 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all uppercase tracking-tighter"
                                                      >
                                                        Parcelar
@@ -3188,6 +3232,25 @@ Para corrigir:
                                                   <List className="w-4 h-4" />
                                                </button>
                                             </div>
+                                            <button 
+                                               onClick={() => {
+                                                  const input = document.createElement('input');
+                                                  input.type = 'file';
+                                                  input.accept = 'image/*,video/*';
+                                                  input.onchange = (e: any) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) {
+                                                      alert('Iniciando carregamento de: ' + file.name);
+                                                    }
+                                                  };
+                                                  input.click();
+                                               }}
+                                               className="bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 px-4 py-2 rounded-2xl flex items-center gap-2 transition-all shadow-sm border border-emerald-100 group"
+                                               title="Carregar nova mídia (Imagem ou Vídeo)"
+                                             >
+                                                <Upload className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                                                <span className="text-[10px] font-black uppercase tracking-widest">Upload</span>
+                                             </button>
                                             <div className="bg-blue-50 px-4 py-2 rounded-2xl flex items-center gap-2">
                                                <Camera className="w-4 h-4 text-blue-600" />
                                                <span className="text-xs font-bold text-blue-900">{mediaItems.length} Itens</span>
@@ -3239,8 +3302,17 @@ Para corrigir:
                                                        <h5 className="font-black text-sm text-gray-900 mb-6 italic line-clamp-2">{item.title}</h5>
                                                     </div>
                                                     <a href={item.url} target="_blank" rel="noreferrer" className="text-[10px] font-black text-blue-600 uppercase hover:text-blue-900 transition-colors flex items-center gap-2">
-                                                      Acessar Conteúdo <ChevronRight className="w-3 h-3" />
+                                                       Ver Conteúdo <ChevronRight className="w-3 h-3" />
                                                      </a>
+                                                     {item.type === 'link' && (
+                                                       <button 
+                                                         onClick={(e) => { e.preventDefault(); alert('Download do PDF...'); e.stopPropagation(); }}
+                                                         className="mt-2 flex items-center gap-1.5 text-blue-600 font-black text-[10px] uppercase"
+                                                       >
+                                                          <Download className="w-3.5 h-3.5" /> PDF
+                                                       </button>
+                                                     )}
+
                                                  </div>
                                               </div>
                                             ))}
@@ -3266,9 +3338,21 @@ Para corrigir:
                                                        </div>
                                                     </div>
                                                  </div>
-                                                 <a href={item.url} target="_blank" rel="noreferrer" className="bg-blue-50 text-blue-600 p-2.5 rounded-xl hover:bg-blue-600 hover:text-white transition-all">
-                                                    <ExternalLink className="w-4 h-4" />
-                                                 </a>
+                                                 <div className="flex items-center gap-2">
+                                                     {item.type === 'link' && (
+                                                       <button 
+                                                         onClick={(e) => { e.preventDefault(); alert('Download do PDF anunciado...'); }}
+                                                         className="bg-blue-50 text-blue-600 p-2.5 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                                                         title="Baixar em PDF"
+                                                       >
+                                                          <Download className="w-4 h-4" />
+                                                       </button>
+                                                     )}
+                                                     <a href={item.url} target="_blank" rel="noreferrer" className="bg-blue-50 text-blue-600 p-2.5 rounded-xl hover:bg-blue-600 hover:text-white transition-all">
+                                                        <ExternalLink className="w-4 h-4" />
+                                                     </a>
+                                                  </div>
+
                                               </div>
                                             ))}
                                          </div>
@@ -3939,30 +4023,45 @@ Para corrigir:
                                                           <p className="text-sm font-black text-blue-950 leading-tight">{member.name}</p>
                                                           <div className="flex items-center gap-2">
                                                             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{member.role}</p>
+                                                            <button 
+                                                              onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                const newRole = prompt("Editar cargo de " + member.name, member.role);
+                                                                if (newRole !== null && newRole.trim() !== '') {
+                                                                  setTeamMembers(teamMembers.map(m => m.id === member.id ? { ...m, role: newRole } : m));
+                                                                }
+                                                              }}
+                                                              className="p-1 hover:bg-gray-100 rounded text-blue-400 hover:text-blue-600 transition-colors opacity-0 group-hover:opacity-100"
+                                                              title="Editar Cargo"
+                                                            >
+                                                              <Pencil className="w-3 h-3" />
+                                                            </button>
                                                             <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
                                                             <span className="text-[9px] font-black text-emerald-500 uppercase tracking-tighter">Ativo</span>
                                                           </div>
                                                         </div>
                                                       </div>
-                                                      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                                                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
                                                         <button 
-                                                          className="p-2 bg-gray-50 text-gray-400 hover:text-blue-900 hover:bg-blue-100 rounded-lg transition-all"
+                                                          className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-900 hover:bg-blue-600 hover:text-white rounded-xl transition-all shadow-sm text-[10px] font-black uppercase tracking-widest"
                                                           title="Visualizar Detalhes"
                                                         >
                                                           <Eye className="w-3.5 h-3.5" />
+                                                          <span className="hidden sm:inline">Ver</span>
                                                         </button>
                                                         <button 
-                                                          className="p-2 bg-gray-50 text-gray-400 hover:text-blue-900 hover:bg-blue-100 rounded-lg transition-all"
+                                                          className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-600 hover:bg-amber-500 hover:text-white rounded-xl transition-all shadow-sm text-[10px] font-black uppercase tracking-widest"
                                                           title="Editar Perfil"
                                                         >
                                                           <Settings className="w-3.5 h-3.5" />
+                                                          <span className="hidden sm:inline">Editar</span>
                                                         </button>
                                                         <button 
                                                           onClick={(e) => {
                                                             e.stopPropagation();
                                                             setTeamMembers(teamMembers.filter(m => m.id !== member.id));
                                                           }}
-                                                          className="p-2 bg-gray-50 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                                          className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm"
                                                           title="Remover"
                                                         >
                                                           <X className="w-3.5 h-3.5" />
@@ -4073,6 +4172,16 @@ Para corrigir:
                                                         </div>
                                                      </div>
                                                      <div className="flex items-center gap-2">
+                                                        {pub.isExternal && (
+                                                           <button 
+                                                             className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                                                             title="Baixar em PDF"
+                                                             onClick={(e) => { e.stopPropagation(); alert('Baixando PDF...'); }}
+                                                           >
+                                                              <Download className="w-3.5 h-3.5" />
+                                                              <span>PDF</span>
+                                                           </button>
+                                                        )}
                                                         <button 
                                                           onClick={() => {
                                                              if (pub.isExternal && pub.url) {
@@ -4084,7 +4193,7 @@ Para corrigir:
                                                           className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-600 hover:text-white transition-all"
                                                         >
                                                            {pub.isExternal ? (
-                                                              <>Acessar Link <ExternalLink className="w-3 h-3" /></>
+                                                              <>Link Externo <ExternalLink className="w-3 h-3" /></>
                                                             ) : (
                                                               expandedPubIndex === i ? 'Recolher' : 'Ver Detalhes'
                                                             )}
@@ -4842,16 +4951,16 @@ Para corrigir:
                   </div>
                 </div>
 
-                <nav className="hidden xl:flex items-center gap-5 text-xs font-black uppercase tracking-wider flex-1 justify-center">
+                <nav className="hidden xl:flex items-center gap-4 text-[13px] font-black uppercase tracking-tight flex-1 justify-center">
                   <a href="#inicio" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Início</a>
                   <a href="#servicos" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Serviços</a>
                   <a href="#noticias" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Notícias</a>
-                  <a href="#representatividade" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Atuação</a>
-                  <a href="#indicadores" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Dados</a>
+                  <a href="#representatividade" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Representatividade</a>
+                  <a href="#indicadores" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Indicadores</a>
                   <a href="#beneficios" className="text-amber-400 hover:text-amber-300 transition-colors whitespace-nowrap">
-                    Clube
+                    Clube de Benefícios
                   </a>
-                  <a href="#certidao" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Consulta</a>
+                  <a href="#certidao" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Consulta Pública</a>
                   <a href="#contato" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Contato</a>
                 </nav>
 
@@ -4930,18 +5039,12 @@ Para corrigir:
                     <a href="#inicio" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400">Início</a>
                     <a href="#servicos" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400">Serviços</a>
                     <a href="#noticias" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400">Notícias</a>
-                    <a href="#representatividade" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400">Atuação</a>
-                    <a href="#indicadores" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400">Dados</a>
-                    <a href="#beneficios" onClick={() => setIsMenuOpen(false)} className="text-amber-400 hover:text-amber-300">Clube</a>
-                    <a href="#certidao" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400">Consulta</a>
+                    <a href="#representatividade" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400">Representatividade</a>
+                    <a href="#indicadores" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400">Indicadores</a>
+                    <a href="#beneficios" onClick={() => setIsMenuOpen(false)} className="text-amber-400 hover:text-amber-300">Clube de Benefícios</a>
+                    <a href="#certidao" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400">Consulta Pública</a>
                     <a href="#contato" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400">Contato</a>
                     <div className="pt-4 border-t border-white/5 flex flex-col gap-3">
-                      <button 
-                        onClick={() => { setShowMembershipForm(true); setIsMenuOpen(false); }}
-                        className="bg-amber-400 text-blue-950 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-wider text-center"
-                      >
-                        Seja um Associado
-                      </button>
                       <button 
                          onClick={() => { setAuthType('associate'); setShowAuthModal(true); setIsMenuOpen(false); }}
                          className="bg-white/5 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-wider text-center border border-white/10"
@@ -5204,12 +5307,23 @@ Para corrigir:
                 <p className="text-gray-500 mb-8 leading-relaxed text-base flex-1">
                   {news.desc}
                 </p>
-                <button 
-                  onClick={() => news.url && window.open(news.url, '_blank')}
-                  className="flex items-center gap-2 text-base font-bold text-blue-900 hover:gap-3 transition-all"
-                >
-                  {news.isExternal ? 'Acessar link externo' : 'Ler matéria completa'} <ChevronRight className="w-5 h-5" />
-                </button>
+                <div className="flex items-center justify-between">
+                  <button 
+                    onClick={() => news.url && window.open(news.url, '_blank')}
+                    className="flex items-center gap-2 text-base font-bold text-blue-900 hover:gap-3 transition-all"
+                  >
+                    {news.isExternal ? 'Acessar link externo' : 'Ler matéria completa'} <ChevronRight className="w-5 h-5" />
+                  </button>
+                  {news.isExternal && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); alert('O download do PDF foi iniciado.'); }}
+                      className="p-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                      title="Baixar em PDF"
+                    >
+                      <Download className="w-5 h-5" />
+                    </button>
+                  )}
+                </div>
               </motion.div>
             ))}
           </motion.div>
@@ -6588,14 +6702,42 @@ Para corrigir:
                   </div>
 
                   <div className="col-span-2 space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Logo URL (Imagem)</label>
-                    <input 
-                      type="text" 
-                      value={newPartnerForm.logo}
-                      onChange={(e) => setNewPartnerForm({...newPartnerForm, logo: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
-                      placeholder="https://images.unsplash.com..."
-                    />
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Logotipo (Upload ou URL)</label>
+                    <div className="flex gap-4">
+                      <div className="flex-1">
+                        <input 
+                          type="text" 
+                          value={newPartnerForm.logo}
+                          onChange={(e) => setNewPartnerForm({...newPartnerForm, logo: e.target.value})}
+                          className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                          placeholder="URL da imagem (ex: https://...)"
+                        />
+                      </div>
+                      <label className="relative shrink-0 flex items-center justify-center w-14 h-14 bg-blue-50 border border-blue-100 rounded-2xl cursor-pointer hover:bg-blue-100 transition-all group overflow-hidden">
+                        {newPartnerForm.logo && (newPartnerForm.logo.startsWith('data:') || newPartnerForm.logo.startsWith('blob:')) ? (
+                          <img src={newPartnerForm.logo} className="w-full h-full object-cover" alt="Preview" />
+                        ) : (
+                          <Upload className="w-5 h-5 text-blue-600 group-hover:scale-110 transition-transform" />
+                        )}
+                        <input 
+                          type="file" 
+                          className="hidden" 
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                               const reader = new FileReader();
+                               reader.onloadend = () => {
+                                 setNewPartnerForm({...newPartnerForm, logo: reader.result as string});
+                                 showNotification('success', 'Imagem carregada com sucesso!');
+                               };
+                               reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <p className="text-[9px] text-gray-400 font-medium px-4">Dica: Formatos PNG ou JPG recomendados.</p>
                   </div>
 
                   <div className="col-span-2 space-y-2">
@@ -6627,6 +6769,130 @@ Para corrigir:
         )}
       </AnimatePresence>
       <AnimatePresence>
+        {/* Modal Recibo/Termo de Acordo */}
+        {showAgreementModal && (
+          <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden"
+            >
+              <div className="p-10">
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center">
+                      <FileCheck className="w-7 h-7 text-amber-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black text-blue-950 uppercase tracking-tighter">Termo de Acordo</h3>
+                      <p className="text-sm font-bold text-gray-400">Leia atentamente as condições abaixo</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setShowAgreementModal(false)}
+                    className="p-3 hover:bg-gray-50 rounded-2xl transition-all"
+                  >
+                    <X className="w-6 h-6 text-gray-400" />
+                  </button>
+                </div>
+
+                <div className="bg-gray-50 border border-gray-100 rounded-3xl p-8 mb-8 max-h-[300px] overflow-y-auto">
+                   <pre className="text-xs font-mono text-gray-600 leading-relaxed whitespace-pre-wrap">
+{`TERMO DE ACORDO EXTRAJUDICIAL E CONFISSÃO DE DÍVIDA
+
+Pelo presente instrumento, conforme as diretrizes do Sindicato Patronal (SINPA), as partes declaram estar de comum acordo quanto aos termos de quitação de débitos pendentes para a empresa ${agreementCompany?.name}.
+
+DADOS DO ACORDO:
+- Tipo: ${agreementType === 'avista' ? 'PAGAMENTO À VISTA (10% de Desconto)' : 'PARCELAMENTO SEM JUROS'}
+- Valor Base: R$ ${agreementCompany?.debt?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+- Valor do Acordo: R$ ${(agreementType === 'avista' ? agreementCompany?.debt * 0.9 : agreementCompany?.debt)?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+
+CONDIÇÕES GERAIS:
+1. O Devedor reconhece integralmente a dívida e se compromete a efetuar o pagamento conforme a modalidade selecionada.
+2. Cláusula de Quebra: O não pagamento de qualquer parcela ou do valor integral à vista implicará no cancelamento imediato deste acordo, com o retorno do valor original do débito e cobrança de encargos legais.
+3. LGPD: Os dados coletados neste termo serão utilizados exclusivamente para fins de gestão financeira e regularização sindical, em conformidade com a Lei Geral de Proteção de Dados.
+4. Validade: Este acordo passa a ter validade jurídica imediata após o aceite eletrônico do representante legal da empresa.
+
+Aceito o presente termo em ${new Date().toLocaleDateString()} às ${new Date().toLocaleTimeString()}.`}
+                   </pre>
+                </div>
+
+                <label className="flex items-start gap-4 p-6 bg-blue-50/50 border border-blue-100 rounded-3xl cursor-pointer group hover:bg-blue-50 transition-all mb-8">
+                  <div className="relative flex items-center justify-center mt-1">
+                    <input 
+                      type="checkbox"
+                      checked={agreementAccepted}
+                      onChange={(e) => setAgreementAccepted(e.target.checked)}
+                      className="peer appearance-none w-6 h-6 border-2 border-blue-200 rounded-lg checked:bg-blue-600 checked:border-blue-600 transition-all"
+                    />
+                    <Check className="absolute w-4 h-4 text-white opacity-0 peer-checked:opacity-100 transition-all" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-blue-900 leading-snug">
+                      Eu li e concordo com os termos do acordo extrajudicial e confissão de dívida.
+                    </p>
+                    <p className="text-[10px] font-medium text-blue-600/60 uppercase tracking-widest mt-1">Aceite obrigatório para prosseguir</p>
+                  </div>
+                </label>
+
+                <div className="flex gap-4">
+                   <button 
+                    onClick={() => setShowAgreementModal(false)}
+                    className="flex-1 py-5 bg-gray-50 text-gray-400 rounded-3xl font-bold uppercase tracking-widest text-xs hover:bg-gray-100 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={handleFinalizeAgreement}
+                    disabled={!agreementAccepted}
+                    className="flex-[2] py-5 bg-blue-900 text-white rounded-3xl font-bold uppercase tracking-widest text-xs shadow-xl shadow-blue-900/20 hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:grayscale transition-all flex items-center justify-center gap-3"
+                  >
+                    <CheckCircle2 className="w-5 h-5" /> Confirmar Acordo
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Banner LGPD */}
+        <AnimatePresence>
+          {showLGPD && (
+            <motion.div 
+              initial={{ y: 100, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 100, opacity: 0 }}
+              className="fixed bottom-8 left-8 right-8 md:left-auto md:max-w-md z-[90] bg-white/95 backdrop-blur shadow-2xl rounded-[32px] border border-blue-100 p-8 flex flex-col gap-6"
+            >
+              <div className="flex items-start gap-5">
+                 <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center shrink-0">
+                    <ShieldCheck className="w-7 h-7 text-blue-600" />
+                 </div>
+                 <div className="flex-1">
+                    <h4 className="text-lg font-black text-blue-950 uppercase tracking-tighter mb-2">Sua Privacidade</h4>
+                    <p className="text-xs font-medium text-gray-500 leading-relaxed">
+                      Nós utilizamos cookies e tecnologias de segurança para melhorar sua experiência e proteger seus dados corporativos conforme a <strong>Lei Geral de Proteção de Dados (LGPD)</strong>.
+                    </p>
+                 </div>
+              </div>
+              <div className="flex gap-4">
+                 <button 
+                    onClick={() => {
+                        localStorage.setItem('lgpd_accepted', 'true');
+                        setShowLGPD(false);
+                    }}
+                    className="flex-1 py-4 bg-blue-900 text-white rounded-2xl font-bold text-xs uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-blue-900/20"
+                 >
+                    Continuar e Aceitar
+                 </button>
+                 <button className="px-6 py-4 bg-gray-50 text-gray-400 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-gray-100 transition-all">
+                    Termos
+                 </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {globalMessage && (
           <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
