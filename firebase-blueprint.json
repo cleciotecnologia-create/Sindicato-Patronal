@@ -51,6 +51,19 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["message", "createdAt"]
+    },
+    "FAQ": {
+      "title": "FAQ",
+      "description": "Automatically generated FAQ from user queries",
+      "type": "object",
+      "properties": {
+        "category": { "type": "string" },
+        "question": { "type": "string" },
+        "answer": { "type": "string" },
+        "relevance": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["category", "question", "answer", "updatedAt"]
     }
   },
   "firestore": {
@@ -69,6 +82,10 @@
     "/suggestions/{suggestionId}": {
       "schema": "Suggestion",
       "description": "User suggestions and feedback"
+    },
+    "/faq/{faqId}": {
+      "schema": "FAQ",
+      "description": "Collection of frequently asked questions"
     }
   }
 }

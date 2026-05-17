@@ -84,6 +84,22 @@ service cloud.firestore {
              data.createdAt == request.time;
     }
 
+    function isValidFAQ(data) {
+      return data.category is string && data.category.size() <= 100 &&
+             data.question is string && data.question.size() <= 500 &&
+             data.answer is string && data.answer.size() <= 2000 &&
+             data.updatedAt == request.time;
+    }
+
+    function isValidMembershipRequest(data) {
+      return data.companyName is string && data.companyName.size() <= 200 &&
+             data.cnpj is string && data.cnpj.size() <= 20 &&
+             data.email is string && data.email.size() <= 100 &&
+             data.capitalSocial is number &&
+             data.status == 'pending' &&
+             data.createdAt == request.time;
+    }
+
     // --- Collection Rules ---
 
     match /test/connection {
@@ -143,6 +159,16 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidSuggestion(incoming());
       allow read, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow update: if isAdmin();
+    }
+
+    match /faq/{faqId} {
+      allow read: if true; // Publicly accessible FAQ
+      allow write: if isAdmin() && isValidFAQ(incoming());
+    }
+
+    match /membership_requests/{requestId} {
+      allow create: if isValidMembershipRequest(incoming());
+      allow read, update, delete: if isAdmin();
     }
   }
 }

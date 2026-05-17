@@ -29,6 +29,15 @@ import {
   Briefcase,
   Zap,
   Bot,
+  Sparkles,
+  ImageIcon,
+  Palette,
+  Save,
+  Camera,
+  Upload,
+  MapPin,
+  Building,
+  Banknote,
   Hash,
   DownloadCloud,
   CheckCircle,
@@ -46,15 +55,15 @@ import {
   Check,
   Home,
   HelpCircle,
-  Image,
   Link,
   ArrowDownCircle,
-  Camera,
-  Banknote,
   PiggyBank,
   QrCode,
   LayoutGrid,
   List,
+  ArrowLeft,
+  Calendar,
+  Eye,
   Loader2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -90,17 +99,20 @@ import {
   sendPasswordResetEmail
 } from 'firebase/auth';
 import { 
-  collection, 
+  collection,
+  collectionGroup,
   addDoc, 
   getDocs, 
   query, 
   where, 
   Timestamp,
+  serverTimestamp,
   orderBy,
   onSnapshot,
   doc,
   getDoc,
   setDoc,
+  updateDoc,
   deleteDoc
 } from 'firebase/firestore';
 
@@ -181,7 +193,7 @@ function LandingPage() {
   const [calcAdjustment, setCalcAdjustment] = useState(5);
   
   const [activeDashboardTab, setActiveDashboardTab] = useState<'overview' | 'boletos' | 'docs' | 'voting' | 'accountant' | 'partners' | 'admin' | 'settings' | 'suggestions'>('overview');
-  const [adminSubTab, setAdminSubTab] = useState<'dashboard' | 'finance' | 'billing' | 'associates' | 'partners' | 'system' | 'media' | 'docs' | 'team' | 'publications'>('dashboard');
+  const [adminSubTab, setAdminSubTab] = useState<'dashboard' | 'finance' | 'billing' | 'associates' | 'partners' | 'system' | 'media' | 'docs' | 'team' | 'publications' | 'syndicate'>('dashboard');
   const [memberLoggedIn, setMemberLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -191,7 +203,39 @@ function LandingPage() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authType, setAuthType] = useState<'admin' | 'associate'>('associate');
   const [resetSent, setResetSent] = useState(false);
+  const [showMembershipForm, setShowMembershipForm] = useState(false);
+  const [membershipData, setMembershipData] = useState({
+    companyName: '',
+    cnpj: '',
+    email: '',
+    phone: '',
+    capitalSocial: '',
+    representative: '',
+    address: ''
+  });
+  const [isSubmittingMembership, setIsSubmittingMembership] = useState(false);
+  const [siteConfig, setSiteConfig] = useState({
+    primaryColor: '#1e3a8a', // blue-900
+    accentColor: '#fbbf24', // amber-400
+    heroTitle: 'O Futuro do Setor Patronal é Digital',
+    heroSubtitle: 'Soluções inteligentes, representatividade forte e benefícios exclusivos para empresas que transformam o amanhã.',
+    logoUrl: 'https://storage.googleapis.com/mcp-art-pipeline.appspot.com/art-id-12345/input_file_0.png',
+    headerLogoWidth: 100,
+    footerLogoWidth: 80,
+    name: 'Sindicato Patronal das Indústrias',
+    cnpj: '00.000.000/0001-00',
+    address: 'Av. Industrial, 1000 - Centro, Salvador - BA',
+    phone: '(71) 3333-0000',
+    email: 'contato@sindicato.org.br',
+    mission: 'Fortalecer o setor industrial através da representatividade e excelência em serviços.',
+  });
+  const [jucebProcesses, setJucebProcesses] = useState([
+    { id: '1', company: 'Ind. Têxtil Silva', type: 'Abertura de Filial', status: 'Em Análise', date: '12/05/2026', responsible: 'André Fonseca' },
+    { id: '2', company: 'Comércio de Peças João', type: 'Alteração Contratual', status: 'Aguardando Documento', date: '14/05/2026', responsible: 'André Fonseca' },
+    { id: '3', company: 'Nova Era Tech', type: 'Baixa de Empresa', status: 'Concluído', date: '10/05/2026', responsible: 'André Fonseca' },
+  ]);
   const SUPER_USER_EMAIL = 'cleciotecnologia@gmail.com';
 
   const [expenses, setExpenses] = useState<any[]>([
@@ -213,10 +257,22 @@ function LandingPage() {
     walletId: 'WEB-99283-ID'
   });
 
-  const [billings, setBillings] = useState<any[]>([
-    { id: 1, memberName: 'Empresa Alfa', value: 150.00, dueDate: '20/05/2026', status: 'pendente', type: 'mensalidade' },
-    { id: 2, memberName: 'Serralheria Silva', value: 250.00, dueDate: '15/05/2026', status: 'pago', type: 'mensalidade' },
-  ]);
+  const [allBillings, setAllBillings] = useState<any[]>([]);
+  const [isFetchingBillings, setIsFetchingBillings] = useState(false);
+
+  const fetchBillings = async () => {
+    setIsFetchingBillings(true);
+    try {
+      // Usar collectionGroup para buscar todos os boletos vinculados a membros
+      const q = query(collectionGroup(db, 'boletos'), orderBy('dueDate', 'asc'));
+      const snap = await getDocs(q);
+      setAllBillings(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      console.warn("Could not fetch billings", error);
+    } finally {
+      setIsFetchingBillings(false);
+    }
+  };
 
   const [newExpense, setNewExpense] = useState({ description: '', value: '', type: 'fixa', category: '' });
   const [newMedia, setNewMedia] = useState({ title: '', url: '', type: 'foto' });
@@ -261,17 +317,136 @@ function LandingPage() {
   const [userRole, setUserRole] = useState<'admin' | 'presidencia' | 'diretoria' | 'gerencia' | 'atendimento' | 'associado'>('associado');
   const [selectedAssociate, setSelectedAssociate] = useState<any | null>(null);
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
-  const [docType, setDocType] = useState<'cct' | 'news' | 'internal'>('cct');
+  const [docType, setDocType] = useState<'cct' | 'news' | 'internal' | 'juridico'>('cct');
+  const [expandedPubIndex, setExpandedPubIndex] = useState<number | null>(null);
+
+  const handleApproveRequest = async (request: any) => {
+    try {
+      setGlobalMessage({ type: 'info', text: `Aprovando solicitação de ${request.companyName}...` });
+      
+      // 1. Criar o Associado (Membro)
+      const memberRef = await addDoc(collection(db, 'members'), {
+        name: request.companyName,
+        cnpj: request.cnpj,
+        email: request.email,
+        phone: request.phone,
+        representative: request.representative,
+        level: 'Bronze',
+        status: 'active', // 'active' conforme regras
+        createdAt: serverTimestamp(),
+        requestId: request.id
+      });
+
+      // 2. Gerar 12 mensalidades (Boletos) na sub-coleção
+      const monthlyValue = 150.00;
+      const today = new Date();
+      
+      for (let i = 0; i < 12; i++) {
+        const dueDate = new Date(today.getFullYear(), today.getMonth() + i + 1, 15);
+        await addDoc(collection(db, 'members', memberRef.id, 'boletos'), {
+          memberId: memberRef.id,
+          memberName: request.companyName, // Adicionado para facilitar listagem
+          title: `Mensalidade ${dueDate.getMonth() + 1}/${dueDate.getFullYear()}`,
+          amount: monthlyValue,
+          dueDate: Timestamp.fromDate(dueDate),
+          status: 'pending',
+          createdAt: serverTimestamp()
+        });
+      }
+
+      // 3. Atualizar status da solicitação
+      await updateDoc(doc(db, 'membership_requests', request.id), {
+        status: 'approved',
+        approvedAt: serverTimestamp()
+      });
+
+      showNotification('success', `Associado ${request.companyName} aprovado e 12 mensalidades geradas!`);
+      fetchMembershipRequests();
+    } catch (error: any) {
+      console.error('Error approving request:', error);
+      showNotification('error', 'Falha ao aprovar: ' + error.message);
+    }
+  };
+
+  const [membershipRequests, setMembershipRequests] = useState<any[]>([]);
+  const [isFetchingRequests, setIsFetchingRequests] = useState(false);
+
+  const fetchMembershipRequests = async () => {
+    setIsFetchingRequests(true);
+    try {
+      const q = query(collection(db, 'membership_requests'), where('status', '==', 'pending'), orderBy('createdAt', 'desc'));
+      const snap = await getDocs(q);
+      setMembershipRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      console.warn("Could not fetch membership requests", error);
+    } finally {
+      setIsFetchingRequests(false);
+    }
+  };
+
+  const [members, setMembers] = useState<any[]>([]);
+  const [isFetchingMembers, setIsFetchingMembers] = useState(false);
+
+  const fetchMembers = async () => {
+    setIsFetchingMembers(true);
+    try {
+      const q = query(collection(db, 'members'), orderBy('createdAt', 'desc'));
+      const snap = await getDocs(q);
+      setMembers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      console.warn("Could not fetch members", error);
+    } finally {
+      setIsFetchingMembers(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (activeDashboardTab === 'admin') {
+      if (adminSubTab === 'associates') {
+        fetchMembershipRequests();
+        fetchMembers();
+      }
+      if (adminSubTab === 'billing') {
+        fetchBillings();
+      }
+    }
+  }, [activeDashboardTab, adminSubTab]);
+
+  const handlePublishDoc = async () => {
+    setIsUploadingDoc(true);
+    try {
+      // Simulação de upload
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      showNotification('success', `Documento (${docType.toUpperCase()}) publicado com sucesso no portal!`);
+    } catch (error) {
+      showNotification('error', 'Falha ao publicar documento: ' + getFriendlyErrorMessage(error));
+    } finally {
+      setIsUploadingDoc(false);
+    }
+  };
 
   React.useEffect(() => {
     const timer = setInterval(() => {
       setSystemTime(new Date());
     }, 1000);
+
+    // Fetch FAQs
+    const fetchFAQs = async () => {
+      try {
+        const q = query(collection(db, 'faq'), orderBy('relevance', 'desc'));
+        const snap = await getDocs(q);
+        setFaqs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (error) {
+        console.warn("Could not fetch FAQs", error);
+      }
+    };
+    fetchFAQs();
+
     return () => clearInterval(timer);
   }, []);
 
   // Determina se o usuário logado tem poderes de gestão plena
-  const hasManagementPower = ['admin', 'presidencia', 'diretoria'].includes(userRole);
+  const hasManagementPower = ['admin', 'presidencia', 'diretoria', 'gerencia'].includes(userRole);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -313,24 +488,137 @@ function LandingPage() {
     photo: ''
   });
 
+  const [faqs, setFaqs] = useState<any[]>([]);
+  const [isGeneratingFAQ, setIsGeneratingFAQ] = useState(false);
+
+  const [globalMessage, setGlobalMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  const getFriendlyErrorMessage = (error: any): string => {
+    if (typeof error === 'string') {
+      try {
+        const parsed = JSON.parse(error);
+        if (parsed.error && parsed.error.includes('insufficient permissions')) {
+          return 'ACESSO NEGADO: Você não tem permissão para realizar esta operação.';
+        }
+        return parsed.error || error;
+      } catch {
+        return error;
+      }
+    }
+    
+    const code = error?.code || error?.message;
+    
+    switch (code) {
+      case 'auth/user-not-found':
+      case 'auth/wrong-password':
+      case 'auth/invalid-credential':
+        return 'E-mail ou senha inválidos.';
+      case 'auth/too-many-requests':
+        return 'Muitas tentativas malsucedidas. Aguarde alguns minutos.';
+      case 'auth/network-request-failed':
+        return 'Falha de conexão. Verifique sua internet.';
+      default:
+        return error?.message || 'Erro inesperado.';
+    }
+  };
+
+  const showNotification = (type: 'success' | 'error' | 'info', text: string) => {
+    setGlobalMessage({ type, text });
+    setTimeout(() => setGlobalMessage(null), 5000);
+  };
+
   const handleUpdateProfile = async () => {
     if (!currentUser) return;
     setIsUpdatingProfile(true);
+    setGlobalMessage(null);
     try {
       await updateProfile(currentUser, {
         displayName: newDisplayName,
         photoURL: newPhotoURL
       });
-      // Force refresh local state
       if (auth.currentUser) {
         setCurrentUser({...auth.currentUser});
       }
-      alert("Perfil atualizado com sucesso!");
-    } catch (error) {
+      showNotification('success', "Perfil atualizado com sucesso!");
+    } catch (error: any) {
       console.error("Erro ao atualizar perfil:", error);
-      alert("Falha ao atualizar perfil.");
+      showNotification('error', "Falha: " + getFriendlyErrorMessage(error));
     } finally {
       setIsUpdatingProfile(false);
+    }
+  };
+
+  const handleGenerateFAQ = async () => {
+    try {
+      setIsGeneratingFAQ(true);
+      const suggestionSnap = await getDocs(collection(db, 'suggestions'));
+      const queries = suggestionSnap.docs.map(doc => doc.data().message);
+
+      if (queries.length < 3) {
+        showNotification('info', 'Não há sugestões suficientes para gerar o FAQ. São necessárias pelo menos 3 perguntas.');
+        return;
+      }
+
+      const response = await fetch('/api/faq/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queries }),
+      });
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      // Clean old and save new
+      const oldFaqs = await getDocs(collection(db, 'faq'));
+      for (const d of oldFaqs.docs) {
+        await deleteDoc(doc(db, 'faq', d.id));
+      }
+
+      for (const item of data.faq) {
+        await addDoc(collection(db, 'faq'), {
+          ...item,
+          updatedAt: Timestamp.now(),
+        });
+      }
+
+      showNotification('success', 'FAQ gerado com sucesso pela IA!');
+      const faqSnap = await getDocs(collection(db, 'faq'));
+      setFaqs(faqSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+    } catch (error: any) {
+      console.error('Error generating FAQ:', error);
+      showNotification('error', 'Falha ao gerar FAQ: ' + error.message);
+    } finally {
+      setIsGeneratingFAQ(false);
+    }
+  };
+
+  const handleMembershipSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setIsSubmittingMembership(true);
+      await addDoc(collection(db, 'membership_requests'), {
+        ...membershipData,
+        capitalSocial: Number(membershipData.capitalSocial),
+        status: 'pending',
+        createdAt: serverTimestamp()
+      });
+      showNotification('success', 'Solicitação de filiação enviada com sucesso! Nossa equipe entrará em contato.');
+      setShowMembershipForm(false);
+      setMembershipData({
+        companyName: '',
+        cnpj: '',
+        email: '',
+        phone: '',
+        capitalSocial: '',
+        representative: '',
+        address: ''
+      });
+    } catch (error: any) {
+      console.error('Error submitting membership:', error);
+      showNotification('error', 'Falha ao enviar solicitação: ' + error.message);
+    } finally {
+      setIsSubmittingMembership(false);
     }
   };
 
@@ -483,7 +771,9 @@ function LandingPage() {
       });
       setNewAdminEmail('');
       refetchAdmins();
+      showNotification('success', `Administrador ${newAdminEmail} adicionado com sucesso!`);
     } catch (error) {
+      showNotification('error', `Falha ao adicionar administrador: ${getFriendlyErrorMessage(error)}`);
       handleFirestoreError(error, OperationType.WRITE, `admins/${newAdminEmail}`);
     }
   };
@@ -493,7 +783,9 @@ function LandingPage() {
     try {
       await deleteDoc(doc(db, 'admins', email));
       refetchAdmins();
+      showNotification('success', `Acesso administrativo removido de ${email}.`);
     } catch (error) {
+      showNotification('error', `Falha ao remover administrador: ${getFriendlyErrorMessage(error)}`);
       handleFirestoreError(error, OperationType.DELETE, `admins/${email}`);
     }
   };
@@ -518,6 +810,15 @@ function LandingPage() {
       if (user) {
         setNewDisplayName(user.displayName || '');
         setNewPhotoURL(user.photoURL || '');
+        
+        // Simulação de papéis para o protótipo
+        const email = user.email || '';
+        if (email === SUPER_USER_EMAIL) setUserRole('admin');
+        else if (email.includes('presidencia')) setUserRole('presidencia');
+        else if (email.includes('diretoria')) setUserRole('diretoria');
+        else if (email.includes('gerencia')) setUserRole('gerencia');
+        else if (email.includes('atendimento')) setUserRole('atendimento');
+        else setUserRole('associado');
       }
     });
     return () => unsubscribe();
@@ -528,28 +829,35 @@ function LandingPage() {
   const handleGoogleLogin = async () => {
     const provider = new GoogleAuthProvider();
     setAuthError(null);
+    setAuthLoading(true);
     try {
       await signInWithPopup(auth, provider);
       setShowAuthModal(false);
     } catch (error: any) {
-      console.error("Erro no Login:", error);
+      console.error("Erro no Login Google:", error);
+      let message = 'Ocorreu um erro inesperado ao conectar com o Google.';
+      
       if (error.code === 'auth/unauthorized-domain') {
         const currentDomain = window.location.hostname;
         const projectId = firebaseConfig.projectId;
-        setAuthError(`DOMÍNIO NÃO AUTORIZADO: O domínio "${currentDomain}" não está na lista de permissões do seu projeto Firebase (ID: ${projectId}). 
+        message = `DOMÍNIO NÃO AUTORIZADO: O domínio "${currentDomain}" não está na lista de permissões do seu projeto Firebase (ID: ${projectId}). 
 
 Para corrigir:
-1. Acesse console.firebase.google.com e selecione o projeto "${projectId}".
+1. Acesse o Console do Firebase e selecione o projeto "${projectId}".
 2. Vá em Autenticação > Configurações > Domínios autorizados.
-3. Adicione o domínio: ${currentDomain}
-4. Se já adicionou, aguarde 10 minutos para a propagação do Google.`);
+3. Adicione o domínio: ${currentDomain}`;
       } else if (error.code === 'auth/popup-blocked') {
-        setAuthError('POPUP BLOQUEADA: Por favor, permita popups para este site para realizar o login.');
+        message = 'POPUP BLOQUEADA: Por favor, habilite janelas pop-up para este site em seu navegador.';
       } else if (error.code === 'auth/popup-closed-by-user') {
-        setAuthError('LOGIN CANCELADO: A janela de login foi fechada antes da conclusão.');
+        message = 'LOGIN CANCELADO: A janela de autenticação foi fechada antes de completar o processo.';
+      } else if (error.code === 'auth/network-request-failed') {
+        message = 'ERRO DE REDE: Verifique sua conexão com a internet e tente novamente.';
       } else {
-        setAuthError(`ERRO AO CONECTAR: ${error.message || "Tente novamente mais tarde."}`);
+        message = `ERRO DE AUTENTICAÇÃO: ${error.message || "Tente novamente mais tarde."}`;
       }
+      setAuthError(message);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -580,12 +888,16 @@ Para corrigir:
       setShowAuthModal(false);
     } catch (error: any) {
       console.error("Erro ao logar:", error);
-      let message = 'E-mail ou senha incorretos.';
+      let message = 'E-mail ou senha inválidos.';
       
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        message = 'Credenciais inválidas. Verifique seu e-mail/CNPJ e senha.';
+        message = 'Credenciais não reconhecidas. Por favor, revise seu e-mail/CNPJ e senha.';
       } else if (error.code === 'auth/too-many-requests') {
-        message = 'Muitas tentativas malsucedidas. Sua conta foi temporariamente bloqueada. Tente recuperar sua senha.';
+        message = 'ACESSO BLOQUEADO: Muitas tentativas inválidas. Aguarde alguns minutos ou redefina sua senha.';
+      } else if (error.code === 'auth/user-disabled') {
+        message = 'CONTA DESATIVADA: Este usuário foi suspenso. Entre em contato com a administração.';
+      } else if (error.code === 'auth/invalid-email') {
+        message = 'FORMATO INVÁLIDO: O endereço de e-mail informado não é válido.';
       }
       
       setAuthError(message);
@@ -704,9 +1016,10 @@ Para corrigir:
         createdAt: Timestamp.now()
       });
       setSuggestionForm({ name: '', email: '', message: '' });
-      setSuggestionStatus({ type: 'success', message: 'Sugestão enviada com sucesso! Agradecemos sua contribuição.' });
+      showNotification('success', 'Sugestão enviada com sucesso! Agradecemos sua contribuição.');
     } catch (error) {
-      setSuggestionStatus({ type: 'error', message: 'Erro ao enviar sugestão. Tente novamente mais tarde.' });
+      console.error("Erro ao enviar sugestão:", error);
+      showNotification('error', 'Não foi possível enviar sua sugestão: ' + getFriendlyErrorMessage(error));
       handleFirestoreError(error, OperationType.WRITE, 'suggestions');
     } finally {
       setIsSendingSuggestion(false);
@@ -993,15 +1306,17 @@ Para corrigir:
                 <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-inner mx-auto mb-3">
                   {resetSent ? <Check className="w-6 h-6" /> : <Fingerprint className="w-6 h-6" />}
                 </div>
-                <h3 className="text-lg font-black mb-0.5 leading-tight">
+                <h3 className="text-lg font-black mb-0.5 leading-tight text-blue-950">
                   {resetSent ? 'Link Enviado!' : 
                    isForgotPassword ? 'Recuperar Senha' : 
-                   isRegistering ? 'Criar Conta' : 'Acesse o Portal'}
+                   authType === 'admin' ? 'Painel Administrativo' :
+                   isRegistering ? 'Cadastro de Associado' : 'Portal do Associado'}
                 </h3>
                 <p className="text-gray-400 font-bold text-[9px] uppercase tracking-wider mb-1">
                   {resetSent ? 'Confira seu e-mail' :
                    isForgotPassword ? 'Enviaremos instruções' :
-                   isRegistering ? 'Cadastro Sindicato' : 'Área do Associado'}
+                   authType === 'admin' ? 'Sindicato Sinpa Gestão' :
+                   isRegistering ? 'Junte-se ao Sindicato' : 'Acesse seus benefícios'}
                 </p>
               </div>
 
@@ -1239,11 +1554,12 @@ Para corrigir:
                   { id: 'overview', label: 'Painel Geral', icon: LayoutDashboard },
                   { id: 'boletos', label: 'Financeiro', icon: CreditCard },
                   { id: 'docs', label: 'Documentos', icon: FileText },
+                  { id: 'juceb', label: 'JUCEB Digital', icon: Briefcase },
                   { id: 'voting', label: 'Assembleia', icon: Vote },
                   { id: 'suggestions', label: 'Minhas Sugestões', icon: MessageSquare },
                   { id: 'partners', label: 'Vantagens', icon: Gift },
                   { id: 'accountant', label: 'Contadores', icon: UserCheck },
-                  ...(isAdmin ? [{ id: 'admin', label: 'Administração', icon: ShieldAlert }] : []),
+                  ...(isAdmin || hasManagementPower ? [{ id: 'admin', label: 'Administração', icon: ShieldAlert }] : []),
                   { id: 'settings', label: 'Configurações', icon: Settings },
                 ].map((item) => (
                   <button
@@ -1392,7 +1708,7 @@ Para corrigir:
               </header>
 
               <main className="flex-1 overflow-y-auto p-12 bg-[#f8fafc] custom-scrollbar">
-                <div className="max-w-6xl mx-auto">
+                <div className={`${activeDashboardTab === 'admin' ? 'max-w-[1600px]' : 'max-w-6xl'} mx-auto transition-all duration-500`}>
                   <AnimatePresence mode="wait">
                     {activeDashboardTab === 'overview' ? (
                       <motion.div 
@@ -1405,60 +1721,100 @@ Para corrigir:
                         <div className="grid lg:grid-cols-3 gap-6">
                           <div className="lg:col-span-2 space-y-6">
                             <div className="grid md:grid-cols-2 gap-6">
-                                <div className="bg-[#1e3a8a] text-white rounded-[40px] p-10 shadow-2xl flex flex-col justify-between border border-white/5 relative overflow-hidden h-[400px] group">
+                                <div className="bg-gradient-to-br from-[#1a3673] via-[#0f2a5a] to-[#0a1b3a] text-white rounded-[40px] p-8 shadow-2xl flex flex-col justify-between border border-white/10 relative overflow-hidden h-[480px] group transition-all hover:shadow-[#1a3673]/30">
+                                  {/* Decorative Animated Gradients */}
+                                  <div className="absolute top-0 right-0 w-80 h-80 bg-blue-500/10 rounded-full blur-[100px] -mr-40 -mt-40 animate-pulse"></div>
+                                  <div className="absolute bottom-0 left-0 w-64 h-64 bg-amber-400/5 rounded-full blur-[80px] -ml-32 -mb-32"></div>
+                                  
                                   {/* Pattern Overlay */}
-                                  <div className="absolute inset-0 opacity-10 pointer-events-none flex items-center justify-center">
-                                    <Fingerprint className="w-80 h-80 rotate-12 scale-150" />
+                                  <div className="absolute inset-0 opacity-[0.04] pointer-events-none">
+                                    <div className="absolute inset-0 flex items-center justify-center rotate-12 scale-150">
+                                      <Fingerprint className="w-full h-full" />
+                                    </div>
                                   </div>
                                   
-                                  {/* Yellow Accent bottom */}
-                                  <div className="absolute bottom-0 left-0 right-0 h-2 bg-amber-400"></div>
-
-                                  <div className="relative z-10">
-                                    <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center mb-8 border border-white/10 backdrop-blur-md">
-                                      <CreditCard className="w-7 h-7 text-amber-400" />
-                                    </div>
-                                    
-                                    <h3 className="text-3xl font-black mb-8 font-display tracking-tight text-white drop-shadow-md">
-                                      Carteira Digital
-                                    </h3>
-
-                                    <div className="bg-white/5 backdrop-blur-xl rounded-3xl p-8 border border-white/10 relative shadow-2xl overflow-hidden">
-                                      <div className="absolute top-0 right-0 w-32 h-32 bg-blue-400/10 blur-3xl rounded-full -mr-16 -mt-16"></div>
-                                      
-                                      <div className="flex justify-between items-center mb-8">
-                                        <span className="text-[10px] font-black text-blue-200/60 uppercase tracking-[0.2em] font-mono">SINDICAL ID V2</span>
-                                        <div className="flex items-center gap-2">
-                                          <div className="bg-emerald-400 w-2 h-2 rounded-full shadow-[0_0_12px_rgba(52,211,153,0.6)] animate-pulse"></div>
+                                  <div className="relative z-10 flex flex-col h-full">
+                                    {/* Card Header */}
+                                    <div className="flex justify-between items-start mb-8">
+                                      <div className="flex items-center gap-4">
+                                        <div className="p-2.5 bg-white rounded-2xl shadow-inner transform group-hover:scale-110 transition-transform duration-500">
+                                          {siteConfig.logoUrl ? (
+                                            <img src={siteConfig.logoUrl} className="h-7 w-auto" alt="Sindicato Logo" />
+                                          ) : (
+                                            <Building2 className="w-7 h-7 text-[#1a3673]" />
+                                          )}
+                                        </div>
+                                        <div>
+                                          <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-blue-200/90 leading-none mb-1">Sindicato Patronal</h4>
+                                          <p className="text-[9px] font-black text-amber-400 uppercase tracking-[0.1em]">Membro Corporativo Ativo</p>
                                         </div>
                                       </div>
+                                      <div className="text-right">
+                                        <div className="flex flex-col items-end">
+                                          <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] font-mono leading-none mb-1">ID v2.0</span>
+                                          <div className="flex gap-1">
+                                            {[1,2,3].map(i => <div key={i} className="w-1 h-3 bg-white/10 rounded-full"></div>)}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
 
-                                      <div className="flex gap-6 items-center">
-                                        <div className="bg-white p-2 rounded-2xl shadow-xl">
+                                    {/* Card Center View */}
+                                    <div className="flex-1 flex flex-col justify-center items-center">
+                                      <div className="relative group/qr p-1">
+                                        <div className="absolute -inset-4 bg-gradient-to-r from-amber-400/20 via-blue-400/20 to-amber-400/20 rounded-[48px] opacity-0 blur-2xl group-hover/qr:opacity-100 transition-duration-700"></div>
+                                        <div className="bg-white p-4 rounded-[36px] shadow-[0_20px_50px_rgba(0,0,0,0.3)] relative z-10 transform group-hover/qr:scale-105 transition-transform duration-500">
                                           <QRCodeCanvas 
-                                            value="SID-99283-ID" 
-                                            size={80} 
-                                            level="H"
+                                            value={`SID-ID-${siteConfig.cnpj}-2026`} 
+                                            size={160} 
+                                            level="Q"
                                             includeMargin={false}
+                                            imageSettings={{
+                                              src: siteConfig.logoUrl || "",
+                                              x: undefined,
+                                              y: undefined,
+                                              height: 24,
+                                              width: 24,
+                                              excavate: true,
+                                            }}
                                           />
                                         </div>
-                                        <div className="flex-1 min-w-0">
-                                          <p className="font-black text-base leading-tight mb-1 truncate uppercase tracking-tighter">
-                                            IND. METALURGICA LTDA
+                                      </div>
+                                      
+                                      <div className="mt-8 text-center">
+                                        <h3 className="text-2xl font-black tracking-tight uppercase leading-none mb-2">
+                                          IND. METALURGICA LTDA
+                                        </h3>
+                                        <div className="flex items-center justify-center gap-3">
+                                          <p className="text-[11px] font-bold text-blue-200/40 font-mono tracking-widest">
+                                            98.765.432/0001-10
                                           </p>
-                                          <p className="text-[11px] font-bold text-blue-200/50 font-mono tracking-widest uppercase">
-                                            ID: 99283-PR-2026
+                                          <div className="w-1 h-1 bg-white/20 rounded-full"></div>
+                                          <p className="text-[11px] font-black text-emerald-400 uppercase tracking-widest">
+                                            PLATINA
                                           </p>
                                         </div>
                                       </div>
                                     </div>
-                                  </div>
 
-                                  <div className="relative z-10 pt-4">
-                                    <button className="w-full bg-white/10 hover:bg-white/20 text-white border border-white/10 px-6 py-4 rounded-2xl font-bold transition-all backdrop-blur-sm active:scale-[0.98] text-sm">
-                                      Visualizar QR Code Ampliado
-                                    </button>
+                                    {/* Card Footer Info */}
+                                    <div className="mt-auto pt-8 border-t border-white/10 grid grid-cols-2 gap-8">
+                                      <div className="space-y-1">
+                                        <p className="text-[9px] font-black text-blue-300/40 uppercase tracking-[0.2em]">Filiado desde</p>
+                                        <p className="text-sm font-bold text-white tracking-tight">OUTUBRO / 2021</p>
+                                      </div>
+                                      <div className="space-y-1 text-right">
+                                        <p className="text-[9px] font-black text-blue-300/40 uppercase tracking-[0.2em]">Status de Regularidade</p>
+                                        <div className="flex items-center justify-end gap-2">
+                                          <div className="w-2 h-2 bg-emerald-500 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-pulse"></div>
+                                          <p className="text-sm font-black text-emerald-400 uppercase tracking-widest">REGULAR</p>
+                                        </div>
+                                      </div>
+                                    </div>
                                   </div>
+                                  
+                                  {/* Bottom Security Bar */}
+                                  <div className="absolute bottom-0 left-0 right-0 h-2 bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200"></div>
                                 </div>
 
                                 <div className="bg-white border border-gray-100 rounded-[32px] p-8 shadow-lg flex flex-col justify-between group hover:border-blue-200 transition-all h-[340px]">
@@ -1918,7 +2274,116 @@ Para corrigir:
                            </div>
                          )}
                        </motion.div>
-                    ) : activeDashboardTab === 'partners' ? (
+                    ) : activeDashboardTab === 'juceb' ? (
+                       <motion.div 
+                          key="juceb"
+                          initial={{ opacity: 0, y: 30 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="space-y-12"
+                        >
+                          <div className="bg-white border border-gray-100 rounded-[44px] p-12 shadow-xl overflow-hidden relative">
+                             <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-50 rounded-full blur-[100px] -mr-40 -mt-40 opacity-40"></div>
+                             <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-10">
+                                <div className="flex items-center gap-6">
+                                   <div className="w-20 h-20 bg-white rounded-[32px] shadow-2xl flex items-center justify-center p-4 border border-gray-50">
+                                      <img src="https://www.google.com/s2/favicons?domain=juceb.ba.gov.br&sz=128" className="w-full h-full object-contain" alt="JUCEB" />
+                                   </div>
+                                   <div>
+                                      <h3 className="text-4xl font-black text-blue-900 tracking-tighter">JUCEB Digital</h3>
+                                      <p className="text-gray-400 font-bold text-[10px] uppercase tracking-[0.3em] mt-2 flex items-center gap-2">
+                                         <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                                         Consultoria & Atendimento no Sindicato
+                                      </p>
+                                   </div>
+                                </div>
+                                <button className="bg-emerald-600 text-white px-10 py-5 rounded-[24px] font-black text-xs uppercase tracking-widest shadow-2xl shadow-emerald-600/30 hover:scale-105 transition-all flex items-center gap-3">
+                                   <Plus className="w-5 h-5" /> Iniciar Novo Processo
+                                </button>
+                             </div>
+                          </div>
+
+                          <div className="grid lg:grid-cols-3 gap-12">
+                             <div className="lg:col-span-2 space-y-12">
+                                <div className="grid sm:grid-cols-2 gap-8">
+                                   {[
+                                     { title: 'Abertura de Filial', desc: 'Expandir sua marca com agilidade via convênio.', icon: Zap, color: 'amber' },
+                                     { title: 'Alteração Jurídica', desc: 'Troca de sócios, endereço ou capital social.', icon: FileText, color: 'blue' },
+                                     { title: 'Baixa de Empresa', icon: X, desc: 'Encerramento de atividades com suporte total.', color: 'rose' },
+                                     { title: 'Consultoria Prévia', icon: Users, desc: 'Dúvidas sobre viabilidade e CNAEs.', color: 'indigo' },
+                                   ].map((item, idx) => (
+                                      <motion.button 
+                                        key={idx} 
+                                        whileHover={{ y: -5 }}
+                                        className="bg-white border border-gray-100 p-8 rounded-[40px] text-left hover:border-emerald-500 transition-all shadow-sm hover:shadow-2xl overflow-hidden relative group"
+                                      >
+                                         <div className="relative z-10">
+                                            <div className={`w-14 h-14 bg-${item.color}-50 text-${item.color}-600 rounded-2xl flex items-center justify-center mb-6 shadow-inner group-hover:scale-110 transition-transform`}>
+                                               <item.icon className="w-7 h-7" />
+                                            </div>
+                                            <h4 className="font-bold text-xl text-gray-900 mb-2">{item.title}</h4>
+                                            <p className="text-xs text-gray-400 font-medium leading-relaxed">{item.desc}</p>
+                                         </div>
+                                         <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-all translate-x-4 group-hover:translate-x-0">
+                                            <ChevronRight className="w-6 h-6 text-emerald-500" />
+                                         </div>
+                                      </motion.button>
+                                   ))}
+                                </div>
+                                
+                                <div className="bg-blue-900 rounded-[48px] p-12 text-white relative overflow-hidden shadow-3xl shadow-blue-950/40">
+                                   <div className="absolute bottom-0 right-0 w-80 h-80 bg-white/5 rounded-full blur-[80px] -mr-40 -mb-40"></div>
+                                   <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-10">
+                                      <div className="max-w-md">
+                                         <h4 className="text-3xl font-bold mb-4">Plantão de Atendimento</h4>
+                                         <p className="text-blue-200 leading-relaxed mb-8">Nossos atendentes credenciados pela JUCEB estão online agora para te ajudar com protocolos e viabilidades.</p>
+                                         <div className="flex gap-4">
+                                            <div className="flex -space-x-3">
+                                               {[1,2,3].map(i => <img key={i} className="w-12 h-12 rounded-full border-4 border-blue-900 shadow-xl" src={`https://i.pravatar.cc/150?u=${i+10}`} alt="Atendente" />)}
+                                            </div>
+                                            <div>
+                                               <p className="text-sm font-bold">Atendentes Online</p>
+                                               <p className="text-[10px] text-emerald-400 font-black uppercase tracking-tighter">Tempo médio: 4 min</p>
+                                            </div>
+                                         </div>
+                                      </div>
+                                      <button className="bg-white text-blue-900 px-10 py-5 rounded-[24px] font-black text-xs uppercase tracking-widest shadow-2xl shadow-blue-400/20 hover:scale-105 hover:bg-amber-400 transition-all whitespace-nowrap">Conectar ao Chat</button>
+                                   </div>
+                                </div>
+                             </div>
+
+                             <div className="space-y-12">
+                                <div className="bg-white border border-gray-100 rounded-[44px] p-10 shadow-xl">
+                                   <h4 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-8 border-b border-gray-50 pb-6 flex items-center justify-between">
+                                      <span>Meus Processos</span>
+                                      <span className="bg-gray-50 text-gray-400 px-3 py-1 rounded-full text-[8px]">Total: 2</span>
+                                   </h4>
+                                   <div className="space-y-6">
+                                      {jucebProcesses.slice(0, 2).map((proc) => (
+                                         <div key={proc.id} className="p-6 rounded-[32px] border border-gray-50 bg-gray-50/30 hover:bg-white hover:border-emerald-100 transition-all group flex flex-col gap-4">
+                                            <div className="flex items-center justify-between">
+                                               <p className="text-xs font-black text-gray-400 uppercase tracking-widest">Protocolo #{proc.id}2026</p>
+                                               <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${
+                                                 proc.status === 'Concluído' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                                               }`}>{proc.status}</span>
+                                            </div>
+                                            <h5 className="font-bold text-gray-800 leading-tight">{proc.type}</h5>
+                                            <div className="flex items-center gap-3">
+                                               <div className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-[10px] font-black text-blue-900 border border-gray-100">AF</div>
+                                               <div className="flex-1">
+                                                  <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                                                     <div className={`h-full ${proc.status === 'Concluído' ? 'bg-emerald-500 w-full' : 'bg-blue-500 w-[65%]'} transition-all duration-1000 animate-pulse`}></div>
+                                                  </div>
+                                               </div>
+                                            </div>
+                                         </div>
+                                      ))}
+                                      <button className="w-full py-4 text-[10px] font-black uppercase tracking-widest text-emerald-600 border border-emerald-100 hover:bg-emerald-50 rounded-2xl transition-all">Relatório Completo</button>
+                                   </div>
+                                </div>
+                             </div>
+                          </div>
+                        </motion.div>
+                     ) : activeDashboardTab === 'partners' ? (
                       <motion.div
                         key="partners"
                         initial={{ opacity: 0, y: 30 }}
@@ -2056,48 +2521,309 @@ Para corrigir:
                         </div>
                       </motion.div>
                     ) : activeDashboardTab === 'admin' ? (
-                      <motion.div 
-                        key="admin"
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="space-y-8"
-                      >
-                         {/* Admin Sub-Navigation */}
-                         <div className="flex bg-white/50 p-2 rounded-[32px] border border-gray-100 gap-2 mb-8 relative">
-                            {[
-                              { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
-                              { id: 'finance', label: 'Financeiro', icon: CreditCard },
-                              { id: 'billing', label: 'Mensalidades', icon: Banknote },
-                              { id: 'associates', label: 'Associados', icon: Users },
-                              { id: 'team', label: 'Liderança', icon: ShieldCheck },
-                              { id: 'publications', label: 'Publicações', icon: Globe },
-                              { id: 'system', label: 'Painel', icon: Settings },
-                              { id: 'docs', label: 'Certidões', icon: Printer },
-                            ].map((tab) => (
-                              <button
-                                key={tab.id}
-                                onClick={() => setAdminSubTab(tab.id as any)}
-                                className={`flex-1 flex items-center justify-center gap-3 py-4 rounded-3xl font-bold text-xs transition-all relative z-10 ${
-                                  adminSubTab === tab.id 
-                                  ? 'text-white' 
-                                  : 'text-gray-400 hover:text-gray-600'
-                                }`}
-                              >
-                                {adminSubTab === tab.id && (
-                                  <motion.div
-                                    layoutId="adminActiveTab"
-                                    className="absolute inset-0 bg-blue-900 rounded-3xl shadow-xl shadow-blue-900/20"
-                                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                                  />
-                                )}
-                                <tab.icon className="w-4 h-4 relative z-10" />
-                                <span className="hidden sm:inline relative z-10">{tab.label}</span>
-                              </button>
-                            ))}
-                         </div>
+                       <motion.div 
+                         key="admin" 
+                         initial={{ opacity: 0, x: 20 }}
+                         animate={{ opacity: 1, x: 0 }}
+                         exit={{ opacity: 0, x: -20 }}
+                         className="flex flex-col lg:flex-row gap-10 items-start min-h-[800px] relative"
+                       >
+                         {/* Persistent Sidebar Navigation */}
+                         <aside className="w-full lg:w-72 lg:sticky lg:top-24 space-y-8">
+                            <div className="bg-white border border-gray-100 rounded-[40px] p-2 shadow-xl overflow-hidden">
+                               <div className="flex flex-col gap-1">
+                                  {[
+                                    { section: 'Administrativo', items: [
+                                      { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard },
+                                      { id: 'syndicate', label: 'Perfil Sindicato', icon: Building2 },
+                                    ]},
+                                    { section: 'Gestão de Membros', items: [
+                                      { id: 'associates', label: 'Associados', icon: Users },
+                                      { id: 'team', label: 'Liderança', icon: ShieldCheck },
+                                    ]},
+                                    { section: 'Financeiro', items: [
+                                      { id: 'finance', label: 'Fluxo de Caixa', icon: CreditCard },
+                                      { id: 'billing', label: 'Faturamento/Boleto', icon: Banknote },
+                                    ]},
+                                    { section: 'Serviços & Digital', items: [
+                                      { id: 'juceb', label: 'Processos JUCEB', icon: Briefcase },
+                                      { id: 'docs', label: 'Certidões/Docs', icon: Printer },
+                                      { id: 'ai_faq', label: 'IA FAQ Assist', icon: Bot },
+                                    ]},
+                                    { section: 'Conteúdo Site', items: [
+                                      { id: 'publications', label: 'Notícias/Blog', icon: Globe },
+                                      { id: 'cms', label: 'Gerenciar Site', icon: LayoutGrid },
+                                    ]},
+                                    { section: 'Configurações', items: [
+                                      { id: 'system', label: 'Ajustes Sistema', icon: Settings },
+                                    ]},
+                                  ].map((group, idx) => (
+                                    <div key={idx} className={`${idx !== 0 ? 'mt-4 border-t border-gray-50 pt-4' : ''} px-2`}>
+                                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 ml-4">{group.section}</p>
+                                      <div className="space-y-1">
+                                        {group.items.map((tab) => (
+                                          <button
+                                            key={tab.id}
+                                            onClick={() => setAdminSubTab(tab.id as any)}
+                                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs transition-all relative group ${
+                                              adminSubTab === tab.id 
+                                              ? 'bg-blue-900 text-white shadow-lg shadow-blue-900/20' 
+                                              : 'text-gray-500 hover:bg-gray-50 hover:text-blue-900'
+                                            }`}
+                                          >
+                                            <tab.icon className={`w-4 h-4 ${adminSubTab === tab.id ? 'text-amber-400' : 'text-gray-400 group-hover:text-blue-900'}`} />
+                                            <span>{tab.label}</span>
+                                            {adminSubTab === tab.id && (
+                                              <motion.div
+                                                layoutId="activeIndicator"
+                                                className="absolute right-2 w-1.5 h-1.5 bg-amber-400 rounded-full"
+                                              />
+                                            )}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                               </div>
+                            </div>
 
-                         <div className="relative overflow-hidden min-h-[400px]">
+                            <div className="bg-gradient-to-br from-amber-400 to-amber-500 rounded-[40px] p-8 text-blue-950 shadow-xl relative overflow-hidden group">
+                              <div className="absolute top-0 right-0 w-32 h-32 bg-white/20 blur-3xl rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700"></div>
+                              <div className="relative z-10">
+                                <p className="text-[10px] font-black uppercase tracking-widest mb-2 opacity-60">Suporte Técnico</p>
+                                <h5 className="font-black text-lg tracking-tighter leading-none mb-4">Central de Ajuda Sinpa</h5>
+                                <button className="w-full bg-blue-950 text-white py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-blue-900 transition-colors">
+                                  Abrir Chamado
+                                </button>
+                              </div>
+                            </div>
+                         </aside>
+
+                         {/* Content Area */}
+                         <div className="flex-1 min-w-0 bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl min-h-[700px]">
                             <AnimatePresence mode="wait">
+                               {adminSubTab === 'syndicate' && (
+                                 <motion.div
+                                   key="syndicate"
+                                   initial={{ opacity: 0, y: 10 }}
+                                   animate={{ opacity: 1, y: 0 }}
+                                   exit={{ opacity: 0, y: -10 }}
+                                   className="space-y-8"
+                                 >
+                                   <div className="flex items-center justify-between">
+                                     <div>
+                                       <h3 className="text-2xl font-black text-blue-950 uppercase tracking-tighter">Perfil do Sindicato</h3>
+                                       <p className="text-sm text-gray-500 font-medium">Gerencie as informações institucionais e a identidade visual.</p>
+                                     </div>
+                                     <button 
+                                       onClick={() => {
+                                         alert('Configurações salvas com sucesso!');
+                                       }}
+                                       className="px-6 py-3 bg-blue-900 text-white rounded-2xl font-bold text-sm shadow-xl shadow-blue-900/20 hover:scale-105 transition-all flex items-center gap-2"
+                                     >
+                                       <Save className="w-4 h-4" /> Salvar Alterações
+                                     </button>
+                                   </div>
+
+                                   <div className="grid lg:grid-cols-3 gap-8">
+                                     {/* Visual Identity & Logo */}
+                                     <div className="lg:col-span-1 space-y-8">
+                                       <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl">
+                                         <h4 className="font-bold text-xs uppercase tracking-widest text-blue-900 mb-6 flex items-center gap-2">
+                                           <ImageIcon className="w-4 h-4" /> Logotipo Principal
+                                         </h4>
+                                         
+                                         <div className="flex flex-col items-center gap-6">
+                                           <div className="w-full aspect-square bg-gray-50 rounded-[32px] border-2 border-dashed border-gray-100 flex items-center justify-center relative overflow-hidden group">
+                                             {siteConfig.logoUrl ? (
+                                               <img 
+                                                 src={siteConfig.logoUrl} 
+                                                 alt="Syndicate Logo" 
+                                                 className="max-w-[70%] max-h-[70%] object-contain"
+                                               />
+                                             ) : (
+                                               <div className="text-center">
+                                                 <Upload className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                                                 <p className="text-[10px] text-gray-400 font-bold uppercase">Nenhum logo</p>
+                                               </div>
+                                             )}
+                                             
+                                             <label className="absolute inset-0 bg-blue-900/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center cursor-pointer">
+                                               <input 
+                                                 type="file" 
+                                                 className="hidden" 
+                                                 onChange={(e) => {
+                                                   const file = e.target.files?.[0];
+                                                   if (file) {
+                                                     const url = URL.createObjectURL(file);
+                                                     setSiteConfig(prev => ({ ...prev, logoUrl: url }));
+                                                   }
+                                                 }}
+                                               />
+                                               <div className="text-center text-white">
+                                                 <Camera className="w-8 h-8 mx-auto mb-2" />
+                                                 <span className="text-xs font-bold uppercase tracking-widest">Alterar Logo</span>
+                                               </div>
+                                             </label>
+                                           </div>
+                                           
+                                           <div className="w-full grid grid-cols-2 gap-4">
+                                             <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center">Largura Header</p>
+                                               <input 
+                                                 type="range" min="40" max="250" 
+                                                 value={siteConfig.headerLogoWidth}
+                                                 onChange={(e) => setSiteConfig(prev => ({ ...prev, headerLogoWidth: parseInt(e.target.value) }))}
+                                                 className="w-full h-1.5 bg-blue-900/10 rounded-lg appearance-none cursor-pointer accent-blue-900" 
+                                               />
+                                               <p className="text-center mt-2 text-[10px] font-mono font-bold text-blue-900">{siteConfig.headerLogoWidth}px</p>
+                                             </div>
+                                             <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center">Largura Footer</p>
+                                               <input 
+                                                 type="range" min="40" max="200" 
+                                                 value={siteConfig.footerLogoWidth}
+                                                 onChange={(e) => setSiteConfig(prev => ({ ...prev, footerLogoWidth: parseInt(e.target.value) }))}
+                                                 className="w-full h-1.5 bg-blue-900/10 rounded-lg appearance-none cursor-pointer accent-blue-900" 
+                                               />
+                                               <p className="text-center mt-2 text-[10px] font-mono font-bold text-blue-900">{siteConfig.footerLogoWidth}px</p>
+                                             </div>
+                                           </div>
+                                         </div>
+                                       </div>
+
+                                       <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl">
+                                         <h4 className="font-bold text-xs uppercase tracking-widest text-blue-900 mb-6 flex items-center gap-2">
+                                           <Palette className="w-4 h-4" /> Cores da Marca
+                                         </h4>
+                                         <div className="space-y-4">
+                                           <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                             <div>
+                                               <p className="text-[10px] font-black text-gray-900 uppercase">Cor Primária</p>
+                                               <p className="text-[10px] text-gray-400 font-mono">{siteConfig.primaryColor}</p>
+                                             </div>
+                                             <input 
+                                               type="color" 
+                                               value={siteConfig.primaryColor}
+                                               onChange={(e) => setSiteConfig(prev => ({ ...prev, primaryColor: e.target.value }))}
+                                               className="w-10 h-10 rounded-xl border-0 overflow-hidden cursor-pointer"
+                                             />
+                                           </div>
+                                           <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                             <div>
+                                               <p className="text-[10px] font-black text-gray-900 uppercase">Cor Accent</p>
+                                               <p className="text-[10px] text-gray-400 font-mono">{siteConfig.accentColor}</p>
+                                             </div>
+                                             <input 
+                                               type="color" 
+                                               value={siteConfig.accentColor}
+                                               onChange={(e) => setSiteConfig(prev => ({ ...prev, accentColor: e.target.value }))}
+                                               className="w-10 h-10 rounded-xl border-0 overflow-hidden cursor-pointer"
+                                             />
+                                           </div>
+                                         </div>
+                                       </div>
+                                     </div>
+
+                                     {/* Institutional Info */}
+                                     <div className="lg:col-span-2 space-y-8">
+                                       <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl">
+                                         <h4 className="font-bold text-xs uppercase tracking-widest text-blue-900 mb-8 flex items-center gap-2 border-b border-gray-50 pb-4">
+                                           <Building className="w-4 h-4" /> Informações Institucionais
+                                         </h4>
+                                         
+                                         <div className="grid md:grid-cols-2 gap-6">
+                                           <div className="space-y-2">
+                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Razão Social</label>
+                                             <input 
+                                               type="text" 
+                                               value={siteConfig.name}
+                                               onChange={(e) => setSiteConfig(prev => ({ ...prev, name: e.target.value }))}
+                                               className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-blue-900/10 focus:border-blue-900 transition-all font-bold text-sm text-blue-900"
+                                             />
+                                           </div>
+                                           <div className="space-y-2">
+                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">CNPJ</label>
+                                             <input 
+                                               type="text" 
+                                               value={siteConfig.cnpj}
+                                               onChange={(e) => setSiteConfig(prev => ({ ...prev, cnpj: e.target.value }))}
+                                               className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-blue-900/10 focus:border-blue-900 transition-all font-bold text-sm text-blue-900 font-mono"
+                                             />
+                                           </div>
+                                           <div className="space-y-2 md:col-span-2">
+                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Endereço Completo</label>
+                                             <div className="relative">
+                                               <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+                                               <input 
+                                                 type="text" 
+                                                 value={siteConfig.address}
+                                                 onChange={(e) => setSiteConfig(prev => ({ ...prev, address: e.target.value }))}
+                                                 className="w-full pl-12 pr-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-blue-900/10 focus:border-blue-900 transition-all font-bold text-sm text-blue-900"
+                                               />
+                                             </div>
+                                           </div>
+                                           <div className="space-y-2">
+                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">WhatsApp / Telefone</label>
+                                             <div className="relative">
+                                               <Phone className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+                                               <input 
+                                                 type="text" 
+                                                 value={siteConfig.phone}
+                                                 onChange={(e) => setSiteConfig(prev => ({ ...prev, phone: e.target.value }))}
+                                                 className="w-full pl-12 pr-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-blue-900/10 focus:border-blue-900 transition-all font-bold text-sm text-blue-900"
+                                               />
+                                             </div>
+                                           </div>
+                                           <div className="space-y-2">
+                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">E-mail de Contato</label>
+                                             <div className="relative">
+                                               <Mail className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+                                               <input 
+                                                 type="email" 
+                                                 value={siteConfig.email}
+                                                 onChange={(e) => setSiteConfig(prev => ({ ...prev, email: e.target.value }))}
+                                                 className="w-full pl-12 pr-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-blue-900/10 focus:border-blue-900 transition-all font-bold text-sm text-blue-900"
+                                               />
+                                             </div>
+                                           </div>
+                                           <div className="space-y-2 md:col-span-2">
+                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Missão Institucional</label>
+                                             <textarea 
+                                               rows={4}
+                                               value={siteConfig.mission}
+                                               onChange={(e) => setSiteConfig(prev => ({ ...prev, mission: e.target.value }))}
+                                               className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-blue-900/10 focus:border-blue-900 transition-all font-bold text-sm text-blue-900 resize-none"
+                                             />
+                                           </div>
+                                         </div>
+                                       </div>
+
+                                       <div className="bg-gradient-to-br from-blue-900 to-blue-950 rounded-[40px] p-8 shadow-2xl text-white relative overflow-hidden">
+                                         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 blur-3xl rounded-full -mr-32 -mt-32"></div>
+                                         <div className="relative z-10">
+                                           <h4 className="text-lg font-black uppercase tracking-tighter mb-4">Métricas de Presença</h4>
+                                           <div className="grid grid-cols-3 gap-4 text-center">
+                                             <div className="bg-white/5 backdrop-blur-sm rounded-3xl p-4 border border-white/10">
+                                               <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-1">Indexação IA</p>
+                                               <p className="text-xl font-black text-amber-400">92%</p>
+                                             </div>
+                                             <div className="bg-white/5 backdrop-blur-sm rounded-3xl p-4 border border-white/10">
+                                               <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-1">Health Score</p>
+                                               <p className="text-xl font-black text-emerald-400">A+</p>
+                                             </div>
+                                             <div className="bg-white/5 backdrop-blur-sm rounded-3xl p-4 border border-white/10">
+                                               <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-1">Visitas Mês</p>
+                                               <p className="text-xl font-black text-white">2.4k</p>
+                                             </div>
+                                           </div>
+                                         </div>
+                                       </div>
+                                     </div>
+                                   </div>
+                                 </motion.div>
+                               )}
+
                                {adminSubTab === 'dashboard' && (
                                  <motion.div 
                                    key="dashboard"
@@ -2307,7 +3033,6 @@ Para corrigir:
 
                                     </div>
                                  </div>
-                              </div>
                            </motion.div>
                          )}
 
@@ -2606,23 +3331,23 @@ Para corrigir:
                                                       </tr>
                                                    </thead>
                                                    <tbody className="divide-y divide-gray-50">
-                                                      {billings.map((bill) => (
+                                                      {allBillings.map((bill) => (
                                                          <tr key={bill.id} className="group hover:bg-gray-50/50 transition-all">
                                                             <td className="py-6 px-2">
                                                                <p className="font-bold text-gray-900 text-sm">{bill.memberName}</p>
-                                                               <p className="text-[10px] text-gray-400 font-mono">#{bill.id.toString().padStart(6, '0')}</p>
+                                                               <p className="text-[10px] text-gray-400 font-mono">#{String(bill.id).slice(0, 8).toUpperCase()}</p>
                                                             </td>
                                                             <td className="py-6 px-2 font-black text-blue-900 text-sm">
-                                                               R$ {bill.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                               R$ {bill.amount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                             </td>
                                                             <td className="py-6 px-2 text-xs font-bold text-gray-500">
-                                                               {bill.dueDate}
+                                                               {bill.dueDate instanceof Timestamp ? bill.dueDate.toDate().toLocaleDateString('pt-BR') : bill.dueDate}
                                                             </td>
                                                             <td className="py-6 px-2">
                                                                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${
-                                                                  bill.status === 'pago' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                                                                  bill.status === 'paid' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
                                                                }`}>
-                                                                  {bill.status}
+                                                                  {bill.status === 'pending' ? 'Pendente' : bill.status === 'paid' ? 'Pago' : bill.status}
                                                                </span>
                                                             </td>
                                                             <td className="py-6 px-2 text-right space-x-2">
@@ -2939,13 +3664,122 @@ Para corrigir:
                                      </div>
 
                                      <button 
-                                       onClick={() => alert('Configurações de rede salvas com sucesso!')}
+                                       onClick={() => showNotification('success', 'Configurações de rede salvas com sucesso!')}
                                        className="w-full bg-blue-900 text-white py-5 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-blue-800 transition-all shadow-xl shadow-blue-900/20"
                                      >
                                        Aplicar Novas Configurações
                                      </button>
                                    </div>
                                  </div>
+
+                                 {/* Super User Actions */}
+                                 {isSuperUser && (
+                                   <div className="mt-12 pt-12 border-t border-gray-100">
+                                     <div className="flex items-center gap-4 mb-8">
+                                       <div className="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center text-purple-600">
+                                         <ShieldAlert className="w-6 h-6" />
+                                       </div>
+                                       <div>
+                                         <h4 className="text-2xl font-bold text-blue-950">Painel Master (Super Usuário)</h4>
+                                         <p className="text-gray-500 font-medium text-sm">Acesso exclusivo para o desenvolvedor e suporte técnico master.</p>
+                                       </div>
+                                     </div>
+
+                                     <div className="grid lg:grid-cols-2 gap-8">
+                                       {/* Register Admins */}
+                                       <div className="bg-purple-50/50 border border-purple-100 rounded-[32px] p-8 space-y-6">
+                                         <div className="flex items-center justify-between">
+                                           <h5 className="font-bold text-purple-900 flex items-center gap-2">
+                                             <UserCheck className="w-5 h-5" />
+                                             Administradores
+                                           </h5>
+                                           <span className="text-[10px] font-black bg-purple-100 text-purple-600 px-2 py-1 rounded uppercase">{adminList?.length || 0} Ativos</span>
+                                         </div>
+                                         
+                                         <form onSubmit={handleAddAdmin} className="space-y-4">
+                                           <div className="flex gap-2">
+                                             <input 
+                                               type="email" 
+                                               required
+                                               value={newAdminEmail}
+                                               onChange={(e) => setNewAdminEmail(e.target.value)}
+                                               className="flex-1 bg-white border border-purple-200 rounded-2xl px-6 py-4 font-bold text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                               placeholder="email@novoadmin.com.br"
+                                             />
+                                             <button 
+                                               type="submit"
+                                               className="bg-purple-600 text-white px-6 rounded-2xl font-bold hover:bg-purple-700 transition-all"
+                                             >
+                                               <Plus className="w-5 h-5" />
+                                             </button>
+                                           </div>
+
+                                           <div className="max-h-48 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                                              {adminList && adminList.length > 0 ? (
+                                                adminList.map((admin) => (
+                                                  <div key={admin.id} className="flex items-center justify-between p-4 bg-white rounded-xl border border-purple-100">
+                                                    <span className="text-sm font-bold text-purple-900">{admin.email}</span>
+                                                    <button 
+                                                      type="button"
+                                                      onClick={() => handleRemoveAdmin(admin.email)}
+                                                      className="p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                    >
+                                                      <X className="w-4 h-4" />
+                                                    </button>
+                                                  </div>
+                                                ))
+                                              ) : (
+                                                <p className="text-center text-purple-300 text-xs italic py-4">Nenhum administrador cadastrado.</p>
+                                              )}
+                                           </div>
+                                         </form>
+                                       </div>
+
+                                       {/* Support & Health */}
+                                       <div className="bg-emerald-50/50 border border-emerald-100 rounded-[32px] p-8 space-y-6">
+                                         <h5 className="font-bold text-emerald-900 flex items-center gap-2">
+                                           <Zap className="w-5 h-5" />
+                                           Suporte Técnico & Saúde
+                                         </h5>
+
+                                         <div className="space-y-4">
+                                           <div className="grid grid-cols-2 gap-4">
+                                              <div className="bg-white p-4 rounded-2xl border border-emerald-100">
+                                                <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Status API (Gemini)</p>
+                                                <div className="flex items-center gap-2">
+                                                  <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                                                  <span className="text-xs font-bold text-emerald-700">Operacional</span>
+                                                </div>
+                                              </div>
+                                              <div className="bg-white p-4 rounded-2xl border border-emerald-100">
+                                                <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Firestore DB</p>
+                                                <div className="flex items-center gap-2">
+                                                  <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                                                  <span className="text-xs font-bold text-emerald-700">Saudável</span>
+                                                </div>
+                                              </div>
+                                           </div>
+
+                                           <div className="p-4 bg-white rounded-2xl border border-emerald-100">
+                                              <h6 className="text-[10px] font-black text-emerald-600 uppercase mb-3">Logs de Atividade</h6>
+                                              <div className="space-y-2 font-mono text-[9px] text-emerald-500">
+                                                <p className="truncate">[{new Date().toLocaleTimeString()}] Admin Access: {currentUser?.email}</p>
+                                                <p className="truncate">[{new Date().toLocaleTimeString()}] Dashboard Heartbeat: OK</p>
+                                                <p className="truncate">[{new Date().toLocaleTimeString()}] Iframe Sandbox: Isolated</p>
+                                              </div>
+                                           </div>
+
+                                           <button 
+                                              onClick={() => showNotification('info', 'Iniciando diagnóstico completo...')}
+                                              className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20"
+                                           >
+                                              Executar Diagnóstico Geral
+                                           </button>
+                                         </div>
+                                       </div>
+                                     </div>
+                                   </div>
+                                 )}
                               </div>
                            </motion.div>
                          )}
@@ -2969,85 +3803,120 @@ Para corrigir:
                                          </div>
                                        </div>
 
-                                       <div className="grid md:grid-cols-2 gap-6 mb-10 bg-gray-50 p-6 rounded-3xl border border-gray-100">
-                                         <div className="space-y-4">
-                                           <div>
-                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">Nome do Membro</label>
-                                             <input 
-                                               type="text" 
-                                               placeholder="Nome completo"
-                                               value={newMemberForm.name}
-                                               onChange={(e) => setNewMemberForm({...newMemberForm, name: e.target.value})}
-                                               className="w-full bg-white border border-gray-200 px-6 py-3 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold"
-                                             />
+                                       <div className="flex flex-col xl:flex-row gap-8 mb-10 bg-gray-50 p-8 rounded-[40px] border border-gray-100">
+                                         {/* Photo Upload Section */}
+                                         <div className="flex flex-col items-center gap-4">
+                                           <div className="w-40 h-40 bg-white rounded-[32px] border-2 border-dashed border-gray-200 flex items-center justify-center relative overflow-hidden group">
+                                             {newMemberForm.photo ? (
+                                               <img src={newMemberForm.photo} alt="Preview" className="w-full h-full object-cover" />
+                                             ) : (
+                                               <Camera className="w-10 h-10 text-gray-200" />
+                                             )}
+                                             <label className="absolute inset-0 bg-blue-900/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center cursor-pointer">
+                                               <input 
+                                                 type="file" 
+                                                 className="hidden" 
+                                                 onChange={(e) => {
+                                                   const file = e.target.files?.[0];
+                                                   if (file) {
+                                                     const url = URL.createObjectURL(file);
+                                                     setNewMemberForm({...newMemberForm, photo: url});
+                                                   }
+                                                 }}
+                                               />
+                                               <div className="text-center text-white">
+                                                 <Upload className="w-6 h-6 mx-auto mb-1" />
+                                                 <span className="text-[10px] font-black uppercase tracking-widest">Subir Foto</span>
+                                               </div>
+                                             </label>
                                            </div>
-                                           <div>
-                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">Cargo / Função</label>
-                                             <input 
-                                               type="text" 
-                                               placeholder="Ex: Diretor Financeiro"
-                                               value={newMemberForm.role}
-                                               onChange={(e) => setNewMemberForm({...newMemberForm, role: e.target.value})}
-                                               className="w-full bg-white border border-gray-200 px-6 py-3 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold"
-                                             />
-                                           </div>
+                                           <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Avatar do Membro</p>
                                          </div>
-                                         <div className="space-y-4">
-                                           <div>
-                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">Categoria</label>
-                                             <select 
-                                               value={newMemberForm.category}
-                                               onChange={(e) => setNewMemberForm({...newMemberForm, category: e.target.value as any})}
-                                               className="w-full bg-white border border-gray-200 px-6 py-3 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold appearance-none cursor-pointer"
-                                             >
-                                               <option value="presidencia">Presidência</option>
-                                               <option value="diretoria">Diretoria</option>
-                                               <option value="gerencia">Gerência</option>
-                                               <option value="atendimento">Atendimento</option>
-                                             </select>
+
+                                         <div className="flex-1 grid md:grid-cols-2 gap-6">
+                                           <div className="space-y-4">
+                                             <div>
+                                               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">Nome do Membro</label>
+                                               <input 
+                                                 type="text" 
+                                                 placeholder="Nome completo"
+                                                 value={newMemberForm.name}
+                                                 onChange={(e) => setNewMemberForm({...newMemberForm, name: e.target.value})}
+                                                 className="w-full bg-white border border-gray-200 px-6 py-4 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold"
+                                               />
+                                             </div>
+                                             <div>
+                                               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">Cargo / Função</label>
+                                               <input 
+                                                 type="text" 
+                                                 placeholder="Ex: Diretor Financeiro"
+                                                 value={newMemberForm.role}
+                                                 onChange={(e) => setNewMemberForm({...newMemberForm, role: e.target.value})}
+                                                 className="w-full bg-white border border-gray-200 px-6 py-4 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold"
+                                               />
+                                             </div>
                                            </div>
-                                           <button 
-                                             onClick={() => {
-                                               if (!newMemberForm.name || !newMemberForm.role) {
-                                                 alert("Preencha nome e cargo.");
-                                                 return;
-                                               }
-                                               const member: TeamMember = {
-                                                 id: Math.random().toString(36).substr(2, 9),
-                                                 ...newMemberForm
-                                               };
-                                               setTeamMembers([...teamMembers, member]);
-                                               setNewMemberForm({ name: '', role: '', category: member.category, photo: '' });
-                                             }}
-                                             className="w-full bg-blue-950 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-950/20 flex items-center justify-center gap-2 mt-4"
-                                           >
-                                             <Plus className="w-4 h-4" /> Cadastrar Novo Membro
-                                           </button>
+                                           <div className="space-y-4">
+                                             <div>
+                                               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">Categoria</label>
+                                               <select 
+                                                 value={newMemberForm.category}
+                                                 onChange={(e) => setNewMemberForm({...newMemberForm, category: e.target.value as any})}
+                                                 className="w-full bg-white border border-gray-200 px-6 py-4 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold appearance-none cursor-pointer"
+                                               >
+                                                 <option value="presidencia">Presidência</option>
+                                                 <option value="diretoria">Diretoria</option>
+                                                 <option value="gerencia">Gerência</option>
+                                                 <option value="atendimento">Atendimento</option>
+                                               </select>
+                                             </div>
+                                             <button 
+                                               onClick={() => {
+                                                 if (!newMemberForm.name || !newMemberForm.role) {
+                                                   alert("Preencha nome e cargo.");
+                                                   return;
+                                                 }
+                                                 const member: TeamMember = {
+                                                   id: Math.random().toString(36).substr(2, 9),
+                                                   ...newMemberForm
+                                                 };
+                                                 setTeamMembers([...teamMembers, member]);
+                                                 setNewMemberForm({ name: '', role: '', category: member.category, photo: '' });
+                                               }}
+                                               className="w-full h-[60px] bg-blue-950 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-950/20 flex items-center justify-center gap-2 mt-auto"
+                                             >
+                                               <Plus className="w-5 h-5 text-amber-400" /> Cadastrar Novo Membro
+                                             </button>
+                                           </div>
                                          </div>
                                        </div>
 
-                                       <div className="grid md:grid-cols-2 gap-4">
+                                       <div className="grid md:grid-cols-2 gap-8">
                                           {['presidencia', 'diretoria', 'gerencia', 'atendimento'].map((cat) => (
-                                            <div key={cat} className="space-y-3">
-                                              <h5 className="text-[10px] font-black text-blue-900 uppercase tracking-widest px-2 flex items-center gap-2">
-                                                <div className="w-1.5 h-1.5 bg-blue-600 rounded-full"></div>
+                                            <div key={cat} className="space-y-4">
+                                              <h5 className="text-[10px] font-black text-blue-900 uppercase tracking-[0.2em] px-4 flex items-center gap-3">
+                                                <div className="w-2 h-2 bg-amber-400 rounded-full shadow-[0_0_8px_rgba(251,191,36,0.5)]"></div>
                                                 {cat === 'presidencia' ? 'Presidência' : cat === 'diretoria' ? 'Diretoria' : cat === 'gerencia' ? 'Gerência' : 'Atendimento'}
                                               </h5>
-                                              <div className="space-y-2">
+                                              <div className="space-y-3">
                                                 {teamMembers.filter(m => m.category === cat).map((member) => (
-                                                  <div key={member.id} className="flex items-center justify-between p-3.5 bg-gray-50 border border-gray-100 rounded-2xl group hover:border-blue-300 hover:bg-white transition-all shadow-sm">
-                                                    <div className="flex items-center gap-3">
-                                                      <div className="w-9 h-9 bg-white rounded-xl shadow-inner flex items-center justify-center">
-                                                        <Users className="w-4 h-4 text-blue-300" />
+                                                  <div key={member.id} className="flex items-center justify-between p-4 bg-gray-50 border border-gray-100 rounded-[28px] group hover:border-blue-300 hover:bg-white hover:shadow-xl hover:shadow-blue-900/5 transition-all">
+                                                    <div className="flex items-center gap-4">
+                                                      <div className="w-12 h-12 bg-white rounded-2xl shadow-inner flex items-center justify-center overflow-hidden border border-gray-100 p-0.5">
+                                                        {member.photo ? (
+                                                          <img src={member.photo} alt={member.name} className="w-full h-full object-cover rounded-[14px]" />
+                                                        ) : (
+                                                          <Users className="w-5 h-5 text-blue-200" />
+                                                        )}
                                                       </div>
                                                       <div>
-                                                        <p className="text-xs font-bold text-gray-800">{member.name}</p>
-                                                        <p className="text-[9px] text-gray-400 font-bold uppercase">{member.role}</p>
+                                                        <p className="text-sm font-black text-blue-950 leading-tight">{member.name}</p>
+                                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{member.role}</p>
                                                       </div>
                                                     </div>
                                                     <button 
                                                       onClick={() => setTeamMembers(teamMembers.filter(m => m.id !== member.id))}
-                                                      className="p-2 text-gray-300 hover:text-rose-600 rounded-lg transition-colors"
+                                                      className="p-3 text-gray-300 hover:text-rose-600 rounded-xl hover:bg-rose-50 transition-all opacity-0 group-hover:opacity-100"
                                                       title="Remover"
                                                     >
                                                       <X className="w-4 h-4" />
@@ -3055,7 +3924,9 @@ Para corrigir:
                                                   </div>
                                                 ))}
                                                 {teamMembers.filter(m => m.category === cat).length === 0 && (
-                                                  <p className="text-[10px] text-gray-300 italic px-2">Nenhum membro cadastrado.</p>
+                                                  <div className="flex items-center justify-center py-8 bg-gray-50/50 rounded-[28px] border border-dashed border-gray-200">
+                                                    <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest opacity-40">Sem cadastros</p>
+                                                  </div>
                                                 )}
                                               </div>
                                             </div>
@@ -3081,7 +3952,10 @@ Para corrigir:
                                              </div>
                                              <div>
                                                 <h4 className="text-xl font-bold text-blue-900">Upload de Documentos</h4>
-                                                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">CCT, Notícias e Editais</p>
+                                                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest leading-relaxed">
+                                                   CCT, Notícias e Editais Jurídicos
+                                                   <span className="block text-[8px] text-amber-500 mt-0.5">* Acesso permitido para Administradores e Gerente Geral</span>
+                                                </p>
                                              </div>
                                           </div>
 
@@ -3094,16 +3968,33 @@ Para corrigir:
                                                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">PDF, DOCX até 50MB</p>
                                              </div>
                                              
-                                             <div className="grid grid-cols-3 gap-2">
-                                                {['CCT', 'Notícia', 'Edital'].map((t) => (
-                                                   <button key={t} className="py-2.5 rounded-xl border border-gray-100 text-xs font-bold text-gray-500 hover:bg-blue-900 hover:text-white hover:border-blue-900 transition-all">
-                                                      {t}
+                                             <div className="grid grid-cols-4 gap-2">
+                                                {[
+                                                  { label: 'CCT', val: 'cct' },
+                                                  { label: 'Notícia', val: 'news' },
+                                                  { label: 'Edital', val: 'internal' },
+                                                  { label: 'Jurídico', val: 'juridico' }
+                                                ].map((t) => (
+                                                   <button 
+                                                     key={t.val} 
+                                                     onClick={() => setDocType(t.val as any)}
+                                                     className={`py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                                                       docType === t.val
+                                                       ? 'bg-blue-900 text-white border-blue-900 shadow-lg shadow-blue-900/20' 
+                                                       : 'border-gray-100 text-gray-400 hover:bg-gray-50'
+                                                     }`}
+                                                   >
+                                                      {t.label}
                                                    </button>
                                                 ))}
                                              </div>
                                              
-                                             <button className="w-full bg-blue-950 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-950/20 active:scale-95">
-                                                Publicar no Portal
+                                             <button 
+                                               onClick={handlePublishDoc}
+                                               disabled={isUploadingDoc}
+                                               className="w-full bg-blue-950 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-950/20 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                                             >
+                                                {isUploadingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Publicar no Portal'}
                                              </button>
                                           </div>
                                        </div>
@@ -3112,28 +4003,380 @@ Para corrigir:
                                           <h4 className="text-xl font-bold mb-8 text-blue-900 font-display uppercase tracking-widest text-xs">Publicações Ativas</h4>
                                           <div className="space-y-4">
                                              {[
-                                               { title: 'CCT 2026/2027 - Setor Metalúrgico', type: 'CCT', date: 'Hoje, 10:45' },
-                                               { title: 'Informativo Mensal - Maio 2026', type: 'Notícia', date: 'Ontem' },
-                                               { title: 'Edital de Convocação - Assembleia Geral', type: 'Edital', date: '12/05/2026' },
+                                               { title: 'CCT 2026/2027 - Setor Metalúrgico', type: 'CCT', date: 'Hoje, 10:45', desc: 'Convenção Coletiva de Trabalho completa contendo os novos pisos salariais e cláusulas sociais aprovadas em assembleia.' },
+                                               { title: 'Informativo Mensal - Maio 2026', type: 'Notícia', date: 'Ontem', desc: 'Resumo das atividades do sindicato no último mês, incluindo ações jurídicas e eventos realizados.' },
+                                               { title: 'Edital de Convocação - Assembleia Geral', type: 'Edital', date: '12/05/2026', desc: 'Edital oficial convocando todos os associados para a Assembleia Geral Extraordinária sobre o plano de saúde.' },
                                              ].map((pub, i) => (
-                                               <div key={i} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between group hover:bg-white hover:border-blue-200 transition-all">
-                                                  <div className="flex items-center gap-3">
-                                                     <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center">
-                                                        <FileText className="w-5 h-5 text-blue-600" />
-                                                     </div>
-                                                     <div>
-                                                        <p className="text-xs font-bold text-gray-800 line-clamp-1">{pub.title}</p>
-                                                        <div className="flex items-center gap-2">
-                                                           <span className="text-[8px] font-black bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded uppercase">{pub.type}</span>
-                                                           <span className="text-[9px] text-gray-400 font-bold">{pub.date}</span>
+                                               <div key={i} className="bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden group hover:bg-white hover:border-blue-200 transition-all">
+                                                  <div className="p-4 flex items-center justify-between">
+                                                     <div className="flex items-center gap-3">
+                                                        <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center">
+                                                           <FileText className="w-5 h-5 text-blue-600" />
+                                                        </div>
+                                                        <div>
+                                                           <p className="text-xs font-bold text-gray-800 line-clamp-1">{pub.title}</p>
+                                                           <div className="flex items-center gap-2">
+                                                              <span className="text-[8px] font-black bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded uppercase">{pub.type}</span>
+                                                              <span className="text-[9px] text-gray-400 font-bold">{pub.date}</span>
+                                                           </div>
                                                         </div>
                                                      </div>
+                                                     <div className="flex items-center gap-2">
+                                                        <button 
+                                                          onClick={() => setExpandedPubIndex(expandedPubIndex === i ? null : i)}
+                                                          className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-600 hover:text-white transition-all"
+                                                        >
+                                                           {expandedPubIndex === i ? 'Recolher' : 'Ver Detalhes'}
+                                                        </button>
+                                                        <button className="p-2 text-gray-300 hover:text-blue-600">
+                                                           <Eye className="w-4 h-4" />
+                                                        </button>
+                                                     </div>
                                                   </div>
-                                                  <button className="p-2 text-gray-300 hover:text-blue-600">
-                                                     <Eye className="w-4 h-4" />
-                                                  </button>
+                                                  
+                                                  <AnimatePresence>
+                                                     {expandedPubIndex === i && (
+                                                        <motion.div
+                                                          initial={{ height: 0, opacity: 0 }}
+                                                          animate={{ height: 'auto', opacity: 1 }}
+                                                          exit={{ height: 0, opacity: 0 }}
+                                                          className="px-4 pb-4 border-t border-gray-100 bg-white/50"
+                                                        >
+                                                           <div className="pt-4 space-y-3">
+                                                              <p className="text-xs text-gray-500 font-medium leading-relaxed">{pub.desc}</p>
+                                                              <div className="flex items-center gap-2 pt-2 border-t border-gray-50">
+                                                                 <Clock className="w-3 h-3 text-gray-400" />
+                                                                 <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">Publicado em: {pub.date}</span>
+                                                              </div>
+                                                           </div>
+                                                        </motion.div>
+                                                     )}
+                                                  </AnimatePresence>
                                                </div>
                                              ))}
+                                          </div>
+                                       </div>
+                                    </div>
+                                 </motion.div>
+                               )}
+
+                               {adminSubTab === 'cms' && (
+                                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="p-10 space-y-10">
+                                    <div className="flex items-center justify-between">
+                                       <div>
+                                          <h3 className="text-3xl font-black text-blue-900 tracking-tighter">Editor do Portal</h3>
+                                          <p className="text-sm text-gray-500 font-medium">Personalize a experiência visual e textual do site.</p>
+                                       </div>
+                                       <button 
+                                         onClick={() => showNotification('success', 'Alterações do site publicadas com sucesso!')}
+                                         className="bg-emerald-500 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl shadow-emerald-500/20 hover:scale-105 transition-all active:scale-95 flex items-center gap-2"
+                                       >
+                                          <CheckCircle2 className="w-5 h-5" /> Publicar Site
+                                       </button>
+                                    </div>
+
+                                    <div className="grid lg:grid-cols-2 gap-10">
+                                       {/* Identidade Visual */}
+                                       <div className="col-span-2 bg-white border border-gray-100 rounded-[44px] p-8 lg:p-12 shadow-xl space-y-10">
+                                             <div className="flex items-center gap-6 border-b border-gray-50 pb-8">
+                                               <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center shadow-inner">
+                                                 <ImageIcon className="w-8 h-8" />
+                                               </div>
+                                               <div>
+                                                 <h4 className="text-2xl font-black text-blue-950 font-display">Identidade Visual</h4>
+                                                 <p className="text-sm font-bold text-gray-400 uppercase tracking-widest leading-none mt-2">Logomarca do Sindicato</p>
+                                               </div>
+                                             </div>
+
+                                             <div className="grid lg:grid-cols-2 gap-12">
+                                               <div className="space-y-8">
+                                                 <div className="space-y-4">
+                                                   <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Upload do Logo (PNG de preferência)</label>
+                                                   <div className="relative group">
+                                                     <input 
+                                                       type="text" 
+                                                       placeholder="URL do Logo ou Cole o Link"
+                                                       value={siteConfig.logoUrl}
+                                                       onChange={(e) => setSiteConfig({...siteConfig, logoUrl: e.target.value})}
+                                                       className="w-full bg-gray-50 border border-gray-100 p-5 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm pr-16"
+                                                     />
+                                                     <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                                                       <input 
+                                                         type="file" 
+                                                         id="logo-upload" 
+                                                         className="hidden" 
+                                                         accept="image/*"
+                                                         onChange={(e) => {
+                                                           const file = e.target.files?.[0];
+                                                           if (file) {
+                                                             const reader = new FileReader();
+                                                             reader.onloadend = () => {
+                                                               setSiteConfig({...siteConfig, logoUrl: reader.result as string});
+                                                             };
+                                                             reader.readAsDataURL(file);
+                                                           }
+                                                         }}
+                                                       />
+                                                       <label htmlFor="logo-upload" className="p-3 bg-white shadow-lg rounded-xl cursor-pointer hover:bg-gray-50 transition-all block">
+                                                         <Upload className="w-4 h-4 text-blue-600" />
+                                                       </label>
+                                                     </div>
+                                                   </div>
+                                                   <p className="text-[10px] text-gray-400 font-bold px-4">Recomendado: Logo com fundo transparente (PNG/SVG).</p>
+                                                 </div>
+
+                                                 <div className="grid grid-cols-2 gap-6">
+                                                   <div className="space-y-4">
+                                                     <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Largura Header (px)</label>
+                                                     <input 
+                                                       type="range"
+                                                       min="50"
+                                                       max="300"
+                                                       value={siteConfig.headerLogoWidth || 100}
+                                                       onChange={(e) => setSiteConfig({...siteConfig, headerLogoWidth: parseInt(e.target.value)})}
+                                                       className="w-full h-2 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-900"
+                                                     />
+                                                     <div className="flex justify-between text-[10px] font-black text-gray-400 px-4 uppercase">
+                                                       <span>50px</span>
+                                                       <span className="text-blue-600">{siteConfig.headerLogoWidth}px</span>
+                                                       <span>300px</span>
+                                                     </div>
+                                                   </div>
+                                                   <div className="space-y-4">
+                                                     <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Largura Footer (px)</label>
+                                                     <input 
+                                                       type="range"
+                                                       min="40"
+                                                       max="250"
+                                                       value={siteConfig.footerLogoWidth || 80}
+                                                       onChange={(e) => setSiteConfig({...siteConfig, footerLogoWidth: parseInt(e.target.value)})}
+                                                       className="w-full h-2 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-900"
+                                                     />
+                                                     <div className="flex justify-between text-[10px] font-black text-gray-400 px-4 uppercase">
+                                                       <span>40px</span>
+                                                       <span className="text-blue-600">{siteConfig.footerLogoWidth}px</span>
+                                                       <span>250px</span>
+                                                     </div>
+                                                   </div>
+                                                 </div>
+                                               </div>
+
+                                               <div className="bg-gray-50 rounded-[32px] p-8 border border-gray-100 flex flex-col items-center justify-center space-y-6 text-center">
+                                                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Pré-visualização do Logo</span>
+                                                  <div className="bg-white p-6 rounded-[24px] shadow-2xl shadow-blue-900/5 min-h-[120px] flex items-center justify-center">
+                                                     {siteConfig.logoUrl ? (
+                                                       <img src={siteConfig.logoUrl} style={{ width: `${siteConfig.headerLogoWidth}px` }} className="h-auto" alt="Preview" />
+                                                     ) : (
+                                                       <div className="text-gray-200 flex flex-col items-center gap-2">
+                                                         <ImageIcon className="w-12 h-12" />
+                                                         <span className="text-[10px] font-black uppercase">Nenhum logo</span>
+                                                       </div>
+                                                     )}
+                                                  </div>
+                                                  <div className="text-center">
+                                                    <p className="text-[#1a3673] font-black text-xs uppercase tracking-tight">Cabeçalho Institucional</p>
+                                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Simulação de fundo branco</p>
+                                                  </div>
+                                               </div>
+                                             </div>
+                                       </div>
+
+                                       <div className="space-y-10">
+                                          <div className="bg-white rounded-[40px] p-10 border border-gray-100 shadow-xl space-y-8">
+                                             <h4 className="text-xl font-bold text-blue-900 border-b border-gray-50 pb-6 flex items-center gap-3">
+                                                <Home className="w-6 h-6 text-amber-500" /> Hero Section (Principal)
+                                             </h4>
+                                             <div className="space-y-6">
+                                                <div className="space-y-2">
+                                                   <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Banner Título</label>
+                                                   <input 
+                                                      type="text" 
+                                                      value={siteConfig.heroTitle}
+                                                      onChange={(e) => setSiteConfig({...siteConfig, heroTitle: e.target.value})}
+                                                      className="w-full bg-gray-50 border border-gray-100 p-5 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
+                                                   />
+                                                </div>
+                                                <div className="space-y-2">
+                                                   <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Banner Descrição</label>
+                                                   <textarea 
+                                                      rows={4}
+                                                      value={siteConfig.heroSubtitle}
+                                                      onChange={(e) => setSiteConfig({...siteConfig, heroSubtitle: e.target.value})}
+                                                      className="w-full bg-gray-50 border border-gray-100 p-5 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm leading-relaxed"
+                                                   />
+                                                </div>
+                                             </div>
+                                          </div>
+                                       </div>
+
+                                       <div className="bg-blue-950 rounded-[48px] p-12 text-white shadow-3xl shadow-blue-950/40 relative overflow-hidden flex flex-col justify-center">
+                                          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-[80px] -mr-32 -mt-32"></div>
+                                          <div className="relative z-10 space-y-10">
+                                             <div className="space-y-4">
+                                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-400">Pré-visualização Mobile</span>
+                                                <div className="bg-white/5 backdrop-blur-md rounded-[32px] p-8 border border-white/10 space-y-6">
+                                                   <h2 className="text-3xl font-black leading-tight border-l-4 border-amber-400 pl-4">
+                                                      {siteConfig.heroTitle}
+                                                   </h2>
+                                                   <p className="text-sm text-blue-200/60 leading-relaxed">
+                                                      {siteConfig.heroSubtitle}
+                                                   </p>
+                                                   <div className="flex gap-3">
+                                                      <div className="w-10 h-10 rounded-xl bg-amber-400"></div>
+                                                      <div className="flex-1 h-10 rounded-xl bg-white/10 border border-white/20"></div>
+                                                   </div>
+                                                </div>
+                                             </div>
+                                          </div>
+                                       </div>
+                                    </div>
+                                 </motion.div>
+                               )}
+
+                               {adminSubTab === 'juceb' && (
+                                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="p-10 space-y-10">
+                                    <div className="flex items-center justify-between">
+                                       <div className="flex items-center gap-6">
+                                          <div className="w-16 h-16 bg-white rounded-[24px] shadow-xl flex items-center justify-center p-3 border border-gray-50">
+                                             <img src="https://www.google.com/s2/favicons?domain=juceb.ba.gov.br&sz=128" className="w-full h-full object-contain" alt="JUCEB" />
+                                          </div>
+                                          <div>
+                                             <h3 className="text-3xl font-black text-blue-900 tracking-tighter">Convênio JUCEB</h3>
+                                             <p className="text-sm text-gray-500 font-medium tracking-tight">Atendimento presencial e suporte à formalização empresarial.</p>
+                                          </div>
+                                       </div>
+                                       <div className="flex gap-4">
+                                          <button className="bg-blue-50 text-blue-900 px-8 py-4 rounded-3xl font-black text-xs uppercase tracking-widest hover:bg-blue-100 transition-all flex items-center gap-2">
+                                             <Users className="w-5 h-5" /> Atendentes
+                                          </button>
+                                          <button className="bg-blue-900 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 transition-all flex items-center gap-2">
+                                             <Plus className="w-5 h-5" /> Agendar Atendimento
+                                          </button>
+                                       </div>
+                                    </div>
+
+                                    <div className="bg-white rounded-[40px] border border-gray-100 shadow-2xl shadow-blue-900/5 overflow-hidden">
+                                       <div className="p-8 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between">
+                                          <h4 className="font-bold text-gray-800 text-lg">Processos em Tramitação</h4>
+                                          <div className="flex gap-3">
+                                             <span className="px-4 py-1.5 bg-blue-100 text-blue-700 rounded-full text-[10px] font-black uppercase tracking-wider">5 Ativos</span>
+                                             <span className="px-4 py-1.5 bg-amber-100 text-amber-700 rounded-full text-[10px] font-black uppercase tracking-wider">2 Pendentes</span>
+                                          </div>
+                                       </div>
+                                       <div className="overflow-x-auto">
+                                          <table className="w-full">
+                                             <thead className="bg-gray-50/30 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">
+                                                <tr>
+                                                   <th className="px-10 py-6 text-left">Empresa / CNPJ</th>
+                                                   <th className="px-10 py-6 text-left">Protocolo / Tipo</th>
+                                                   <th className="px-10 py-6 text-left">Status Atual</th>
+                                                   <th className="px-10 py-6 text-left">Atendente</th>
+                                                   <th className="px-10 py-6 text-right">Ações</th>
+                                                </tr>
+                                             </thead>
+                                             <tbody className="divide-y divide-gray-50">
+                                                {jucebProcesses.map((proc) => (
+                                                   <tr key={proc.id} className="hover:bg-blue-50/30 transition-all group">
+                                                      <td className="px-10 py-8">
+                                                         <p className="text-sm font-bold text-gray-800 group-hover:text-blue-900">{proc.company}</p>
+                                                         <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Entrada: {proc.date}</p>
+                                                      </td>
+                                                      <td className="px-10 py-8">
+                                                         <p className="text-xs font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-lg inline-block">{proc.type}</p>
+                                                      </td>
+                                                      <td className="px-10 py-8">
+                                                         <div className="flex items-center gap-3">
+                                                            <div className={`w-3 h-3 rounded-full ${
+                                                              proc.status === 'Concluído' ? 'bg-emerald-500' :
+                                                              proc.status === 'Em Análise' ? 'bg-blue-500' :
+                                                              'bg-amber-500'
+                                                            } ring-4 ${
+                                                              proc.status === 'Concluído' ? 'ring-emerald-50' :
+                                                              proc.status === 'Em Análise' ? 'ring-blue-50' :
+                                                              'ring-amber-50'
+                                                            }`}></div>
+                                                            <span className="text-sm font-bold text-gray-800">{proc.status}</span>
+                                                         </div>
+                                                      </td>
+                                                      <td className="px-10 py-8">
+                                                         <div className="flex items-center gap-2">
+                                                            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-black text-blue-900">AF</div>
+                                                            <span className="text-xs font-bold text-gray-500">{proc.responsible}</span>
+                                                         </div>
+                                                      </td>
+                                                      <td className="px-10 py-8 text-right">
+                                                         <div className="flex items-center justify-end gap-3">
+                                                            <button className="p-3 bg-white rounded-2xl shadow-sm text-gray-400 hover:text-blue-900 transition-all border border-gray-100 hover:border-blue-200"><Eye className="w-5 h-5" /></button>
+                                                            <button className="p-3 bg-white rounded-2xl shadow-sm text-gray-400 hover:text-blue-900 transition-all border border-gray-100 hover:border-blue-200"><MessageSquare className="w-5 h-5" /></button>
+                                                         </div>
+                                                      </td>
+                                                   </tr>
+                                                ))}
+                                             </tbody>
+                                          </table>
+                                       </div>
+                                    </div>
+                                 </motion.div>
+                               )}
+
+                               {adminSubTab === 'ai_faq' && (
+                                 <motion.div 
+                                   key="ai_faq"
+                                   initial={{ opacity: 0, y: 20 }} 
+                                   animate={{ opacity: 1, y: 0 }} 
+                                   className="space-y-8"
+                                 >
+                                    <div className="bg-white border border-gray-100 rounded-[44px] p-10 lg:p-12 shadow-xl">
+                                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-12">
+                                         <div className="flex items-center gap-6">
+                                           <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center shadow-inner">
+                                             <Bot className="w-8 h-8" />
+                                           </div>
+                                           <div>
+                                             <h4 className="text-3xl font-black text-blue-950 font-display">Gerador de FAQ Inteligente</h4>
+                                             <p className="text-sm font-bold text-gray-400 uppercase tracking-widest leading-none mt-2">IA + Feedback de Usuário</p>
+                                           </div>
+                                         </div>
+                                         <button 
+                                           onClick={handleGenerateFAQ}
+                                           disabled={isGeneratingFAQ}
+                                           className="bg-indigo-600 text-white px-10 py-5 rounded-[24px] font-black text-xs uppercase tracking-widest shadow-2xl shadow-indigo-600/30 hover:scale-105 transition-all disabled:opacity-50 flex items-center gap-3"
+                                         >
+                                           {isGeneratingFAQ ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                                           {isGeneratingFAQ ? 'Analisando Sugestões...' : 'Gerar Novo FAQ com IA'}
+                                         </button>
+                                       </div>
+
+                                       <div className="bg-amber-50 border border-amber-100 rounded-[32px] p-8 mb-12 flex items-start gap-4">
+                                          <HelpCircle className="w-6 h-6 text-amber-500 shrink-0" />
+                                          <div>
+                                            <h5 className="font-bold text-amber-900 mb-1">Como funciona?</h5>
+                                            <p className="text-sm text-amber-700/80 leading-relaxed font-medium">
+                                              Nossa IA analisa todas as mensagens enviadas através do formulário de sugestões e do chat jurídico. 
+                                              Ela identifica padrões, agrupa por categorias e redige respostas profissionais baseadas na CCT. 
+                                            </p>
+                                          </div>
+                                       </div>
+
+                                       <div className="space-y-6">
+                                          <h5 className="text-xs font-black text-gray-400 uppercase tracking-widest px-4">FAQ Atualmente Público ({faqs.length})</h5>
+                                          <div className="grid gap-4">
+                                            {faqs.map((item, idx) => (
+                                              <div key={idx} className="p-8 bg-gray-50 border border-gray-100 rounded-[32px] hover:border-indigo-200 hover:bg-white transition-all shadow-sm">
+                                                <div className="flex items-center gap-3 mb-4">
+                                                  <span className="text-[10px] font-black bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full uppercase tracking-wider">{item.category}</span>
+                                                  <span className="text-[10px] font-bold text-gray-400">Relevância: {item.relevance}/10</span>
+                                                </div>
+                                                <h5 className="text-xl font-bold text-blue-950 mb-3">{item.question}</h5>
+                                                <p className="text-gray-600 leading-relaxed font-medium">{item.answer}</p>
+                                              </div>
+                                            ))}
+                                            {faqs.length === 0 && (
+                                              <div className="text-center py-20 bg-gray-50 rounded-[32px] border-2 border-dashed border-gray-100">
+                                                <HelpCircle className="w-12 h-12 text-gray-200 mx-auto mb-4" />
+                                                <p className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">Nenhum FAQ gerado ainda.</p>
+                                              </div>
+                                            )}
                                           </div>
                                        </div>
                                     </div>
@@ -3148,6 +4391,45 @@ Para corrigir:
                                    exit={{ opacity: 0, x: 20 }}
                                    className="space-y-8"
                                  >
+                                   {/* SOLICITAÇÕES PENDENTES */}
+                                   {membershipRequests.length > 0 && (
+                                     <div className="bg-amber-50 border border-amber-100 rounded-[40px] p-8 lg:p-10 shadow-xl overflow-hidden relative">
+                                        <div className="flex items-center gap-4 mb-8">
+                                          <div className="w-12 h-12 bg-amber-400 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-amber-400/20">
+                                            <Users className="w-6 h-6" />
+                                          </div>
+                                          <div>
+                                            <h4 className="text-xl font-black text-blue-900 leading-tight">Solicitações de Filiação ({membershipRequests.length})</h4>
+                                            <p className="text-[10px] text-amber-700 font-bold uppercase tracking-widest leading-none mt-1">Aprovação gera 12 mensalidades automaticamente</p>
+                                          </div>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                          {membershipRequests.map((req) => (
+                                            <div key={req.id} className="bg-white p-6 rounded-3xl border border-amber-100 flex flex-col lg:flex-row lg:items-center justify-between gap-6 hover:shadow-lg transition-all group">
+                                              <div className="flex-1">
+                                                <div className="flex items-center gap-3 mb-2">
+                                                  <h5 className="font-black text-blue-950 group-hover:text-blue-600 transition-all">{req.companyName}</h5>
+                                                  <span className="text-[8px] font-black bg-blue-100 text-blue-700 px-2 py-0.5 rounded uppercase">{req.cnpj}</span>
+                                                </div>
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-[10px] font-bold text-gray-500">
+                                                  <div className="flex items-center gap-2 text-blue-900/60"><Send className="w-3 h-3" /> {req.email}</div>
+                                                  <div className="flex items-center gap-2 text-blue-900/60"><Phone className="w-3 h-3" /> {req.phone}</div>
+                                                  <div className="flex items-center gap-2 text-blue-900/60"><Briefcase className="w-3 h-3" /> {req.representative}</div>
+                                                  <div className="flex items-center gap-2 text-blue-900/60"><Building2 className="w-3 h-3" /> R$ {Number(req.capitalSocial).toLocaleString('pt-BR')}</div>
+                                                </div>
+                                              </div>
+                                              <button 
+                                                onClick={() => handleApproveRequest(req)}
+                                                className="bg-blue-900 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-900/10 flex items-center justify-center gap-2 whitespace-nowrap active:scale-95"
+                                              >
+                                                <CheckCircle2 className="w-4 h-4" /> Aprovar e Gerar Cobranças
+                                              </button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                     </div>
+                                   )}
                                     <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl overflow-hidden relative">
                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
                                           <div>
@@ -3278,7 +4560,7 @@ Para corrigir:
                                                  <div className="border-2 border-dashed border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 p-10 rounded-[32px] text-center transition-all bg-gray-50/30 relative overflow-hidden group">
                                                     <div className="relative z-10">
                                                        <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm border border-gray-100 group-hover:scale-110 transition-transform duration-500">
-                                                          <Image className="w-8 h-8 text-blue-600" />
+                                                          <ImageIcon className="w-8 h-8 text-blue-600" />
                                                        </div>
                                                        <p className="text-sm font-black text-gray-900 mb-1">Subir Logotipo</p>
                                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mt-2">Escolha um arquivo PNG ou SVG</p>
@@ -3479,154 +4761,93 @@ Para corrigir:
             className="min-h-screen bg-gray-50 flex flex-col"
           >
             {/* Header */}
-            <header className="bg-blue-900 text-white sticky top-0 z-50 shadow-md">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-white p-2 rounded-xl">
-              <Building2 className="text-blue-900 w-8 h-8" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold leading-none">Sindicato Patronal Sinpa</h1>
-              <p className="text-[10px] uppercase tracking-widest opacity-70 mt-1 font-semibold">Portal Digital</p>
-            </div>
-          </div>
-
-          <nav className="hidden lg:flex gap-8 text-sm font-medium">
-            <a href="#inicio" className="hover:text-amber-400 transition-colors uppercase tracking-wide">Início</a>
-            <a href="#noticias" className="hover:text-amber-400 transition-colors uppercase tracking-wide">Notícias</a>
-            <a href="#representatividade" className="hover:text-amber-400 transition-colors uppercase tracking-wide">Representatividade</a>
-            <a href="#indicadores" className="hover:text-amber-400 transition-colors uppercase tracking-wide">Indicadores</a>
-            <a href="#beneficios" className="hover:text-amber-400 transition-colors uppercase tracking-wide font-bold text-amber-400">Clube de Benefícios</a>
-            <a href="#servicos" className="hover:text-amber-400 transition-colors uppercase tracking-wide">Serviços</a>
-            <a href="#associados" className="hover:text-amber-400 transition-colors uppercase tracking-wide">Associados</a>
-            <a href="#publico" className="hover:text-amber-400 transition-colors uppercase tracking-wide">Consulta Pública</a>
-          </nav>
-
-          <div className="flex items-center gap-4">
-            <div className="relative">
-              <button 
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="relative p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition"
-              >
-                <Bell className="w-6 h-6" />
-                {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 w-4 h-4 bg-amber-400 text-blue-950 text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-blue-900">
-                    {unreadCount}
-                  </span>
-                )}
-              </button>
-
-              <AnimatePresence>
-                {showNotifications && (
-                  <>
-                    <div 
-                      className="fixed inset-0 z-40" 
-                      onClick={() => setShowNotifications(false)}
-                    ></div>
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute right-0 mt-3 w-80 bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden z-50 text-gray-900"
-                    >
-                      <div className="p-5 border-b border-gray-50 flex items-center justify-between">
-                        <h3 className="font-bold text-lg">Notificações</h3>
-                        {unreadCount > 0 && (
-                          <button 
-                            onClick={markAllAsRead}
-                            className="text-xs text-blue-600 font-bold hover:underline"
-                          >
-                            Marcar tudo como lido
-                          </button>
-                        )}
-                      </div>
-                      <div className="max-h-[400px] overflow-y-auto">
-                        {notifications.length > 0 ? (
-                          notifications.map((n) => (
-                            <div 
-                              key={n.id} 
-                              onClick={() => markAsRead(n.id)}
-                              className={`p-4 border-b border-gray-50 flex gap-4 hover:bg-gray-50 transition cursor-pointer ${!n.read ? 'bg-blue-50/50' : ''}`}
-                            >
-                              <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
-                                n.type === 'publication' ? 'bg-blue-100 text-blue-600' :
-                                n.type === 'payment' ? 'bg-amber-100 text-amber-600' :
-                                'bg-purple-100 text-purple-600'
-                              }`}>
-                                {n.type === 'publication' && <FileText className="w-5 h-5" />}
-                                {n.type === 'payment' && <AlertCircle className="w-5 h-5" />}
-                                {n.type === 'announcement' && <Info className="w-5 h-5" />}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <h4 className={`text-sm font-bold mb-0.5 truncate ${!n.read ? 'text-blue-900' : 'text-gray-900'}`}>{n.title}</h4>
-                                <p className="text-xs text-gray-500 mb-2 line-clamp-2">{n.description}</p>
-                                <span className="text-[10px] text-gray-400 font-medium">{n.date}</span>
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="p-10 text-center text-gray-400">
-                            Nenhuma notificação encontrada.
-                          </div>
-                        )}
-                      </div>
-                      <button className="w-full py-4 text-sm font-bold text-blue-900 bg-gray-50 hover:bg-gray-100 transition">
-                        Ver todas as notificações
-                      </button>
-                    </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
-            </div>
-
-            <div className="flex items-center gap-4">
-              {currentUser ? (
-                <div className="flex items-center gap-4 pl-4 border-l border-white/10">
-                  <div className="text-right hidden sm:block">
-                    <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest leading-none mb-1">
-                      {isAdmin ? 'Acesso Administrativo' : 'Bem-vindo'}
-                    </p>
-                    <div className="flex items-center gap-2 justify-end">
-                      {isAdmin && (
-                        <span className="text-[10px] bg-amber-400 text-blue-900 px-2 py-0.5 rounded-full font-black uppercase shadow-sm">Admin</span>
+            <header className="bg-[#1a3673] text-white sticky top-0 z-50 shadow-md">
+              <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between gap-4">
+                <div className="flex items-center shrink-0">
+                  <div className="flex items-center group cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+                    <div className="bg-white p-1.5 rounded-xl shadow-2xl transition-transform group-hover:scale-105">
+                      {siteConfig.logoUrl ? (
+                        <img 
+                          src={siteConfig.logoUrl} 
+                          style={{ width: `${siteConfig.headerLogoWidth}px` }}
+                          className="h-auto max-w-[200px]"
+                          alt="Sinpa Logo" 
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <Building2 className="text-[#1a3673] w-8 h-8" />
                       )}
-                      <p className="text-sm font-bold truncate max-w-[120px]">{currentUser.displayName?.split(' ')[0]}</p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => setIsPortalView(true)}
-                    className="relative group focus:outline-none"
-                  >
-                    {currentUser.photoURL ? (
-                      <img src={currentUser.photoURL} alt="Foto do Usuário" className="w-10 h-10 rounded-xl border border-white/20 group-hover:border-amber-400 transition-colors" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20 group-hover:border-amber-400 transition-colors">
-                        <Users className="w-6 h-6 text-white" />
-                      </div>
-                    )}
-                    <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-blue-900 rounded-full shadow-lg"></div>
-                  </button>
-                  <button 
-                    onClick={handleLogout}
-                    disabled={authLoading}
-                    className="p-2 text-white/50 hover:text-rose-400 hover:bg-white/10 rounded-xl transition-all group disabled:opacity-50"
-                    title="Sair da Conta"
-                  >
-                    {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogOut className="w-5 h-5 group-hover:scale-110 transition-transform" />}
-                  </button>
                 </div>
-              ) : (
-                <button 
-                  onClick={handleLogin}
-                  className="bg-amber-400 text-blue-950 text-sm font-bold px-6 py-2.5 rounded-xl hover:bg-amber-300 transition-all shadow-lg shadow-amber-400/20 active:scale-95 flex items-center gap-2"
-                >
-                  <Fingerprint className="w-4 h-4" />
-                  Conectar Portal
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+
+                <nav className="hidden xl:flex items-center gap-6 text-[10px] font-black uppercase tracking-[0.15em] flex-1 justify-center">
+                  <a href="#inicio" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Início</a>
+                  <a href="#servicos" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Serviços</a>
+                  <a href="#noticias" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Notícias</a>
+                  <a href="#representatividade" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Representatividade</a>
+                  <a href="#indicadores" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Indicadores</a>
+                  <a href="#beneficios" className="text-amber-400 hover:text-amber-300 transition-colors text-center leading-[1.1] whitespace-nowrap">
+                    Clube de<br />Benefícios
+                  </a>
+                  <a href="#certidao" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Consulta Pública</a>
+                  <a href="#contato" className="text-white hover:text-amber-400 transition-colors whitespace-nowrap">Contato</a>
+                </nav>
+
+                <div className="flex items-center gap-4 shrink-0">
+                  <div className="hidden lg:flex items-center gap-4 border-r border-white/10 pr-4">
+                    <button className="text-white/60 hover:text-amber-400 transition-colors">
+                      <Bell className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {currentUser ? (
+                    <div className="flex items-center gap-4 group cursor-pointer" onClick={() => setIsPortalView(true)}>
+                      <div className="text-right hidden sm:block">
+                        <p className="text-[9px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Acesso Administrativo</p>
+                        <div className="flex items-center justify-end gap-2">
+                           <span className="bg-amber-400 text-blue-950 text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-wider">Admin</span>
+                           <span className="text-sm font-bold text-white tracking-tight">{currentUser.displayName?.split(' ')[0]}</span>
+                        </div>
+                      </div>
+                      <div className="relative">
+                        <div className="w-9 h-9 rounded-xl overflow-hidden border border-white/20 group-hover:border-amber-400 transition-all">
+                          {currentUser.photoURL ? (
+                            <img src={currentUser.photoURL} alt="User" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="w-full h-full bg-white/10 flex items-center justify-center">
+                              <Users className="w-5 h-5 text-white" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-blue-950"></div>
+                      </div>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleLogout(); }}
+                        className="ml-2 text-white/20 hover:text-rose-400 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => { setAuthType('associate'); setShowAuthModal(true); }}
+                        className="bg-white/5 hover:bg-white/10 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-white/5"
+                      >
+                        Portal
+                      </button>
+                      <button 
+                        onClick={() => { setAuthType('admin'); setShowAuthModal(true); }}
+                        className="bg-amber-400 text-blue-950 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all hover:scale-105 shadow-lg shadow-amber-400/10"
+                      >
+                        Admin
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </header>
         {authError && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
             <motion.div 
@@ -3735,10 +4956,9 @@ Para corrigir:
             </motion.div>
           </div>
         )}
-      </header>
 
       {/* Hero Section */}
-      <section id="inicio" className="relative overflow-hidden bg-blue-900 text-white py-24 lg:py-32">
+      <section id="inicio" className="relative overflow-hidden bg-blue-900 text-white py-16 lg:py-24 scroll-mt-20">
         <div className="absolute inset-0 opacity-10 pointer-events-none">
           <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-400 rounded-full blur-[120px] -mr-64 -mt-64"></div>
           <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-blue-300 rounded-full blur-[100px] -ml-40 -mb-40"></div>
@@ -3750,35 +4970,26 @@ Para corrigir:
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8 }}
           >
-            <span className="inline-block px-4 py-1.5 rounded-full bg-blue-800/50 text-blue-200 text-xs font-bold uppercase tracking-wider mb-6 border border-blue-700/50">
+            <span className="inline-block px-6 py-2 rounded-full bg-blue-800/50 text-blue-200 text-sm font-bold uppercase tracking-wider mb-6 border border-blue-700/50">
               Gestão Sindical Inteligente
             </span>
-            <h2 className="text-5xl lg:text-7xl font-bold leading-tight mb-8">
-              A força do <br />
-              <span className="text-amber-400">Patronato</span> em um só lugar.
+            <h2 className="text-4xl lg:text-5xl font-black leading-[1.1] mb-6 tracking-tighter">
+              {siteConfig.heroTitle.split(' ').map((word, i) => (
+                <React.Fragment key={i}>
+                  {word === 'Patronal' || word === 'Digital' ? <span className="text-amber-400">{word} </span> : word + ' '}
+                </React.Fragment>
+              ))}
             </h2>
-            <p className="text-lg lg:text-xl opacity-80 mb-10 leading-relaxed max-w-xl">
-              Plataforma digital completa para gestão financeira, controle de associados 
-              e transparência total nas decisões do seu sindicato.
+            <p className="text-base lg:text-lg text-blue-100/70 mb-8 max-w-lg leading-relaxed font-medium">
+              {siteConfig.heroSubtitle}
             </p>
 
-            <div className="flex flex-col sm:flex-row gap-5">
-              <button 
-                onClick={() => {
-                  setMemberLoggedIn(true);
-                  document.getElementById('associados')?.scrollIntoView({ behavior: 'smooth' });
-                }}
-                className="bg-amber-400 text-blue-950 px-8 py-4 rounded-2xl font-bold shadow-xl shadow-amber-900/20 hover:scale-105 transition-all text-lg flex items-center justify-center gap-2"
-              >
-                <Users className="w-5 h-5" />
-                Área do Associado
-              </button>
-
+            <div className="flex flex-col sm:flex-row gap-4">
               <button 
                 onClick={() => setShowCalculator(true)}
-                className="bg-white/10 backdrop-blur-sm border border-white/20 px-8 py-4 rounded-2xl font-semibold hover:bg-white/20 transition-all text-lg flex items-center justify-center gap-2"
+                className="bg-white/10 backdrop-blur-sm border border-white/20 px-8 py-4 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-white/20 transition-all flex items-center justify-center gap-2"
               >
-                <Calculator className="w-5 h-5" /> Simulador de Custos
+                <Calculator className="w-4 h-4" /> Simulador de Custos
               </button>
             </div>
           </motion.div>
@@ -3792,13 +5003,13 @@ Para corrigir:
             {[
               { label: 'Associados', value: '+1.200', icon: Users },
               { label: 'Aprovação', value: '98%', icon: CheckCircle2 },
-              { label: 'Fluxo Financeiro', value: 'R$ 2M', icon: BarChart3 },
+              { label: 'Movimentação', value: 'R$ 2M', icon: BarChart3 },
               { label: 'Portal Online', value: '24h', icon: Clock },
             ].map((stat, i) => (
-              <div key={i} className="bg-white/10 backdrop-blur-md rounded-3xl p-6 lg:p-8 border border-white/10 shadow-2xl hover:bg-white/15 transition-colors">
-                <stat.icon className="text-amber-400 w-8 h-8 mb-4 opacity-80" />
-                <h3 className="text-3xl lg:text-4xl font-bold mb-1">{stat.value}</h3>
-                <p className="text-sm opacity-60 font-medium tracking-wide uppercase">{stat.label}</p>
+              <div key={i} className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/10 shadow-2xl hover:bg-white/15 transition-colors text-center sm:text-left">
+                <stat.icon className="text-amber-400 w-8 h-8 mb-3 mx-auto sm:mx-0 opacity-80" />
+                <h3 className="text-2xl lg:text-3xl font-black mb-0.5 tracking-tighter leading-none">{stat.value}</h3>
+                <p className="text-[10px] opacity-50 font-black tracking-[0.2em] uppercase">{stat.label}</p>
               </div>
             ))}
           </motion.div>
@@ -3806,7 +5017,7 @@ Para corrigir:
       </section>
 
       {/* Quick Services - NOVO */}
-      <section id="servicos" className="py-12 bg-white -mt-12 relative z-20">
+      <section id="servicos" className="py-12 bg-white -mt-12 relative z-20 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-6">
           <motion.div 
             initial={{ opacity: 0, y: 30 }}
@@ -3835,21 +5046,21 @@ Para corrigir:
                 <div className="w-16 h-16 bg-blue-50 text-blue-900 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-blue-900 group-hover:text-white transition-colors">
                   <s.icon className="w-8 h-8" />
                 </div>
-                <span className="font-bold text-gray-800 tracking-tight">{s.label}</span>
+                <span className="font-bold text-lg text-gray-800 tracking-tight">{s.label}</span>
               </button>
             ))}
           </motion.div>
         </div>
       </section>
 
-      {/* Notícias e Publicações */}
-      <section id="noticias" className="py-24 bg-gray-50/50">
+      {/* News Section */}
+      <section id="noticias" className="py-16 bg-gray-50/50 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between mb-16 gap-6">
-            <div className="max-w-2xl">
-              <span className="text-blue-600 font-bold tracking-widest text-xs uppercase mb-2 block">Informatividade</span>
-              <h2 className="text-4xl font-bold tracking-tight">Notícias e Comunicados Oficiais</h2>
-              <p className="text-gray-500 mt-2">Fique por dentro das últimas decisões e atualizações do setor.</p>
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between mb-12 gap-6">
+            <div className="max-w-xl">
+              <span className="text-blue-600 font-black tracking-[0.2em] text-[10px] uppercase mb-2 block">Informatividade</span>
+              <h2 className="text-3xl lg:text-4xl font-black text-blue-950 tracking-tighter leading-none mb-3">Notícias e Comunicados</h2>
+              <p className="text-gray-500 text-sm font-medium">As principais atualizações do setor sindical patronal.</p>
             </div>
             <button className="flex items-center justify-center gap-2 text-blue-900 font-bold hover:gap-4 transition-all group">
               Central de Notícias <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
@@ -3869,17 +5080,17 @@ Para corrigir:
             ].map((news, i) => (
               <motion.div key={i} variants={fadeInUp} className="group bg-white rounded-3xl p-8 border border-gray-100 hover:border-blue-200 hover:shadow-2xl hover:shadow-blue-900/5 transition-all text-left flex flex-col h-full">
                 <div className="flex items-center justify-between mb-6">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
+                  <span className="text-xs font-bold uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
                     {news.type}
                   </span>
-                  <span className="text-[10px] font-medium text-gray-400">{news.date}</span>
+                  <span className="text-xs font-medium text-gray-400">{news.date}</span>
                 </div>
-                <h3 className="text-xl font-bold mb-4 leading-snug group-hover:text-blue-900 transition-colors">{news.title}</h3>
-                <p className="text-gray-500 mb-8 leading-relaxed text-sm flex-1">
+                <h3 className="text-2xl font-bold mb-4 leading-snug group-hover:text-blue-900 transition-colors">{news.title}</h3>
+                <p className="text-gray-500 mb-8 leading-relaxed text-base flex-1">
                   {news.desc}
                 </p>
-                <button className="flex items-center gap-2 text-sm font-bold text-blue-900 hover:gap-3 transition-all">
-                  Ler matéria completa <ChevronRight className="w-4 h-4" />
+                <button className="flex items-center gap-2 text-base font-bold text-blue-900 hover:gap-3 transition-all">
+                  Ler matéria completa <ChevronRight className="w-5 h-5" />
                 </button>
               </motion.div>
             ))}
@@ -3888,14 +5099,14 @@ Para corrigir:
       </section>
 
       {/* Representatividade e Atuação Setorial */}
-      <section id="representatividade" className="py-24 bg-blue-950 text-white relative overflow-hidden">
+      <section id="representatividade" className="py-24 bg-blue-950 text-white relative overflow-hidden scroll-mt-20">
         <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1517048676732-d65bc937f952?auto=format&fit=crop&q=80')] bg-cover bg-center opacity-10 grayscale"></div>
         <div className="max-w-7xl mx-auto px-6 relative z-10">
           <div className="grid lg:grid-cols-2 gap-20 items-center">
             <div>
-              <span className="text-amber-400 font-bold tracking-widest text-xs uppercase mb-4 block">Defesa de Interesses</span>
-              <h2 className="text-4xl lg:text-5xl font-bold mb-8 leading-tight">Voz Ativa junto aos Poderes Públicos</h2>
-              <p className="text-blue-100/70 text-lg mb-10 leading-relaxed">
+              <span className="text-amber-400 font-bold tracking-widest text-sm uppercase mb-4 block">Defesa de Interesses</span>
+              <h2 className="text-5xl lg:text-7xl font-bold mb-8 leading-tight">Voz Ativa junto aos Poderes Públicos</h2>
+              <p className="text-blue-100/70 text-xl mb-10 leading-relaxed">
                 Nossa atuação vai além dos benefícios. Representamos sua empresa em negociações coletivas, 
                 conselhos paritários e diálogos com o Poder Legislativo para garantir a sustentabilidade 
                 e competitividade do nosso setor.
@@ -3903,32 +5114,32 @@ Para corrigir:
               
               <div className="grid sm:grid-cols-2 gap-8">
                 <div className="space-y-4">
-                  <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center border border-white/10">
-                    <ShieldCheck className="w-6 h-6 text-amber-400" />
+                  <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center border border-white/10">
+                    <ShieldCheck className="w-8 h-8 text-amber-400" />
                   </div>
-                  <h4 className="font-bold text-xl">Negociação Coletiva</h4>
-                  <p className="text-sm text-blue-100/50">Equilíbrio nas relações de trabalho e segurança jurídica para o empresário.</p>
+                  <h4 className="font-bold text-2xl">Negociação Coletiva</h4>
+                  <p className="text-base text-blue-100/50">Equilíbrio nas relações de trabalho e segurança jurídica para o empresário.</p>
                 </div>
                 <div className="space-y-4">
-                  <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center border border-white/10">
-                    <Globe className="w-6 h-6 text-amber-400" />
+                  <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center border border-white/10">
+                    <Globe className="w-8 h-8 text-amber-400" />
                   </div>
-                  <h4 className="font-bold text-xl">Pleitos Setoriais</h4>
-                  <p className="text-sm text-blue-100/50">Articulação junto a federações e órgãos governamentais por melhorias no ambiente de negócios.</p>
+                  <h4 className="font-bold text-2xl">Pleitos Setoriais</h4>
+                  <p className="text-base text-blue-100/50">Articulação junto a federações e órgãos governamentais por melhorias no ambiente de negócios.</p>
                 </div>
               </div>
             </div>
             
             <div className="relative">
-              <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[48px] p-10 shadow-2xl relative z-10">
-                <blockquote className="text-2xl font-serif italic mb-8 text-blue-100">
+              <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[48px] p-12 shadow-2xl relative z-10">
+                <blockquote className="text-3xl font-serif italic mb-8 text-blue-100 leading-relaxed">
                   "Um setor forte é construído com união. O sindicato é a ferramenta de equilíbrio necessária para o progresso empresarial."
                 </blockquote>
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-amber-400 rounded-full flex items-center justify-center font-bold text-blue-950 text-xl">PR</div>
+                <div className="flex items-center gap-6">
+                  <div className="w-20 h-20 bg-amber-400 rounded-full flex items-center justify-center font-bold text-blue-950 text-2xl shadow-xl">PR</div>
                   <div>
-                    <p className="font-bold">Presidência</p>
-                    <p className="text-sm text-white/50">Biênio 2025/2027</p>
+                    <p className="font-black text-xl">Presidência</p>
+                    <p className="text-base text-white/50">Biênio 2025/2027</p>
                   </div>
                 </div>
               </div>
@@ -3939,26 +5150,25 @@ Para corrigir:
       </section>
 
       {/* Indicadores do Setor */}
-      <section id="indicadores" className="py-24 bg-white">
+      <section id="indicadores" className="py-16 bg-white scroll-mt-20">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <span className="text-blue-600 font-bold tracking-widest text-xs uppercase mb-4 block">Inteligência de Mercado</span>
-            <h2 className="text-4xl lg:text-5xl font-bold mb-6">Painel de Indicadores do Setor</h2>
-            <p className="text-gray-500 max-w-2xl mx-auto text-lg">
-              Dados atualizados em tempo real sobre a evolução do setor patronal, 
-              empregabilidade e tendências de mercado.
+          <div className="text-center mb-12">
+            <span className="text-blue-600 font-black tracking-[0.2em] text-[10px] uppercase mb-2 block">Inteligência de Mercado</span>
+            <h2 className="text-3xl lg:text-5xl font-black text-[#1a3673] mb-4 tracking-tighter">Painel de Indicadores</h2>
+            <p className="text-gray-500 max-w-2xl mx-auto text-base lg:text-lg font-medium italic">
+              Dados atualizados sobre a evolução do setor patronal.
             </p>
           </div>
 
           <div className="grid lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 bg-gray-50 rounded-[40px] p-8 border border-gray-100 shadow-sm overflow-hidden">
+            <div className="lg:col-span-2 bg-gray-50 rounded-[40px] p-10 border border-gray-100 shadow-sm overflow-hidden">
               <div className="flex items-center justify-between mb-8">
-                <h3 className="text-xl font-bold flex items-center gap-3">
-                  <TrendingUp className="text-blue-600 w-6 h-6" />
+                <h3 className="text-2xl font-bold flex items-center gap-3">
+                  <TrendingUp className="text-blue-600 w-8 h-8" />
                   Evolução do Faturamento Médio
                 </h3>
                 <div className="flex gap-2">
-                  <span className="px-3 py-1 bg-white rounded-full text-[10px] font-bold text-gray-400 border border-gray-100">6 MESES</span>
+                  <span className="px-4 py-2 bg-white rounded-full text-xs font-black text-gray-400 border border-gray-100">6 MESES</span>
                 </div>
               </div>
               <div className="h-[300px] w-full">
@@ -3990,13 +5200,13 @@ Para corrigir:
               ].map((stat, i) => (
                 <div key={i} className="bg-white border border-gray-100 p-8 rounded-[32px] shadow-sm hover:shadow-xl transition-shadow group">
                   <div className="flex items-center justify-between mb-4">
-                    <div className={`w-12 h-12 bg-${stat.color}-50 text-${stat.color}-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                      <stat.icon className="w-6 h-6" />
+                    <div className={`w-14 h-14 bg-${stat.color}-50 text-${stat.color}-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-inner`}>
+                      <stat.icon className="w-8 h-8" />
                     </div>
-                    <span className={`text-xs font-bold text-${stat.color}-600`}>{stat.label === 'Empregabilidade' ? '↑' : ''} {stat.label === 'Índice de Confiança' ? '/ 10' : ''}</span>
+                    <span className={`text-sm font-black text-${stat.color}-600`}>{stat.label === 'Empregabilidade' ? '↑' : ''} {stat.label === 'Índice de Confiança' ? '/ 10' : ''}</span>
                   </div>
-                  <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-1">{stat.label}</h4>
-                  <p className="text-3xl font-bold text-gray-900">{stat.value}</p>
+                  <h4 className="text-base font-black text-gray-400 uppercase tracking-[0.2em] mb-2">{stat.label}</h4>
+                  <p className="text-4xl font-black text-gray-900 tracking-tighter">{stat.value}</p>
                 </div>
               ))}
             </div>
@@ -4005,13 +5215,13 @@ Para corrigir:
       </section>
 
       {/* Benefícios e Clube de Vantagens */}
-      <section id="beneficios" className="py-24 bg-white overflow-hidden">
+      <section id="beneficios" className="py-20 bg-white overflow-hidden scroll-mt-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-20 gap-10">
             <div className="max-w-2xl">
-              <span className="text-amber-600 font-bold tracking-widest text-xs uppercase mb-2 block">Exclusivo Associados</span>
-              <h2 className="text-4xl lg:text-5xl font-bold tracking-tight mb-6">Clube de Benefícios & Vantagens</h2>
-              <p className="text-gray-500 text-lg leading-relaxed">
+              <span className="text-amber-600 font-black tracking-[0.2em] text-[10px] uppercase mb-3 block">Exclusivo Associados</span>
+              <h2 className="text-4xl lg:text-6xl font-black text-blue-950 tracking-tighter mb-6">Clube de Benefícios</h2>
+              <p className="text-gray-600 text-base lg:text-lg leading-relaxed font-medium">
                 Empresas associadas possuem acesso a uma rede de descontos e parcerias estratégicas 
                 que reduzem custos e agregam valor ao negócio.
               </p>
@@ -4093,7 +5303,7 @@ Para corrigir:
       </section>
 
       {/* Simuladores e Ferramentas Práticas */}
-      <section id="ferramentas" className="py-24 bg-gray-50">
+      <section id="ferramentas" className="py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-6">
           <div className="grid lg:grid-cols-2 gap-20 items-center">
             <div className="order-2 lg:order-1">
@@ -4192,7 +5402,7 @@ Para corrigir:
           </div>
         </div>
       </section>
-      <section id="certidao" className="py-24 bg-blue-50 border-y border-blue-100">
+      <section id="certidao" className="py-20 bg-blue-50 border-y border-blue-100 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             <div>
@@ -4381,7 +5591,7 @@ Para corrigir:
       </section>
 
       {/* Management / Directors */}
-      <section id="diretoria" className="py-24 bg-gray-50">
+      <section id="diretoria" className="py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-6 text-center">
           <div className="max-w-xl mx-auto mb-16">
             <h2 className="text-4xl font-bold mb-6">Nossa Equipe</h2>
@@ -4964,33 +6174,207 @@ Para corrigir:
         )}
       </AnimatePresence>
 
-      <footer id="contato" className="bg-gray-900 text-white pt-20 pb-10">
+      {/* Membership Request Modal */}
+      <AnimatePresence>
+        {showMembershipForm && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowMembershipForm(false)}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-2xl rounded-[44px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+            >
+              <div className="p-8 lg:p-12 overflow-y-auto custom-scrollbar">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-3xl font-black text-blue-950 font-display tracking-tighter leading-none">Seja um Associado</h3>
+                    <p className="text-gray-500 font-bold uppercase tracking-widest text-[10px] mt-2">Formulário de Pré-Filiação Sindical</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowMembershipForm(false)}
+                    className="w-12 h-12 bg-gray-50 flex items-center justify-center rounded-2xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleMembershipSubmit} className="grid sm:grid-cols-2 gap-5">
+                  <div className="sm:col-span-2 space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Razão Social / Nome da Empresa</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={membershipData.companyName}
+                      onChange={(e) => setMembershipData({...membershipData, companyName: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      placeholder="Ex: Minha Empresa LTDA"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">CNPJ</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={membershipData.cnpj}
+                      onChange={(e) => setMembershipData({...membershipData, cnpj: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      placeholder="00.000.000/0000-00"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Capital Social (R$)</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={membershipData.capitalSocial}
+                      onChange={(e) => setMembershipData({...membershipData, capitalSocial: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      placeholder="Ex: 50000"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">E-mail Corporativo</label>
+                    <input 
+                      type="email" 
+                      required
+                      value={membershipData.email}
+                      onChange={(e) => setMembershipData({...membershipData, email: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      placeholder="contato@empresa.com.br"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Telefone / WhatsApp</label>
+                    <input 
+                      type="tel" 
+                      required
+                      value={membershipData.phone}
+                      onChange={(e) => setMembershipData({...membershipData, phone: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      placeholder="(00) 00000-0000"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2 space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Nome do Representante Legal</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={membershipData.representative}
+                      onChange={(e) => setMembershipData({...membershipData, representative: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      placeholder="Nome completo do sócio/diretor"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2 pt-4">
+                    <button 
+                      type="submit"
+                      disabled={isSubmittingMembership}
+                      className="w-full bg-blue-900 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:bg-blue-800 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                    >
+                      {isSubmittingMembership ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                          Enviando...
+                        </>
+                      ) : (
+                        'Solicitar Filiação Agora'
+                      )}
+                    </button>
+                    <p className="text-center text-[10px] text-gray-400 font-bold mt-4 uppercase tracking-tighter">Ao enviar, você concorda com os termos de análise sindical e LGPD.</p>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* FAQ Section */}
+      <section id="faq" className="py-20 bg-white">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl md:text-5xl font-black text-[#1a3673] tracking-tighter mb-4">Perguntas Frequentes</h2>
+            <p className="text-gray-500 font-bold uppercase tracking-[0.2em] text-sm">Respostas geradas por IA baseadas na CCT vigente</p>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-8">
+            {faqs.length > 0 ? faqs.map((faq, idx) => (
+              <motion.div 
+                key={idx}
+                initial={{ opacity: 0, scale: 0.95 }}
+                whileInView={{ opacity: 1, scale: 1 }}
+                viewport={{ once: true }}
+                className="p-8 rounded-[40px] border border-gray-100 bg-gray-50/50 hover:bg-white hover:shadow-xl transition-all group"
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full uppercase tracking-widest">{faq.category}</span>
+                </div>
+                <h4 className="text-xl font-bold text-[#1a3673] mb-4 group-hover:text-amber-500 transition-colors uppercase tracking-tight italic leading-tight">
+                  {faq.question}
+                </h4>
+                <p className="text-gray-600 leading-relaxed text-sm font-medium">
+                  {faq.answer}
+                </p>
+              </motion.div>
+            )) : (
+              <div className="col-span-2 text-center py-12 bg-gray-50 rounded-[40px] border-2 border-dashed border-gray-100">
+                <p className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">Aguarde a atualização do FAQ pela administração.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <footer id="contato" className="bg-gray-900 text-white pt-16 pb-8">
         <div className="max-w-7xl mx-auto px-6">
           <div className="grid lg:grid-cols-4 gap-12 mb-16">
             <div className="lg:col-span-2">
-              <div className="flex items-center gap-3 mb-8">
-                <div className="bg-white p-2 rounded-xl">
-                  <Building2 className="text-blue-900 w-6 h-6" />
+              <div className="flex items-center gap-6 mb-8">
+                <div className="bg-white p-2 rounded-2xl shadow-xl shadow-white/5">
+                  {siteConfig.logoUrl ? (
+                    <img 
+                      src={siteConfig.logoUrl} 
+                      style={{ width: `${siteConfig.footerLogoWidth}px` }}
+                      className="h-auto"
+                      alt="Sinpa Logo" 
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <Building2 className="text-blue-900 w-8 h-8" />
+                  )}
                 </div>
-                <h3 className="text-2xl font-bold tracking-tight">Sindicato Patronal Sinpa Digital</h3>
+                <h3 className="text-3xl font-black tracking-tight leading-none text-white">Sinpa<br /><span className="text-amber-400">Portal</span></h3>
               </div>
-              <p className="text-gray-400 max-w-sm mb-8 leading-relaxed">
+              <p className="text-gray-400 max-w-sm mb-10 text-lg leading-relaxed font-medium">
                 Transformando a gestão sindical com tecnologia, transparência 
                 e foco real nas necessidades dos nossos associados.
               </p>
-              <div className="flex gap-4">
-                <div className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center hover:bg-blue-900 transition-colors cursor-pointer">
-                  <Mail className="w-5 h-5" />
+              <div className="flex gap-6">
+                <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center hover:bg-blue-900 transition-all cursor-pointer hover:scale-110">
+                  <Mail className="w-6 h-6" />
                 </div>
-                <div className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center hover:bg-blue-900 transition-colors cursor-pointer">
-                  <Phone className="w-5 h-5" />
+                <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center hover:bg-blue-900 transition-all cursor-pointer hover:scale-110">
+                  <Phone className="w-6 h-6" />
                 </div>
               </div>
             </div>
 
             <div>
-              <h4 className="font-bold text-lg mb-6 text-amber-400">Links Úteis</h4>
-              <ul className="space-y-4 text-gray-400 font-medium">
+              <h4 className="font-black text-xl mb-8 text-amber-400 uppercase tracking-widest">Links Úteis</h4>
+              <ul className="space-y-6 text-gray-400 text-lg font-bold">
                 <li><a href="#" className="hover:text-white transition-colors">Sobre Nós</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">Institucional</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">Carreiras</a></li>
@@ -4999,16 +6383,16 @@ Para corrigir:
             </div>
 
             <div>
-              <h4 className="font-bold text-lg mb-6 text-amber-400">Atendimento</h4>
-              <ul className="space-y-4 text-gray-400 font-medium">
-                <li className="flex items-center gap-3"><Clock className="w-4 h-4" /> Seg - Sex: 08h às 18h</li>
-                <li className="flex items-center gap-3"><Phone className="w-4 h-4" /> (00) 0000-0000</li>
-                <li className="flex items-center gap-3"><Mail className="w-4 h-4" /> contato@sindicato.com.br</li>
+              <h4 className="font-black text-xl mb-8 text-amber-400 uppercase tracking-widest">Atendimento</h4>
+              <ul className="space-y-6 text-gray-400 text-lg font-bold">
+                <li className="flex items-center gap-4"><Clock className="w-5 h-5 text-amber-400" /> Seg - Sex: 08h às 18h</li>
+                <li className="flex items-center gap-4"><Phone className="w-5 h-5 text-amber-400" /> (00) 0000-0000</li>
+                <li className="flex items-center gap-4"><Mail className="w-5 h-5 text-amber-400" /> contato@sindicato.com.br</li>
               </ul>
             </div>
           </div>
 
-          <div className="pt-8 border-t border-white/5 text-center text-gray-500 text-sm font-medium">
+          <div className="pt-10 border-t border-white/5 text-center text-gray-500 text-base font-bold">
             <p>&copy; 2026 Sindicato Patronal Sinpa Digital. Todos os direitos reservados.</p>
           </div>
         </div>
@@ -5121,6 +6505,30 @@ Para corrigir:
           </div>
         )}
       </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {globalMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className={`fixed bottom-8 right-8 z-[999] px-6 py-4 rounded-2xl shadow-2xl border flex items-center gap-4 min-w-[320px] max-w-md ${
+              globalMessage.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' :
+              globalMessage.type === 'error' ? 'bg-rose-50 border-rose-100 text-rose-800' :
+              'bg-blue-50 border-blue-100 text-blue-800'
+            }`}
+          >
+            {globalMessage.type === 'success' ? <CheckCircle2 className="w-6 h-6 text-emerald-500" /> :
+             globalMessage.type === 'error' ? <AlertCircle className="w-6 h-6 text-rose-500" /> :
+             <Info className="w-6 h-6 text-blue-500" />}
+            <div className="flex-1">
+               <p className="text-sm font-bold leading-snug">{globalMessage.text}</p>
+            </div>
+            <button onClick={() => setGlobalMessage(null)} className="p-1 hover:bg-black/5 rounded-lg transition-all">
+              <X className="w-4 h-4 opacity-50" />
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

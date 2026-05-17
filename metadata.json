@@ -2,5 +2,5 @@
   "name": "Sindicato Patronal SINPA",
   "description": "Plataforma institucional e administrativa para gestão de sindicatos patronais, com área do associado, controle financeiro e publicações oficiais.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
