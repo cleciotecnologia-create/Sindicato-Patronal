@@ -67,6 +67,8 @@ import {
   Eye,
   Loader2,
   Pencil,
+  Copy,
+  RefreshCw,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
@@ -154,6 +156,7 @@ interface Partner {
   logo: string;
   website?: string;
   featured?: boolean;
+  expiresAt?: string;
 }
 
 interface TeamMember {
@@ -252,6 +255,104 @@ function LandingPage() {
     { id: 2, title: 'Portal de Transparência', type: 'link', url: 'https://transparencia.sindicato.org.br', date: '12/05/2026' },
   ]);
 
+  const [showPixModal, setShowPixModal] = useState(false);
+  const [selectedBoletoPix, setSelectedBoletoPix] = useState<any>(null);
+
+  const generatePixPayload = (amount: string, reference: string) => {
+    // Normalização completa do valor para formato decimal 0.00 (ex: "R$ 1.500,00" -> "1500.00")
+    const cleanAmount = amount
+      .replace('R$', '')
+      .replace(/\s/g, '')
+      .replace(/\./g, '')
+      .replace(',', '.')
+      .trim();
+    
+    const pixKey = bankDetails.pixKey;
+    const merchantName = 'SINDICATO SINPA';
+    const merchantCity = 'SALVADOR';
+
+    // Helper para formatar campos EMV (ID + Tamanho + Conteúdo)
+    const f = (id: string, content: string) => {
+      const len = content.length.toString().padStart(2, '0');
+      return id + len + content;
+    };
+
+    // Merchant Account Info (Tag 26)
+    const gui = f('00', 'br.gov.bcb.pix');
+    const key = f('01', pixKey);
+    const merchantAccountInfo = f('26', gui + key);
+
+    // Normalização/Saneamento do identificador/referência do boleto para os padrões EMV/TXID (Apenas letras e números, sem acentos, max 25 caracteres)
+    let cleanReference = reference
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // remove acentos
+      .replace(/[^A-Za-z0-9]/g, "")     // apenas caracteres alfanuméricos
+      .toUpperCase();
+
+    if (cleanReference.length === 0) {
+      cleanReference = 'COBRANCA';
+    } else {
+      cleanReference = cleanReference.substring(0, 25);
+    }
+
+    // Montando o payload base (sem o CRC16)
+    let payload = f('00', '0201'); // Payload Format Indicator
+    payload += merchantAccountInfo;
+    payload += f('52', '040000'); // Merchant Category Code
+    payload += f('53', '986');    // Transaction Currency (BRL)
+    payload += f('54', cleanAmount); // Transaction Amount
+    payload += f('58', 'BR');     // Country Code
+    payload += f('59', merchantName.substring(0, 25)); // Merchant Name
+    payload += f('60', merchantCity.substring(0, 15)); // Merchant City
+    payload += f('62', f('05', cleanReference)); // Additional Data (Ref / TXID)
+    payload += '6304'; // CRC16 Tag
+
+    // Cálculo exato e homologado do CRC16-CCITT (polynomial 0x1021, inicialização 0xFFFF)
+    const crc16CCITT = (data: string) => {
+      let crc = 0xFFFF;
+      for (let i = 0; i < data.length; i++) {
+        let x = ((crc >> 8) ^ data.charCodeAt(i)) & 0xFF;
+        x ^= x >> 4;
+        crc = ((crc << 8) ^ (x << 12) ^ (x << 5) ^ x) & 0xFFFF;
+      }
+      return crc.toString(16).toUpperCase().padStart(4, '0');
+    };
+
+    return payload + crc16CCITT(payload);
+  };
+
+  const [isBankConnected, setIsBankConnected] = useState(false);
+  const [isGeneratingRemittance, setIsGeneratingRemittance] = useState(false);
+  
+  const handleBankHomologation = () => {
+    setIsBankConnected(false);
+    showNotification('info', 'Iniciando processo de homologação com ' + bankDetails.bankName + '...');
+    setTimeout(() => {
+      setIsBankConnected(true);
+      showNotification('success', 'Banco homologado com sucesso! API em ambiente de produção.');
+    }, 2500);
+  };
+
+  const generateRemittance = () => {
+    if (!isBankConnected) {
+      showNotification('error', 'Banco não homologado. Conecte com o banco antes de gerar remessa.');
+      return;
+    }
+    setIsGeneratingRemittance(true);
+    showNotification('info', 'Compilando boletos pendentes para arquivo CNAB 400...');
+    setTimeout(() => {
+      setIsGeneratingRemittance(false);
+      const fileName = `REMESSA_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}_01.rem`;
+      showNotification('success', `Arquivo ${fileName} gerado com sucesso!`);
+      const blob = new Blob(['CONTEUDO_MOCK_REMESSA_CNAB_400'], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+    }, 3000);
+  };
+
   const [bankDetails, setBankDetails] = useState({
     bankName: 'Banco do Brasil',
     agency: '1234-5',
@@ -309,7 +410,6 @@ function LandingPage() {
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [certForm, setCertForm] = useState({ companyName: 'Ind. Metalúrgica Ltda', cnpj: '12.345.678/0001-90', validity: '90 dias' });
   const [isGeneratingCert, setIsGeneratingCert] = useState(false);
-  const [adminLogo, setAdminLogo] = useState<string | null>(null);
   const [domainConfig, setDomainConfig] = useState({
     domain: 'sindicatodigital.org.br',
     subdomain: 'portal',
@@ -453,6 +553,12 @@ function LandingPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [adminLogo, setAdminLogo] = useState<string | null>(null);
+  React.useEffect(() => {
+    if (siteConfig?.logoUrl) {
+      setAdminLogo(siteConfig.logoUrl);
+    }
+  }, [siteConfig?.logoUrl]);
   const [agreements, setAgreements] = useState<any[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([
     { id: '1', name: 'Dr. Roberto Santos', role: 'Presidente', category: 'presidencia' },
@@ -476,6 +582,7 @@ function LandingPage() {
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   
   const [showAddPartnerModal, setShowAddPartnerModal] = useState(false);
+  const [partnerFilter, setPartnerFilter] = useState<string>('todos');
   const [showAgreementModal, setShowAgreementModal] = useState(false);
   const [agreementType, setAgreementType] = useState<'avista' | 'parcelado'>('avista');
   const [agreementCompany, setAgreementCompany] = useState<any>(null);
@@ -491,7 +598,9 @@ function LandingPage() {
     logo: '',
     description: '',
     discount: '',
-    category: 'servicos' as Partner['category']
+    category: 'servicos' as Partner['category'],
+    expiresAt: '',
+    website: ''
   });
 
   const [newMemberForm, setNewMemberForm] = useState({
@@ -659,7 +768,7 @@ function LandingPage() {
         setTimeout(() => {
           clearInterval(interval);
           setUploadProgress(100);
-          setAdminLogo(reader.result as string);
+          setSiteConfig(prev => ({ ...prev, logoUrl: reader.result as string }));
           setIsUploading(false);
           setUploadStatus({ type: 'success', message: 'Logotipo carregado com sucesso!' });
           
@@ -693,9 +802,9 @@ function LandingPage() {
       doc.setFillColor(30, 58, 138); // Blue 900
       doc.rect(0, 0, 210, 40, 'F');
       
-      if (adminLogo) {
+      if (siteConfig.logoUrl) {
         try {
-          doc.addImage(adminLogo, 'PNG', 15, 5, 30, 30);
+          doc.addImage(siteConfig.logoUrl, 'PNG', 15, 5, 30, 30);
         } catch (e) {
           console.warn("Could not add logo to PDF", e);
         }
@@ -704,10 +813,10 @@ function LandingPage() {
       doc.setTextColor(255, 255, 255);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(22);
-      doc.text("SINDICATO ID", adminLogo ? 120 : 105, 20, { align: 'center' });
+      doc.text("SINDICATO ID", siteConfig.logoUrl ? 120 : 105, 20, { align: 'center' });
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
-      doc.text("SINDICATO DOS EMPREGADOS E TRABALHADORES - OFICIAL", adminLogo ? 120 : 105, 30, { align: 'center' });
+      doc.text("SINDICATO DOS EMPREGADOS E TRABALHADORES - OFICIAL", siteConfig.logoUrl ? 120 : 105, 30, { align: 'center' });
 
       // Watermark content
       doc.setTextColor(245, 245, 245);
@@ -815,6 +924,68 @@ function LandingPage() {
     },
     enabled: !!currentUser
   });
+
+  // Load bank settings from Firestore
+  const { data: dbBankDetails, refetch: refetchBankDetails } = useQuery({
+    queryKey: ['bankSettings'],
+    queryFn: async () => {
+      try {
+        const docRef = doc(db, 'settings', 'bank');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          return docSnap.data();
+        }
+        return null;
+      } catch (error) {
+        console.warn("Could not fetch bank settings from Firestore", error);
+        return null;
+      }
+    }
+  });
+
+  // Keep bankDetails state in sync
+  React.useEffect(() => {
+    if (dbBankDetails) {
+      setBankDetails(prev => ({
+        ...prev,
+        bankName: dbBankDetails.bankName || prev.bankName,
+        agency: dbBankDetails.agency || prev.agency,
+        account: dbBankDetails.account || prev.account,
+        pixKey: dbBankDetails.pixKey || prev.pixKey,
+        walletId: dbBankDetails.walletId || prev.walletId
+      }));
+    }
+  }, [dbBankDetails]);
+
+  // Query for Member's Boletos from Firestore
+  const { data: userBoletos } = useQuery({
+    queryKey: ['userBoletos', memberProfile?.id],
+    queryFn: async () => {
+      if (!memberProfile?.id) return [];
+      try {
+        const q = query(collection(db, 'members', memberProfile.id, 'boletos'), orderBy('dueDate', 'asc'));
+        const snap = await getDocs(q);
+        return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      } catch (error) {
+        console.warn("Could not fetch user boletos", error);
+        return [];
+      }
+    },
+    enabled: !!memberProfile?.id
+  });
+
+  const displayBoletos = userBoletos && userBoletos.length > 0 ? (userBoletos as any[]).map((b: any) => ({
+    doc: b.title || 'Mensalidade',
+    venc: b.dueDate instanceof Timestamp ? b.dueDate.toDate().toLocaleDateString('pt-BR') : typeof b.dueDate === 'string' && b.dueDate.includes('T') ? new Date(b.dueDate).toLocaleDateString('pt-BR') : String(b.dueDate),
+    valor: typeof b.amount === 'number' ? `R$ ${b.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : String(b.amount),
+    status: (b.status || 'PENDING').toUpperCase(),
+    id: b.id,
+    rawAmount: b.amount,
+  })) : [
+    { doc: 'Contribuição Negocial 2026/01', venc: '15/05/2026', valor: 'R$ 840,00', status: 'PAID', id: 'MOCK1', rawAmount: 840.00 },
+    { doc: 'Mensalidade Social Mai/26', venc: '20/05/2026', valor: 'R$ 210,00', status: 'PENDING', id: 'MOCK2', rawAmount: 210.00 },
+    { doc: 'Cota de Patrocínio Evento', venc: '05/05/2026', valor: 'R$ 1.500,00', status: 'PAID', id: 'MOCK3', rawAmount: 1500.00 },
+  ];
 
   React.useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -1160,7 +1331,9 @@ Para corrigir:
       logo: '',
       description: '',
       discount: '',
-      category: 'servicos'
+      category: 'servicos',
+      expiresAt: '',
+      website: ''
     });
   };
 
@@ -1684,9 +1857,9 @@ Para corrigir:
                           </div>
                           <div className="max-h-[400px] overflow-y-auto custom-scrollbar">
                             {notifications.length > 0 ? (
-                              notifications.map((n) => (
+                              notifications.map((n, i) => (
                                 <div 
-                                  key={n.id} 
+                                  key={`notif-${n.id || i}-${i}`} 
                                   onClick={() => {
                                     markAsRead(n.id);
                                     // Optionally close or perform action
@@ -1856,7 +2029,7 @@ Para corrigir:
                                     <h3 className="text-2xl font-bold mb-4 font-display">Comunicados</h3>
                                     <div className="space-y-4 mb-4">
                                       {notifications.slice(0, 2).map((n: any, i: number) => (
-                                        <div key={i} className="flex gap-4 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                                        <div key={`notif-slice-${n.id || i}-${i}`} className="flex gap-4 p-3 rounded-xl bg-gray-50 border border-gray-100">
                                           <div className="w-2 h-2 rounded-full bg-blue-500 mt-2 flex-shrink-0 animate-pulse"></div>
                                           <p className="text-[13px] font-bold text-gray-700 leading-snug">{n.title}</p>
                                         </div>
@@ -1965,8 +2138,8 @@ Para corrigir:
 
                           <div className="space-y-4">
                             {userSuggestions && userSuggestions.length > 0 ? (
-                              userSuggestions.map((s: any) => (
-                                <div key={s.id} className="p-8 rounded-[32px] bg-gray-50 border border-gray-100 hover:border-blue-200 transition-all group">
+                              userSuggestions.map((s: any, idx: number) => (
+                                <div key={`sug-${s.id || idx}-${idx}`} className="p-8 rounded-[32px] bg-gray-50 border border-gray-100 hover:border-blue-200 transition-all group">
                                   <div className="flex justify-between items-start mb-6">
                                     <div className="flex items-center gap-4">
                                       <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-blue-600 shadow-sm">
@@ -2060,19 +2233,18 @@ Para corrigir:
                           </div>
                           
                           <div className="space-y-4">
-                            {[
-                              { doc: 'Contribuição Negocial 2026/01', venc: '15/05/2026', valor: 'R$ 840,00', status: 'PAID' },
-                              { doc: 'Mensalidade Social Mai/26', venc: '20/05/2026', valor: 'R$ 210,00', status: 'PENDING' },
-                              { doc: 'Cota de Patrocínio Evento', venc: '05/05/2026', valor: 'R$ 1.500,00', status: 'PAID' },
-                            ].map((item, i) => (
-                              <div key={i} className="flex flex-col md:flex-row md:items-center justify-between p-6 rounded-[24px] bg-gray-50/50 border border-gray-100 hover:border-blue-900/20 transition-all group">
+                            {displayBoletos.map((item, i) => (
+                              <div key={`boleto-${item.id || i}-${i}`} className="flex flex-col md:flex-row md:items-center justify-between p-6 rounded-[24px] bg-gray-50/50 border border-gray-100 hover:border-blue-900/20 transition-all group">
                                 <div className="flex items-center gap-5 mb-4 md:mb-0">
                                   <div className="w-12 h-12 bg-white border border-gray-100 rounded-2xl flex items-center justify-center text-gray-400 group-hover:text-blue-900 transition-all">
                                       <FileText className="w-6 h-6" />
                                   </div>
                                   <div>
                                       <p className="font-bold text-gray-900">{item.doc}</p>
-                                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Vencimento: {item.venc}</p>
+                                      <div className="flex items-center gap-3 mt-1">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Vencimento: {item.venc}</p>
+                                        <span className="text-[9px] font-mono text-gray-400 uppercase">ID: {String(item.id).substring(0, 8).toUpperCase()}</span>
+                                      </div>
                                   </div>
                                 </div>
                                 <div className="flex items-center justify-between md:justify-end gap-8">
@@ -2082,9 +2254,27 @@ Para corrigir:
                                         {item.status === 'PAID' ? 'Liquidado' : 'Aguardando'}
                                       </span>
                                   </div>
-                                  <button className="w-12 h-12 bg-white border border-gray-100 rounded-xl flex items-center justify-center text-blue-900 hover:bg-blue-900 hover:text-white transition-all shadow-sm">
-                                      <DownloadCloud className="w-5 h-5" />
-                                  </button>
+                                  <div className="flex gap-2">
+                                    {item.status === 'PENDING' && (
+                                      <button 
+                                        onClick={() => {
+                                          setSelectedBoletoPix({
+                                             doc: item.doc,
+                                             valor: item.valor,
+                                             id: item.id
+                                          });
+                                          setShowPixModal(true);
+                                        }}
+                                        className="w-12 h-12 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm group/pix"
+                                        title="Pagar com PIX"
+                                      >
+                                          <QrCode className="w-5 h-5 group-hover/pix:scale-110 transition-transform" />
+                                      </button>
+                                    )}
+                                    <button className="w-12 h-12 bg-white border border-gray-100 rounded-xl flex items-center justify-center text-blue-900 hover:bg-blue-900 hover:text-white transition-all shadow-sm">
+                                        <DownloadCloud className="w-5 h-5" />
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -2384,8 +2574,8 @@ Para corrigir:
                                       <span className="bg-gray-50 text-gray-400 px-3 py-1 rounded-full text-[8px]">Total: 2</span>
                                    </h4>
                                    <div className="space-y-6">
-                                      {jucebProcesses.slice(0, 2).map((proc) => (
-                                         <div key={proc.id} className="p-6 rounded-[32px] border border-gray-50 bg-gray-50/30 hover:bg-white hover:border-emerald-100 transition-all group flex flex-col gap-4">
+                                      {jucebProcesses.slice(0, 2).map((proc, idx) => (
+                                         <div key={`proc-slice-${proc.id || idx}-${idx}`} className="p-6 rounded-[32px] border border-gray-50 bg-gray-50/30 hover:bg-white hover:border-emerald-100 transition-all group flex flex-col gap-4">
                                             <div className="flex items-center justify-between">
                                                <p className="text-xs font-black text-gray-400 uppercase tracking-widest">Protocolo #{proc.id}2026</p>
                                                <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${
@@ -2433,11 +2623,16 @@ Para corrigir:
                                 </button>
                               )}
                               
-                              <div className="flex bg-gray-50 p-1 rounded-2xl border border-gray-100">
-                              {['todos', 'saude', 'educacao', 'lazer', 'servicos'].map((cat) => (
+                              <div className="flex flex-wrap bg-gray-50 p-1 rounded-2xl border border-gray-100">
+                              {['todos', 'saude', 'educacao', 'lazer', 'servicos', 'comercio'].map((cat) => (
                                 <button 
                                   key={cat}
-                                  className="px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all hover:text-blue-900"
+                                  onClick={() => setPartnerFilter(cat)}
+                                  className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                                    partnerFilter === cat
+                                      ? 'bg-white text-blue-900 shadow-sm'
+                                      : 'text-gray-400 hover:text-blue-900'
+                                  }`}
                                 >
                                   {cat}
                                 </button>
@@ -2447,9 +2642,11 @@ Para corrigir:
                         </div>
 
                         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-                            {partners.map((partner) => (
+                            {partners
+                              .filter((partner) => partnerFilter === 'todos' || partner.category === partnerFilter)
+                              .map((partner, idx) => (
                               <motion.div 
-                                key={partner.id}
+                                key={`partner-dash-${partner.id || idx}-${idx}`}
                                 whileHover={{ y: -5 }}
                                 className="bg-white border border-gray-100 rounded-[32px] overflow-hidden shadow-lg hover:shadow-2xl transition-all group"
                               >
@@ -2476,9 +2673,25 @@ Para corrigir:
                                   <p className="text-gray-500 text-sm leading-relaxed mb-6 line-clamp-3">
                                     {partner.description}
                                   </p>
-                                  <button className="w-full bg-blue-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/20">
-                                    Resgatar Benefício <ChevronRight className="w-5 h-5" />
-                                  </button>
+                                  {partner.website ? (
+                                    <a 
+                                      href={partner.website}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="w-full bg-blue-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/20 text-center"
+                                    >
+                                      Acessar Site do Parceiro <ExternalLink className="w-5 h-5" />
+                                    </a>
+                                  ) : (
+                                    <button 
+                                      onClick={() => {
+                                        showNotification('success', 'Cupom de desconto copiado! Apresente sua carteirinha na empresa.');
+                                      }}
+                                      className="w-full bg-blue-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/20"
+                                    >
+                                      Resgatar Benefício <ChevronRight className="w-5 h-5" />
+                                    </button>
+                                  )}
                                 </div>
                               </motion.div>
                             ))}
@@ -2590,17 +2803,18 @@ Para corrigir:
                                       ]
                                     },
                                     { 
-                                      section: 'Membros & Equipe', 
+                                      section: 'Financeiro', 
                                       items: [
-                                        { id: 'associates', label: 'Base de Associados', icon: Users, color: 'text-emerald-400' },
-                                        { id: 'team', label: 'Conselho e Diretoria', icon: ShieldCheck, color: 'text-cyan-400' },
+                                        { id: 'finance', label: 'Monitoramento & Fluxo', icon: CreditCard, color: 'text-rose-500' },
+                                        { id: 'billing', label: 'Mensalidades & Boletos', icon: Banknote, color: 'text-orange-500' },
                                       ]
                                     },
                                     { 
-                                      section: 'Gestão Financeira', 
+                                      section: 'Base Cadastral', 
                                       items: [
-                                        { id: 'finance', label: 'Movimentação', icon: CreditCard, color: 'text-rose-500' },
-                                        { id: 'billing', label: 'Emissão de Boletos', icon: Banknote, color: 'text-orange-500' },
+                                        { id: 'associates', label: 'Associados', icon: Users, color: 'text-emerald-400' },
+                                        { id: 'team', label: 'Conselho e Diretoria', icon: ShieldCheck, color: 'text-cyan-400' },
+                                        { id: 'partners', label: 'Clube de Vantagens', icon: Gift, color: 'text-pink-400' },
                                       ]
                                     },
                                     { 
@@ -2724,11 +2938,11 @@ Para corrigir:
                                                  onChange={(e) => {
                                                    const file = e.target.files?.[0];
                                                    if (file) {
-                                                     const url = URL.createObjectURL(file);
-                                                     setSiteConfig(prev => ({ ...prev, logoUrl: url }));
-                                                   }
-                                                 }}
-                                               />
+                                                      const localUrl = URL.createObjectURL(file);
+                                                      setSiteConfig(prev => ({ ...prev, logoUrl: localUrl }));
+          }
+        }}
+      />
                                                <div className="text-center text-white">
                                                  <Camera className="w-8 h-8 mx-auto mb-2" />
                                                  <span className="text-xs font-bold uppercase tracking-widest">Alterar Logo</span>
@@ -2993,7 +3207,8 @@ Para corrigir:
                                  >
                                      <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl">
                                        <div className="flex items-center justify-between mb-8 pb-4 border-b border-gray-50">
-                                         <h4 className="text-xl font-bold text-blue-900 font-display">Gestão de Despesas</h4>
+                                         <h4 className="text-2xl font-black text-blue-900 font-display italic">Gestão de Despesas</h4>
+                                             <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mt-1">Controle de Saídas e Fluxo de Caixa</p>
                                          <p className="text-lg font-black text-rose-600 font-mono">R$ {expenses.reduce((acc, exp) => acc + exp.value, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                                        </div>
                                        <form onSubmit={handleAddExpense} className="flex gap-4 mb-8 bg-gray-50 p-4 rounded-3xl">
@@ -3015,12 +3230,19 @@ Para corrigir:
                                        </div>
                                      </div>
 
-                              <div className="grid lg:grid-cols-3 gap-8">
-                                 <div className="lg:col-span-2 bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl">
-                                    <div className="flex items-center justify-between mb-8">
-                                       <h4 className="text-xl font-bold text-blue-900 font-display uppercase tracking-widest text-sm">Gestão de Inadimplência</h4>
-                                       <span className="bg-rose-50 text-rose-600 text-[10px] font-bold px-3 py-1 rounded-full border border-rose-100">URGENTE</span>
-                                    </div>
+                               <div className="grid lg:grid-cols-12 gap-8">
+                                  <div className="lg:col-span-8 bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl overflow-hidden relative">
+                                     <div className="absolute top-0 right-0 w-48 h-48 bg-rose-50/30 rounded-bl-[160px] pointer-events-none" />
+                                     <div className="flex items-center justify-between mb-10 relative z-10">
+                                        <div>
+                                           <h4 className="text-2xl font-black text-blue-950 font-display uppercase tracking-tight italic">Controle de Inadimplência</h4>
+                                           <p className="text-[10px] text-rose-500 font-bold uppercase tracking-widest mt-1 italic">Monitoramento Crítico de Recebíveis</p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                           <div className="w-2 h-2 bg-rose-600 rounded-full animate-pulse" />
+                                           <span className="text-rose-600 text-[10px] font-black uppercase tracking-widest">Ação Necessária</span>
+                                        </div>
+                                     </div>
 
                                     <div className="overflow-x-auto">
                                        <table className="w-full">
@@ -3282,7 +3504,7 @@ Para corrigir:
                                       {mediaViewMode === 'grid' ? (
                                          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                                             {mediaItems.map((item) => (
-                                              <div key={item.id} className="bg-white border border-gray-100 rounded-[32px] overflow-hidden shadow-sm hover:shadow-xl transition-all group flex flex-col">
+                                              <div key={`media-grid-${item.id}`} className="bg-white border border-gray-100 rounded-[32px] overflow-hidden shadow-sm hover:shadow-xl transition-all group flex flex-col">
                                                  <div className="aspect-[16/10] relative overflow-hidden bg-gray-50 flex items-center justify-center">
                                                     {item.type === 'foto' ? (
                                                       <img src={item.url} alt={item.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
@@ -3320,7 +3542,7 @@ Para corrigir:
                                        ) : (
                                          <div className="space-y-3">
                                             {mediaItems.map((item) => (
-                                              <div key={item.id} className="bg-white border border-gray-100 rounded-2xl p-4 flex items-center justify-between hover:bg-gray-50 transition-all group">
+                                              <div key={`media-list-${item.id}`} className="bg-white border border-gray-100 rounded-2xl p-4 flex items-center justify-between hover:bg-gray-50 transition-all group">
                                                  <div className="flex items-center gap-4">
                                                     <div className="w-12 h-12 bg-gray-50 rounded-xl overflow-hidden flex items-center justify-center border border-gray-100">
                                                        {item.type === 'foto' ? (
@@ -3352,16 +3574,15 @@ Para corrigir:
                                                         <ExternalLink className="w-4 h-4" />
                                                      </a>
                                                   </div>
-
-                                              </div>
-                                            ))}
-                                         </div>
+                                               </div>
+                                             ))}
+                                          </div>
                                        )}
                                     </div>
-                                 </motion.div>
-                               )}
+                                  </motion.div>
+                                )}
 
-                               {adminSubTab === 'billing' && (
+                                {adminSubTab === 'billing' && (
                                  <motion.div 
                                    key="billing"
                                    initial={{ opacity: 0, x: -20 }} 
@@ -3370,102 +3591,145 @@ Para corrigir:
                                    transition={{ duration: 0.3 }}
                                    className="space-y-8"
                                  >
-                                    <div className="grid lg:grid-cols-3 gap-8">
-                                       <div className="lg:col-span-1 space-y-8">
-                                          <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl">
-                                             <div className="flex items-center gap-4 mb-8">
-                                                <div className="w-12 h-12 bg-blue-50 text-blue-900 rounded-2xl flex items-center justify-center shadow-inner">
-                                                   <PiggyBank className="w-6 h-6" />
+                                    <div className="grid lg:grid-cols-12 gap-8">
+                                       <div className="lg:col-span-4 space-y-8">
+                                          <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl overflow-hidden relative">
+                                             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50/50 rounded-bl-[100px] pointer-events-none" />
+                                             <div className="flex items-center gap-4 mb-10 relative z-10">
+                                                <div className="w-14 h-14 bg-blue-900 text-white rounded-2xl flex items-center justify-center shadow-xl shadow-blue-900/20">
+                                                   <PiggyBank className="w-7 h-7" />
                                                 </div>
                                                 <div>
-                                                   <h4 className="text-xl font-bold text-blue-900">Configurações Bancárias</h4>
-                                                   <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Para PIX e Boletos</p>
+                                                   <h4 className="text-xl font-black text-blue-900 italic font-display">Conexão Bancária</h4>
+                                                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Gateway de Recebimentos</p>
                                                 </div>
                                              </div>
                                              
-                                             <div className="space-y-4">
-                                                <div className="space-y-1">
-                                                   <label className="text-[10px] font-black text-gray-400 uppercase px-4">Banco</label>
-                                                   <input type="text" className="w-full bg-gray-50 border border-gray-100 px-5 py-3 rounded-2xl text-xs font-bold focus:bg-white transition-all outline-none" value={bankDetails.bankName} onChange={(e) => setBankDetails({...bankDetails, bankName: e.target.value})} />
+                                             <div className="space-y-6 relative z-10">
+                                                <div className="space-y-2">
+                                                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] px-2">Instituição</label>
+                                                   <input type="text" className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl text-xs font-black focus:bg-white transition-all outline-none italic text-blue-900" value={bankDetails.bankName} onChange={(e) => setBankDetails({...bankDetails, bankName: e.target.value})} />
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-4">
-                                                   <div className="space-y-1">
-                                                      <label className="text-[10px] font-black text-gray-400 uppercase px-4">Agência</label>
-                                                      <input type="text" className="w-full bg-gray-50 border border-gray-100 px-5 py-3 rounded-2xl text-xs font-bold focus:bg-white transition-all outline-none" value={bankDetails.agency} onChange={(e) => setBankDetails({...bankDetails, agency: e.target.value})} />
+                                                   <div className="space-y-2">
+                                                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] px-2">Agência</label>
+                                                      <input type="text" className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl text-xs font-black focus:bg-white transition-all outline-none font-mono" value={bankDetails.agency} onChange={(e) => setBankDetails({...bankDetails, agency: e.target.value})} />
                                                    </div>
-                                                   <div className="space-y-1">
-                                                      <label className="text-[10px] font-black text-gray-400 uppercase px-4">Conta</label>
-                                                      <input type="text" className="w-full bg-gray-50 border border-gray-100 px-5 py-3 rounded-2xl text-xs font-bold focus:bg-white transition-all outline-none" value={bankDetails.account} onChange={(e) => setBankDetails({...bankDetails, account: e.target.value})} />
+                                                   <div className="space-y-2">
+                                                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] px-2">Conta</label>
+                                                      <input type="text" className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl text-xs font-black focus:bg-white transition-all outline-none font-mono" value={bankDetails.account} onChange={(e) => setBankDetails({...bankDetails, account: e.target.value})} />
                                                    </div>
                                                 </div>
-                                                <div className="space-y-1">
-                                                   <label className="text-[10px] font-black text-gray-400 uppercase px-4">Chave PIX</label>
-                                                   <input type="text" className="w-full bg-gray-50 border border-gray-100 px-5 py-3 rounded-2xl text-xs font-bold focus:bg-white transition-all outline-none" value={bankDetails.pixKey} onChange={(e) => setBankDetails({...bankDetails, pixKey: e.target.value})} />
-                                                </div>
-                                                <div className="space-y-1">
-                                                   <label className="text-[10px] font-black text-gray-400 uppercase px-4">ID Carteira API</label>
-                                                   <input type="text" className="w-full bg-gray-50 border border-gray-100 px-5 py-3 rounded-2xl text-xs font-bold focus:bg-white transition-all outline-none font-mono" value={bankDetails.walletId} onChange={(e) => setBankDetails({...bankDetails, walletId: e.target.value})} />
+                                                <div className="space-y-2">
+                                                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] px-2">Chave Pix Sindical</label>
+                                                   <div className="relative group">
+                                                      <input type="text" className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl text-xs font-black focus:bg-white transition-all outline-none font-mono text-blue-900 pr-12" value={bankDetails.pixKey} onChange={(e) => setBankDetails({...bankDetails, pixKey: e.target.value})} />
+                                                      <QrCode className="absolute right-6 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-400 opacity-50 group-focus-within:opacity-100 transition-all" />
+                                                   </div>
                                                 </div>
                                                 
-                                                <button className="w-full bg-blue-900 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-900/10 mt-4 flex items-center justify-center gap-2">
-                                                   <ShieldCheck className="w-4 h-4" /> Autorizar Conexão API
+                                                <div className={`p-6 rounded-[32px] border transition-all ${isBankConnected ? 'bg-emerald-50 border-emerald-100 shadow-inner' : 'bg-amber-50 border-amber-100 animate-pulse'}`}>
+                                                   <div className="flex items-center gap-5">
+                                                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg ${isBankConnected ? 'bg-emerald-500 text-white shadow-emerald-200' : 'bg-amber-500 text-white shadow-amber-200'}`}>
+                                                         {isBankConnected ? <ShieldCheck className="w-6 h-6" /> : <RefreshCw className="w-6 h-6 animate-spin" />}
+                                                      </div>
+                                                      <div className="flex-1">
+                                                         <p className="text-xs font-black text-gray-900 uppercase tracking-tighter italic">Status da Integração</p>
+                                                         <p className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${isBankConnected ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                            {isBankConnected ? 'Conectado em Produção' : 'Aguardando Sincronização'}
+                                                         </p>
+                                                      </div>
+                                                   </div>
+                                                </div>
+  
+                                                <button 
+                                                  onClick={handleBankHomologation}
+                                                  disabled={isBankConnected}
+                                                  className={`w-full py-6 rounded-[28px] font-black text-[10px] uppercase tracking-[0.3em] transition-all shadow-2xl flex items-center justify-center gap-4 ${
+                                                    isBankConnected 
+                                                    ? 'bg-emerald-600 text-white shadow-emerald-900/20' 
+                                                    : 'bg-blue-900 text-white hover:bg-black shadow-blue-900/20'
+                                                  }`}
+                                                >
+                                                   <Link className={`w-4 h-4 ${!isBankConnected ? 'animate-bounce' : ''}`} /> 
+                                                   {isBankConnected ? 'Homologação Ativa' : 'Homologar API Banco Central'}
                                                 </button>
                                              </div>
                                           </div>
                                        </div>
-
-                                       <div className="lg:col-span-2 space-y-8">
+  
+                                       <div className="lg:col-span-8 space-y-8">
                                           <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl overflow-hidden relative">
-                                             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50/50 rounded-bl-[100px] pointer-events-none" />
-                                             <div className="flex items-center justify-between mb-10 pb-6 border-b border-gray-50 relative z-10">
+                                             <div className="absolute top-0 right-0 w-48 h-48 bg-blue-50/30 rounded-bl-[160px] pointer-events-none" />
+                                             <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 pb-8 border-b border-gray-200 relative z-10 gap-6">
                                                 <div>
-                                                   <h4 className="text-2xl font-bold text-blue-900 font-display">Emissão de Mensalidades</h4>
-                                                   <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">Gestão de cobranças e faturamentos</p>
+                                                   <h4 className="text-3xl font-black text-blue-950 font-display tracking-tight uppercase italic leading-none">Faturamento Digital</h4>
+                                                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.3em] mt-3">Gestão Inteligente de Cobranças e CNAB</p>
                                                 </div>
-                                                <div className="flex gap-2">
-                                                   <button className="bg-white border border-gray-100 text-gray-500 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-50 transition-all">Relatório Geral</button>
-                                                   <button className="bg-blue-900 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-black transition-all shadow-lg shadow-blue-900/10">Faturar Todos</button>
+                                                <div className="flex flex-wrap gap-4">
+                                                   <button 
+                                                     onClick={generateRemittance}
+                                                     disabled={isGeneratingRemittance}
+                                                     className="bg-amber-50 border border-amber-100 text-amber-600 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 hover:text-white transition-all flex items-center gap-3 group shadow-sm"
+                                                   >
+                                                      {isGeneratingRemittance ? <RefreshCw className="w-4 h-4 animate-spin" /> : <DownloadCloud className="w-5 h-5 group-hover:translate-y-1 transition-transform" />}
+                                                      Arquivo Remessa
+                                                   </button>
+                                                   <button className="bg-blue-900 text-white px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-2xl shadow-blue-900/20">Faturar Mês</button>
                                                 </div>
                                              </div>
-
-                                             <div className="overflow-x-auto">
-                                                <table className="w-full">
+  
+                                             <div className="overflow-x-auto custom-scrollbar relative z-10">
+                                                <table className="w-full min-w-[800px]">
                                                    <thead>
-                                                      <tr className="border-b border-gray-50">
-                                                         <th className="text-left py-4 text-[10px] font-black text-gray-300 uppercase tracking-widest px-2">Associado</th>
-                                                         <th className="text-left py-4 text-[10px] font-black text-gray-300 uppercase tracking-widest px-2">Valor</th>
-                                                         <th className="text-left py-4 text-[10px] font-black text-gray-300 uppercase tracking-widest px-2">Vencimento</th>
-                                                         <th className="text-left py-4 text-[10px] font-black text-gray-300 uppercase tracking-widest px-2">Status</th>
-                                                         <th className="text-right py-4 text-[10px] font-black text-gray-300 uppercase tracking-widest px-2">Documentos Digitais</th>
+                                                      <tr className="border-b border-gray-100">
+                                                         <th className="text-left py-5 text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] px-4">Beneficiário Final</th>
+                                                         <th className="text-left py-5 text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] px-4">Mensalidade</th>
+                                                         <th className="text-left py-5 text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] px-4">Dt. Vencimento</th>
+                                                         <th className="text-left py-5 text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] px-4">Status</th>
+                                                         <th className="text-right py-5 text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] px-4">Ações Financeiras</th>
                                                       </tr>
                                                    </thead>
                                                    <tbody className="divide-y divide-gray-50">
-                                                      {allBillings.map((bill) => (
-                                                         <tr key={bill.id} className="group hover:bg-gray-50/50 transition-all">
-                                                            <td className="py-6 px-2">
-                                                               <p className="font-bold text-gray-900 text-sm">{bill.memberName}</p>
-                                                               <p className="text-[10px] text-gray-400 font-mono">#{String(bill.id).slice(0, 8).toUpperCase()}</p>
+                                                      {allBillings.map((bill, index) => (
+                                                         <tr key={`bill-${bill.id || index}-${index}`} className="group hover:bg-gray-50/70 transition-all">
+                                                            <td className="py-7 px-4">
+                                                               <p className="font-black text-gray-900 text-[14px] italic uppercase tracking-tighter leading-none">{bill.memberName}</p>
+                                                               <p className="text-[10px] text-gray-400 font-mono mt-1.5 opacity-60">ID: {String(bill.id).slice(0, 10).toUpperCase()}</p>
                                                             </td>
-                                                            <td className="py-6 px-2 font-black text-blue-900 text-sm">
+                                                            <td className="py-7 px-4 font-black text-blue-900 text-[15px] font-mono italic">
                                                                R$ {bill.amount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                             </td>
-                                                            <td className="py-6 px-2 text-xs font-bold text-gray-500">
+                                                            <td className="py-7 px-4 text-xs font-black text-gray-500 font-mono">
                                                                {bill.dueDate instanceof Timestamp ? bill.dueDate.toDate().toLocaleDateString('pt-BR') : bill.dueDate}
                                                             </td>
-                                                            <td className="py-6 px-2">
-                                                               <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${
-                                                                  bill.status === 'paid' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                                                            <td className="py-7 px-4">
+                                                               <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] border shadow-sm ${
+                                                                  bill.status === 'paid' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'
                                                                }`}>
-                                                                  {bill.status === 'pending' ? 'Pendente' : bill.status === 'paid' ? 'Pago' : bill.status}
+                                                                  {bill.status === 'pending' ? 'AGUARDANDO' : bill.status === 'paid' ? 'LIQUIDADO' : bill.status}
                                                                </span>
                                                             </td>
-                                                            <td className="py-6 px-2 text-right space-x-2">
-                                                               <button className="inline-flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-bold hover:bg-blue-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm">
-                                                                  <QrCode className="w-3 h-3" /> PIX
-                                                               </button>
-                                                               <button className="inline-flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-xl text-[10px] font-bold hover:bg-gray-900 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-gray-100">
-                                                                  <FileText className="w-3 h-3" /> Boleto
-                                                               </button>
+                                                            <td className="py-7 px-4 text-right">
+                                                               <div className="flex items-center justify-end gap-3">
+                                                                 <button 
+                                                                   onClick={() => {
+                                                                     setSelectedBoletoPix({
+                                                                       doc: `Mensalidade ${bill.memberName}`,
+                                                                       valor: `R$ ${bill.amount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+                                                                       id: bill.id
+                                                                     });
+                                                                     setShowPixModal(true);
+                                                                   }}
+                                                                   className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-600 hover:text-white transition-all shadow-md border border-emerald-100 group/item hover:-translate-y-1"
+                                                                   title="Gerar QrCode PIX"
+                                                                 >
+                                                                    <QrCode className="w-5 h-5" />
+                                                                 </button>
+                                                                 <button className="p-3 bg-gray-50 text-gray-600 rounded-2xl hover:bg-gray-900 hover:text-white transition-all shadow-md border border-gray-100 group/item hover:-translate-y-1" title="Visualizar Boleto PDF">
+                                                                    <FileText className="w-5 h-5" />
+                                                                 </button>
+                                                               </div>
                                                             </td>
                                                          </tr>
                                                       ))}
@@ -3473,17 +3737,19 @@ Para corrigir:
                                                 </table>
                                              </div>
                                              
-                                             <div className="mt-8 p-6 bg-blue-50/30 rounded-3xl border border-blue-100/50 flex items-center justify-between bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] bg-opacity-5">
-                                                <div className="flex items-center gap-4">
-                                                   <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-blue-600">
-                                                      <ShieldCheck className="w-5 h-5" />
+                                             <div className="mt-12 p-10 bg-blue-900 rounded-[48px] border border-blue-800 flex flex-col md:flex-row items-center justify-between gap-8 relative overflow-hidden group shadow-2xl shadow-blue-900/40">
+                                                <div className="absolute top-0 right-0 w-80 h-80 bg-white/5 rounded-full -mr-40 -mt-40 blur-[100px]" />
+                                                <div className="absolute bottom-0 left-0 w-40 h-40 bg-white/5 rounded-full -ml-20 -mb-20 blur-[60px]" />
+                                                <div className="flex items-center gap-8 relative z-10">
+                                                   <div className="w-20 h-20 bg-white/10 backdrop-blur-2xl rounded-[32px] shadow-2xl flex items-center justify-center text-white border border-white/20 group-hover:rotate-6 transition-transform duration-500">
+                                                      <ShieldCheck className="w-10 h-10 text-amber-400" />
                                                    </div>
                                                    <div>
-                                                      <p className="text-xs font-bold text-blue-900">Integração Bancária Ativa</p>
-                                                      <p className="text-[10px] text-blue-400 font-medium">Sincronizado com API de Boletos Digital</p>
+                                                      <p className="text-xl font-black text-white italic leading-none">Canais de Pagamento Criptografados</p>
+                                                      <p className="text-[10px] text-blue-300 font-bold uppercase tracking-[0.4em] mt-2">Segurança Bancária Nível Enterprise / LGPD Compliant</p>
                                                    </div>
                                                 </div>
-                                                <button className="text-[10px] font-black text-blue-600 uppercase hover:underline">Configurar Webhooks</button>
+                                                <button className="relative z-10 px-12 py-5 bg-white text-blue-900 rounded-[28px] font-black text-[11px] uppercase tracking-[0.2em] hover:bg-blue-50 transition-all shadow-2xl hover:scale-105 active:scale-95 duration-300">Configurações Avançadas</button>
                                              </div>
                                           </div>
                                        </div>
@@ -3627,12 +3893,22 @@ Para corrigir:
                                  </div>
 
                                  <div className="grid gap-6">
-                                   {partners.map((partner) => (
-                                     <div key={partner.id} className="p-8 rounded-[32px] border border-gray-100 bg-gray-50/30 flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:bg-white hover:shadow-xl transition-all">
+                                   {partners.map((partner, idx) => (
+                                     <div key={`partner-admin-${partner.id || idx}-${idx}`} className="p-8 rounded-[32px] border border-gray-100 bg-gray-50/30 flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:bg-white hover:shadow-xl transition-all">
                                        <div className="flex items-center gap-6">
                                          <img src={partner.logo} alt={partner.name} className="w-20 h-20 rounded-2xl object-cover border border-gray-100 shadow-sm shrink-0" referrerPolicy="no-referrer" />
                                          <div>
                                            <h5 className="text-xl font-bold text-blue-950 mb-1">{partner.name}</h5>
+                                           {partner.website && (
+                                             <a 
+                                               href={partner.website} 
+                                               target="_blank" 
+                                               rel="noopener noreferrer" 
+                                               className="text-[11px] font-bold text-blue-900 flex items-center gap-1.5 hover:underline mt-1 mb-1"
+                                             >
+                                               <Globe className="w-3.5 h-3.5" /> {partner.website}
+                                              </a>
+                                           )}
                                            <div className="flex items-center gap-4">
                                              <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">{partner.category}</span>
                                              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 font-mono tracking-tighter">{partner.discount} OFF</span>
@@ -4221,7 +4497,7 @@ Para corrigir:
                                                            </div>
                                                         </motion.div>
                                                      )}
-                                                  </AnimatePresence>
+                                        </AnimatePresence>
                                                </div>
                                              ))}
                                           </div>
@@ -4445,8 +4721,8 @@ Para corrigir:
                                                 </tr>
                                              </thead>
                                              <tbody className="divide-y divide-gray-50">
-                                                {jucebProcesses.map((proc) => (
-                                                   <tr key={proc.id} className="hover:bg-blue-50/30 transition-all group">
+                                                {jucebProcesses.map((proc, idx) => (
+                                                   <tr key={`proc-${proc.id || idx}-${idx}`} className="hover:bg-blue-50/30 transition-all group">
                                                       <td className="px-10 py-8">
                                                          <p className="text-sm font-bold text-gray-800 group-hover:text-blue-900">{proc.company}</p>
                                                          <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Entrada: {proc.date}</p>
@@ -6629,11 +6905,14 @@ Para corrigir:
           </div>
         </div>
       </footer>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Add Partner Modal */}
       <AnimatePresence>
         {showAddPartnerModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -6645,9 +6924,9 @@ Para corrigir:
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative bg-white w-full max-w-2xl rounded-[44px] overflow-hidden shadow-2xl flex flex-col"
+              className="relative bg-white w-full max-w-2xl rounded-[44px] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
             >
-              <div className="p-8 lg:p-12">
+              <div className="p-8 lg:p-12 overflow-y-auto custom-scrollbar">
                 <div className="flex items-center justify-between mb-10">
                   <div>
                     <h3 className="text-3xl font-bold text-blue-900 font-display">Novo Parceiro</h3>
@@ -6663,35 +6942,35 @@ Para corrigir:
 
                 <form onSubmit={handleAddPartner} className="grid grid-cols-2 gap-6">
                   <div className="col-span-2 space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Nome da Empresa</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4 italic">Nome da Empresa</label>
                     <input 
                       type="text" 
                       required
                       value={newPartnerForm.name}
                       onChange={(e) => setNewPartnerForm({...newPartnerForm, name: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-black text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none shadow-sm"
                       placeholder="Ex: Unimed Saúde"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Desconto</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4 italic">Desconto</label>
                     <input 
                       type="text" 
                       required
                       value={newPartnerForm.discount}
                       onChange={(e) => setNewPartnerForm({...newPartnerForm, discount: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-black text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none shadow-sm"
                       placeholder="Ex: 20%"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Categoria</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4 italic">Categoria</label>
                     <select 
                       value={newPartnerForm.category}
                       onChange={(e) => setNewPartnerForm({...newPartnerForm, category: e.target.value as any})}
-                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none appearance-none"
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-black text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none appearance-none shadow-sm"
                     >
                       <option value="saude">Saúde</option>
                       <option value="educacao">Educação</option>
@@ -6699,6 +6978,19 @@ Para corrigir:
                       <option value="servicos">Serviços</option>
                       <option value="comercio">Comércio</option>
                     </select>
+                  </div>
+
+                  <div className="col-span-2 space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-blue-600 px-4 italic flex items-center gap-2">
+                      <Calendar className="w-3 h-3" /> Vencimento do Acordo (Data de Expiração)
+                    </label>
+                    <input 
+                      type="date" 
+                      required
+                      value={newPartnerForm.expiresAt}
+                      onChange={(e) => setNewPartnerForm({...newPartnerForm, expiresAt: e.target.value})}
+                      className="w-full bg-blue-50 border border-blue-100 px-6 py-4 rounded-2xl font-black text-blue-900 focus:bg-white focus:border-blue-900 transition-all outline-none shadow-sm"
+                    />
                   </div>
 
                   <div className="col-span-2 space-y-2">
@@ -6741,6 +7033,17 @@ Para corrigir:
                   </div>
 
                   <div className="col-span-2 space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Link do Site do Parceiro (Opcional)</label>
+                    <input 
+                      type="url" 
+                      value={newPartnerForm.website}
+                      onChange={(e) => setNewPartnerForm({...newPartnerForm, website: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                      placeholder="URL do site (ex: https://...)"
+                    />
+                  </div>
+
+                  <div className="col-span-2 space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">Descrição</label>
                     <textarea 
                       required
@@ -6765,9 +7068,7 @@ Para corrigir:
           </div>
         )}
       </AnimatePresence>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
       <AnimatePresence>
         {/* Modal Recibo/Termo de Acordo */}
         {showAgreementModal && (
@@ -6890,6 +7191,91 @@ Aceito o presente termo em ${new Date().toLocaleDateString()} às ${new Date().t
                  </button>
               </div>
             </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* PIX Payment Modal */}
+        <AnimatePresence>
+          {showPixModal && selectedBoletoPix && (
+            <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden"
+              >
+                <div className="p-10">
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-4">
+                      <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center">
+                        <QrCode className="w-7 h-7 text-emerald-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-2xl font-black text-blue-950 uppercase tracking-tighter">Pagamento via PIX</h3>
+                        <p className="text-sm font-bold text-gray-400">Escaneie o QR Code ou copie a chave</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setShowPixModal(false)}
+                      className="p-3 hover:bg-gray-50 rounded-2xl transition-all"
+                    >
+                      <X className="w-6 h-6 text-gray-400" />
+                    </button>
+                  </div>
+
+                  <div className="bg-gray-50 border border-gray-100 rounded-3xl p-10 flex flex-col items-center gap-6 mb-8">
+                    <div className="bg-white p-6 rounded-3xl shadow-inner border border-gray-100">
+                      <QRCodeCanvas 
+                        value={generatePixPayload(selectedBoletoPix.valor, String(selectedBoletoPix.id || selectedBoletoPix.doc))}
+                        size={200}
+                        level="H"
+                        includeMargin={true}
+                      />
+                    </div>
+                    <div className="text-center">
+                      <p className="font-black text-blue-900 text-lg uppercase tracking-widest">{selectedBoletoPix.valor}</p>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mt-1">{selectedBoletoPix.doc}</p>
+                      {selectedBoletoPix.id && (
+                        <p className="text-[9px] font-mono font-bold text-emerald-600 uppercase tracking-[0.1em] mt-1.5 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 inline-block">
+                          ID Ref: {String(selectedBoletoPix.id).toUpperCase()}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="p-5 bg-blue-50/50 border border-blue-100 rounded-2xl relative group">
+                      <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-2">Código PIX Copia e Cola</p>
+                      <p className="text-[10px] font-mono text-blue-900 break-all pr-12 line-clamp-2">
+                        {generatePixPayload(selectedBoletoPix.valor, String(selectedBoletoPix.id || selectedBoletoPix.doc))}
+                      </p>
+                      <button 
+                        onClick={() => {
+                          const payload = generatePixPayload(selectedBoletoPix.valor, String(selectedBoletoPix.id || selectedBoletoPix.doc));
+                          navigator.clipboard.writeText(payload);
+                          showNotification('success', 'Código PIX copiado!');
+                        }}
+                        className="absolute top-1/2 -translate-y-1/2 right-4 p-3 bg-blue-600 text-white rounded-xl shadow-lg hover:scale-110 active:scale-90 transition-all z-10"
+                        title="Copiar código"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <button 
+                      onClick={() => setShowPixModal(false)}
+                      className="w-full py-5 bg-blue-900 text-white rounded-3xl font-bold uppercase tracking-widest text-xs shadow-xl shadow-blue-900/20 hover:scale-[1.02] active:scale-95 transition-all"
+                    >
+                      Já realizei o pagamento
+                    </button>
+                  </div>
+                  
+                  <p className="text-center text-[9px] text-gray-400 font-bold mt-6 uppercase tracking-widest">
+                    A compensação via PIX é instantânea.
+                  </p>
+                </div>
+              </motion.div>
+            </div>
           )}
         </AnimatePresence>
 
