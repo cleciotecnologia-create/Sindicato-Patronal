@@ -10,6 +10,7 @@ import {
   Clock, 
   LayoutDashboard,
   ShieldCheck,
+  Shield,
   Send,
   Mail,
   Phone,
@@ -615,6 +616,106 @@ function LandingPage() {
 
   const [globalMessage, setGlobalMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
+  const [showNotificationConfigModal, setShowNotificationConfigModal] = useState(false);
+  const [notifConfig, setNotifConfig] = useState({
+    pushEnabled: true,
+    emailEnabled: true,
+    whatsappEnabled: true,
+    leadTimeDays: 5,
+    mobileNumber: '(71) 98765-4321'
+  });
+  const [simulatedPushNotification, setSimulatedPushNotification] = useState<any>(null);
+
+  const getBoletoStatusDetails = (vencStr: string, status: string) => {
+    if (status !== 'PENDING') return { isOverdue: false, isExpiringToday: false, isExpiringSoon: false, daysRemaining: 999 };
+    try {
+      let dueDate: Date;
+      if (vencStr.includes('/')) {
+        const [day, month, year] = vencStr.split('/').map(Number);
+        dueDate = new Date(year, month - 1, day);
+      } else {
+        dueDate = new Date(vencStr);
+      }
+      
+      // Target current test local date: May 22, 2026
+      const today = new Date(2026, 4, 22); 
+      today.setHours(0, 0, 0, 0);
+      dueDate.setHours(0, 0, 0, 0);
+      
+      const timeDiff = dueDate.getTime() - today.getTime();
+      const daysDiff = Math.round(timeDiff / (1000 * 3600 * 24));
+      
+      return {
+        isOverdue: daysDiff < 0,
+        isExpiringToday: daysDiff === 0,
+        isExpiringSoon: daysDiff > 0 && daysDiff <= 5,
+        daysRemaining: daysDiff,
+        dueDate
+      };
+    } catch (e) {
+      return { isOverdue: false, isExpiringToday: false, isExpiringSoon: false, daysRemaining: 999 };
+    }
+  };
+
+  const playNotificationSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.12); // A5
+      gain.gain.setValueAtTime(0.001, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.15, audioCtx.currentTime + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.45);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.5);
+    } catch(e) {
+      console.warn("Sound blocked or not supported", e);
+    }
+  };
+
+  const triggerSimulatedPush = (type: 'expiration' | 'overdue' | 'whatsapp') => {
+    if (type === 'expiration') {
+      setTimeout(() => {
+        setSimulatedPushNotification({
+          id: 'sim-exp',
+          title: '🛎️ SINDICATO PATRONAL: Boleto a Vencer',
+          text: 'Sua Contribuição Assistencial de R$ 840,00 vence em 2 dias. Clique para pagar com PIX.',
+          type: 'payment',
+          value: 'R$ 840,00',
+          doc: 'Contribuição Assistencial'
+        });
+        playNotificationSound();
+      }, 800);
+    } else if (type === 'overdue') {
+      setTimeout(() => {
+        setSimulatedPushNotification({
+          id: 'sim-overdue',
+          title: '⚠️ ALERTA CONTÁBIL: Fatura Vencida',
+          text: 'Seu boleto Mensalidade Social Mai/26 está atrasado há 2 dias. Evite suspensão de certidões, regularize.',
+          type: 'danger',
+          value: 'R$ 210,00',
+          doc: 'Mensalidade Social Mai/26'
+        });
+        playNotificationSound();
+      }, 800);
+    } else if (type === 'whatsapp') {
+      setTimeout(() => {
+        setSimulatedPushNotification({
+          id: 'sim-whats',
+          title: '💬 Sindicato Patronal (WhatsApp)',
+          text: 'Olá Contábil, lembramos que o boleto do Sindicato vence em breve. WhatsApp Pix Copia & Cola disponível na conversa.',
+          type: 'whatsapp'
+        });
+        playNotificationSound();
+      }, 800);
+    }
+    showNotification('info', 'Simulação de lembrete enviada! Veja o alerta em 1 segundo.');
+  };
+
   const getFriendlyErrorMessage = (error: any): string => {
     if (typeof error === 'string') {
       try {
@@ -987,6 +1088,23 @@ function LandingPage() {
     { doc: 'Cota de Patrocínio Evento', venc: '05/05/2026', valor: 'R$ 1.500,00', status: 'PAID', id: 'MOCK3', rawAmount: 1500.00 },
   ];
 
+  const pendingBoletos = displayBoletos.filter((b: any) => b.status === 'PENDING');
+  
+  const overdueBoletos = pendingBoletos.filter((b: any) => {
+    const details = getBoletoStatusDetails(b.venc, b.status);
+    return details.isOverdue;
+  });
+
+  const expiringTodayBoletos = pendingBoletos.filter((b: any) => {
+    const details = getBoletoStatusDetails(b.venc, b.status);
+    return details.isExpiringToday;
+  });
+
+  const expiringSoonBoletos = pendingBoletos.filter((b: any) => {
+    const details = getBoletoStatusDetails(b.venc, b.status);
+    return details.isExpiringSoon;
+  });
+
   React.useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
@@ -1015,7 +1133,19 @@ function LandingPage() {
     setAuthError(null);
     setAuthLoading(true);
     try {
-      await signInWithPopup(auth, provider);
+      const userCredential = await signInWithPopup(auth, provider);
+      const loggedUser = userCredential.user;
+      if (authType === 'admin') {
+        const adminDocRef = doc(db, 'admins', loggedUser.email || '');
+        const adminDocSnap = await getDoc(adminDocRef);
+        const isUserAdmin = loggedUser.email === SUPER_USER_EMAIL || adminDocSnap.exists() || loggedUser.email?.includes('presidencia') || loggedUser.email?.includes('diretoria') || loggedUser.email?.includes('gerencia') || loggedUser.email?.includes('atendimento');
+        if (!isUserAdmin) {
+          await signOut(auth);
+          setAuthError('ACESSO NEGADO: Esta conta Google não possui privilégios de administrador.');
+          setAuthLoading(false);
+          return;
+        }
+      }
       setShowAuthModal(false);
     } catch (error: any) {
       console.error("Erro no Login Google:", error);
@@ -1068,7 +1198,19 @@ Para corrigir:
     }
 
     try {
-      await signInWithEmailAndPassword(auth, loginEmail, password);
+      const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
+      const loggedUser = userCredential.user;
+      if (authType === 'admin') {
+        const adminDocRef = doc(db, 'admins', loggedUser.email || '');
+        const adminDocSnap = await getDoc(adminDocRef);
+        const isUserAdmin = loggedUser.email === SUPER_USER_EMAIL || adminDocSnap.exists() || loggedUser.email?.includes('presidencia') || loggedUser.email?.includes('diretoria') || loggedUser.email?.includes('gerencia') || loggedUser.email?.includes('atendimento');
+        if (!isUserAdmin) {
+          await signOut(auth);
+          setAuthError('ACESSO NEGADO: Este usuário não possui privilégios de administrador.');
+          setAuthLoading(false);
+          return;
+        }
+      }
       setShowAuthModal(false);
     } catch (error: any) {
       console.error("Erro ao logar:", error);
@@ -1221,7 +1363,7 @@ Para corrigir:
     { name: 'Mai', value: 500 },
   ];
 
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [dbNotifications, setDbNotifications] = useState<Notification[]>([]);
 
   React.useEffect(() => {
     // Listen to notifications
@@ -1232,7 +1374,7 @@ Para corrigir:
         ...doc.data(),
         date: doc.data().createdAt?.toDate().toLocaleString('pt-BR') || 'Recent'
       })) as any[];
-      setNotifications(docs);
+      setDbNotifications(docs);
     }, (error) => {
       // Handle the error gracefully if it's a permission issue (e.g. some notifications are private)
       const firestoreError = error as any;
@@ -1246,20 +1388,23 @@ Para corrigir:
     return () => unsubscribe();
   }, []);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
-
   const markAsRead = (id: string) => {
-    setNotifications(notifications.map(n => n.id === id ? { ...n, read: true } : n));
+    if (id.startsWith('dynamic-boleto-')) {
+      // For dynamic alerts, we can't write to DB easily, so we can track read in local memory or just let them read
+      showNotification('success', 'Lembrete de boleto visualizado.');
+    } else {
+      setDbNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    }
   };
 
   const markAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
+    setDbNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
   React.useEffect(() => {
     // Add sample notifications if empty for demo
-    if (notifications.length === 0) {
-      setNotifications([
+    if (dbNotifications.length === 0) {
+      setDbNotifications([
         {
           id: '1',
           title: 'Nova CCT Publicada',
@@ -1278,7 +1423,42 @@ Para corrigir:
         }
       ]);
     }
-  }, []);
+  }, [dbNotifications.length]);
+
+  const notifications = React.useMemo(() => {
+    const pending = displayBoletos.filter((b: any) => b.status === 'PENDING');
+    const boletoAlerts = pending.map((b: any, index: number) => {
+      const details = getBoletoStatusDetails(b.venc, b.status);
+      let title = '';
+      let description = '';
+      
+      if (details.isOverdue) {
+        title = `⚠️ Boleto Vencido: ${b.doc}`;
+        description = `Fatura de ${b.valor} venceu em ${b.venc}. Evite bloqueio de certidões, regularize via Pix.`;
+      } else if (details.isExpiringToday) {
+        title = `🚨 Fatura Vence Hoje: ${b.doc}`;
+        description = `Atenção: Cobrança de ${b.valor} vence hoje (${b.venc}). Toque para pagar por Pix agora.`;
+      } else if (details.isExpiringSoon) {
+        title = `📬 Próximo Vencimento: ${b.doc}`;
+        description = `Fatura de ${b.valor} vence em ${details.daysRemaining} dias (${b.venc}).`;
+      } else {
+        return null;
+      }
+      
+      return {
+        id: `dynamic-boleto-${b.id || index}`,
+        title,
+        description,
+        date: `Vencimento: ${b.venc}`,
+        read: false,
+        type: 'payment'
+      };
+    }).filter(Boolean) as any[];
+
+    return [...boletoAlerts, ...dbNotifications];
+  }, [displayBoletos, dbNotifications]);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   const handleAISend = async () => {
     if (!userInput.trim()) return;
@@ -1486,7 +1666,11 @@ Para corrigir:
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              className="bg-white border border-amber-100 p-6 sm:p-8 rounded-[40px] text-blue-900 shadow-2xl flex flex-col gap-5 max-w-sm w-full relative z-10 max-h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar"
+              className={`p-6 sm:p-8 rounded-[40px] shadow-2xl flex flex-col gap-5 max-w-sm w-full relative z-10 max-h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar border transition-all duration-500 ${
+                authType === 'admin' 
+                  ? 'bg-slate-900 text-white border-blue-900/40' 
+                  : 'bg-white text-blue-900 border-amber-100'
+              }`}
             >
               <button 
                 onClick={() => {
@@ -1495,28 +1679,82 @@ Para corrigir:
                   setResetSent(false);
                   setAuthError(null);
                 }}
-                className="absolute top-6 right-6 p-2 text-gray-300 hover:text-gray-500 transition-colors"
+                className={`absolute top-6 right-6 p-2 transition-colors ${
+                  authType === 'admin' ? 'text-gray-500 hover:text-white' : 'text-gray-300 hover:text-gray-500'
+                }`}
                 aria-label="Fechar"
               >
                 <X className="w-5 h-5" />
               </button>
 
-              <div className="text-center">
-                <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-inner mx-auto mb-3">
-                  {resetSent ? <Check className="w-6 h-6" /> : <Fingerprint className="w-6 h-6" />}
+              {/* Tab Selector inside the Modal */}
+              {!isForgotPassword && !resetSent && (
+                <div className={`flex p-1 rounded-2xl border transition-colors duration-300 ${
+                  authType === 'admin' ? 'bg-slate-950 border-slate-800' : 'bg-gray-100 border-gray-200/50'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthType('associate');
+                      setAuthError(null);
+                    }}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-300 cursor-pointer ${
+                      authType === 'associate'
+                        ? 'bg-white text-blue-900 shadow-md scale-[1.02]'
+                        : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                  >
+                    <Building2 className="w-3.5 h-3.5" />
+                    Associado
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthType('admin');
+                      setAuthError(null);
+                      setIsRegistering(false); // admins can't self-register
+                    }}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-300 cursor-pointer ${
+                      authType === 'admin'
+                        ? 'bg-blue-600 text-white shadow-md scale-[1.02]'
+                        : 'text-gray-400 hover:text-gray-500'
+                    }`}
+                  >
+                    <Shield className="w-3.5 h-3.5" />
+                    Gestão / Admin
+                  </button>
                 </div>
-                <h3 className="text-lg font-black mb-0.5 leading-tight text-blue-950">
+              )}
+
+              <div className="text-center">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner mx-auto mb-3 transition-colors duration-300 ${
+                  authType === 'admin' ? 'bg-blue-950/50 text-blue-400 border border-blue-900/30' : 'bg-amber-50 text-amber-600'
+                }`}>
+                  {resetSent ? <Check className="w-6 h-6" /> : 
+                   authType === 'admin' ? <Shield className="w-6 h-6 animate-pulse" /> : <Fingerprint className="w-6 h-6" />}
+                </div>
+                <h3 className={`text-lg font-black mb-0.5 leading-tight transition-colors ${
+                  authType === 'admin' ? 'text-white' : 'text-blue-950'
+                }`}>
                   {resetSent ? 'Link Enviado!' : 
                    isForgotPassword ? 'Recuperar Senha' : 
                    authType === 'admin' ? 'Painel Administrativo' :
                    isRegistering ? 'Cadastro de Associado' : 'Portal do Associado'}
                 </h3>
-                <p className="text-gray-400 font-bold text-[9px] uppercase tracking-wider mb-1">
+                <p className={`font-bold text-[9px] uppercase tracking-wider mb-1 transition-colors ${
+                  authType === 'admin' ? 'text-blue-300/80' : 'text-gray-400'
+                }`}>
                   {resetSent ? 'Confira seu e-mail' :
                    isForgotPassword ? 'Enviaremos instruções' :
                    authType === 'admin' ? 'Sindicato Sinpa Gestão' :
                    isRegistering ? 'Junte-se ao Sindicato' : 'Acesse seus benefícios'}
                 </p>
+                {authType === 'admin' && !isForgotPassword && !resetSent && (
+                  <div className="mt-2 bg-blue-950/40 border border-blue-900/30 px-3 py-1.5 rounded-xl inline-flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                    <span className="text-[8px] font-black tracking-widest text-emerald-400 uppercase">Acesso Seguro SSL</span>
+                  </div>
+                )}
               </div>
 
               {resetSent ? (
@@ -1537,20 +1775,26 @@ Para corrigir:
               ) : (
                 <>
                   {authError && (
-                    <div className="bg-rose-50 border border-rose-100 p-3.5 rounded-2xl">
+                    <div className={`p-3.5 rounded-2xl border ${
+                      authType === 'admin' ? 'bg-rose-950/40 border-rose-900/50' : 'bg-rose-50 border-rose-100'
+                    }`}>
                       <div className="max-h-[140px] overflow-y-auto pr-1 custom-scrollbar">
                         {authError.includes('DOMÍNIO NÃO AUTORIZADO') ? (
                           <div className="space-y-3">
-                            <div className="flex items-center gap-2 text-rose-700">
+                            <div className="flex items-center gap-2 text-rose-500">
                               <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
                               <p className="text-[10px] font-black uppercase tracking-tight">Domínio Bloqueado</p>
                             </div>
-                            <div className="bg-white/50 p-2.5 rounded-xl border border-rose-100 space-y-2">
-                              <p className="text-[9px] text-rose-500 font-bold leading-tight">
+                            <div className={`p-2.5 rounded-xl border ${
+                              authType === 'admin' ? 'bg-slate-900/80 border-rose-950' : 'bg-white/50 border-rose-100'
+                            } space-y-2`}>
+                              <p className={`text-[9px] font-bold leading-tight ${authType === 'admin' ? 'text-rose-300' : 'text-rose-500'}`}>
                                 Este site ainda não está autorizado nas configurações do seu Firebase.
                               </p>
-                              <div className="flex items-center gap-1.5 bg-rose-100/50 p-1.5 rounded-lg border border-rose-200">
-                                <code className="text-[9px] font-mono font-black text-rose-800 break-all flex-1">
+                              <div className={`flex items-center gap-1.5 p-1.5 rounded-lg border ${
+                                authType === 'admin' ? 'bg-slate-950 border-slate-800' : 'bg-rose-100/50 border-rose-200'
+                              }`}>
+                                <code className={`text-[9px] font-mono font-black break-all flex-1 ${authType === 'admin' ? 'text-rose-300' : 'text-rose-800'}`}>
                                   {window.location.hostname}
                                 </code>
                                 <button 
@@ -1561,7 +1805,7 @@ Para corrigir:
                                     setTimeout(() => { if (btn) btn.innerText = "Copia"; }, 2000);
                                   }}
                                   id="copy-domain-auth"
-                                  className="bg-rose-600 text-white px-2 py-1 rounded text-[8px] font-black"
+                                  className="bg-rose-600 text-white px-2 py-1 rounded text-[8px] font-black cursor-pointer"
                                 >
                                   Copia
                                 </button>
@@ -1579,7 +1823,7 @@ Para corrigir:
                         ) : (
                           <div className="flex gap-2">
                             <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
-                            <p className="text-[10px] font-bold text-rose-600 leading-tight">
+                            <p className={`text-[10px] font-bold leading-tight ${authType === 'admin' ? 'text-rose-300' : 'text-rose-600'}`}>
                               {authError}
                             </p>
                           </div>
@@ -1592,7 +1836,9 @@ Para corrigir:
                             setIsRegistering(false);
                             setAuthError(null);
                           }}
-                          className="mt-2 w-full py-1.5 text-[9px] font-black text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-all uppercase tracking-tighter"
+                          className={`mt-2 w-full py-1.5 text-[9px] font-black rounded-lg transition-all uppercase tracking-tighter cursor-pointer ${
+                            authType === 'admin' ? 'text-blue-300 bg-blue-950' : 'text-blue-600 bg-blue-50'
+                          }`}
                         >
                           Ir para tela de Login
                         </button>
@@ -1601,7 +1847,7 @@ Para corrigir:
                       {!authError.includes('DOMÍNIO') && !authError.includes('cadastrado') && (
                         <button 
                           onClick={() => setAuthError(null)}
-                          className="mt-2 w-full py-1.5 text-[9px] font-black text-rose-600 hover:text-rose-800 transition-all uppercase tracking-widest text-center"
+                          className="mt-2 w-full py-1.5 text-[9px] font-black hover:scale-105 transition-all uppercase tracking-widest text-center cursor-pointer text-rose-500 hover:text-rose-400"
                         >
                           Limpar Erro
                         </button>
@@ -1624,20 +1870,30 @@ Para corrigir:
                           required 
                           value={fullName}
                           onChange={(e) => setFullName(e.target.value)}
-                          className="w-full bg-gray-50 border border-gray-100 px-4 py-2.5 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-xs"
+                          className={`w-full px-4 py-2.5 rounded-xl font-bold transition-all outline-none text-xs border ${
+                            authType === 'admin' 
+                              ? 'bg-slate-800 border-slate-700 text-white focus:bg-slate-950 focus:border-blue-500' 
+                              : 'bg-gray-50 border-gray-100 text-gray-900 focus:bg-white focus:border-blue-900'
+                          }`}
                           placeholder="Informe seu nome"
                         />
                       </div>
                     )}
                     <div className="space-y-1">
-                      <label className="text-[8px] font-black uppercase tracking-widest text-gray-400 px-3">E-mail ou Usuário</label>
+                      <label className="text-[8px] font-black uppercase tracking-widest text-gray-400 px-3">
+                        {authType === 'admin' ? 'E-mail Corporativo' : 'E-mail ou CNPJ'}
+                      </label>
                       <input 
                         type="text" 
                         required 
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-100 px-4 py-2.5 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-xs"
-                        placeholder="ex@email.com ou login"
+                        className={`w-full px-4 py-2.5 rounded-xl font-bold transition-all outline-none text-xs border ${
+                          authType === 'admin' 
+                            ? 'bg-slate-800 border-slate-700 text-white focus:bg-slate-950 focus:border-blue-500' 
+                            : 'bg-gray-50 border-gray-100 text-gray-900 focus:bg-white focus:border-blue-900'
+                        }`}
+                        placeholder={authType === 'admin' ? 'usuario@sinpa.org.br' : '00.000.000/0001-00 ou email'}
                       />
                     </div>
                     {!isForgotPassword && (
@@ -1651,7 +1907,7 @@ Para corrigir:
                                 setIsForgotPassword(true);
                                 setAuthError(null);
                               }}
-                              className="text-[8px] font-black uppercase tracking-widest text-blue-600 hover:underline"
+                              className="text-[8px] font-black uppercase tracking-widest text-blue-500 hover:underline cursor-pointer"
                             >
                               Perdeu?
                             </button>
@@ -1662,7 +1918,11 @@ Para corrigir:
                           required 
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
-                          className="w-full bg-gray-50 border border-gray-100 px-4 py-2.5 rounded-xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-xs"
+                          className={`w-full px-4 py-2.5 rounded-xl font-bold transition-all outline-none text-xs border ${
+                            authType === 'admin' 
+                              ? 'bg-slate-800 border-slate-700 text-white focus:bg-slate-950 focus:border-blue-500' 
+                              : 'bg-gray-50 border-gray-100 text-gray-900 focus:bg-white focus:border-blue-900'
+                          }`}
                           placeholder="••••••••"
                         />
                       </div>
@@ -1671,7 +1931,11 @@ Para corrigir:
                     <button 
                       type="submit" 
                       disabled={authLoading}
-                      className="w-full bg-blue-950 text-white py-3 rounded-xl font-bold text-xs shadow-xl shadow-blue-900/10 hover:scale-[1.01] transition-all active:scale-95 disabled:opacity-50 mt-1"
+                      className={`w-full py-3 rounded-xl font-bold text-xs shadow-xl hover:scale-[1.01] transition-all active:scale-95 disabled:opacity-50 mt-1 cursor-pointer ${
+                        authType === 'admin' 
+                          ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/10' 
+                          : 'bg-blue-950 hover:bg-blue-900 text-white shadow-blue-900/10'
+                      }`}
                     >
                       {authLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : (
                         isForgotPassword ? 'Enviar Instruções' :
@@ -1683,27 +1947,43 @@ Para corrigir:
                   {!isForgotPassword && (
                     <>
                       <div className="relative py-1">
-                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
-                        <div className="relative flex justify-center text-[8px] uppercase font-black"><span className="bg-white px-2 text-gray-300">Ou use sua conta</span></div>
+                        <div className="absolute inset-0 flex items-center">
+                          <div className={`w-full border-t ${authType === 'admin' ? 'border-slate-800' : 'border-gray-100'}`}></div>
+                        </div>
+                        <div className="relative flex justify-center text-[8px] uppercase font-black">
+                          <span className={`px-2 ${authType === 'admin' ? 'bg-slate-900 text-slate-500' : 'bg-white text-gray-300'}`}>
+                            Ou use sua conta
+                          </span>
+                        </div>
                       </div>
 
                       <button 
                         onClick={handleGoogleLogin}
-                        className="w-full bg-white border border-gray-200 py-2.5 rounded-xl font-bold text-gray-700 flex items-center justify-center gap-2 hover:bg-gray-50 transition-all text-[10px]"
+                        className={`w-full py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-[10px] cursor-pointer border ${
+                          authType === 'admin' 
+                            ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-750' 
+                            : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                        }`}
                       >
                         <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-3.5 h-3.5" alt="Google" />
                         Google Account
                       </button>
 
-                      <button 
-                        onClick={() => {
-                          setIsRegistering(!isRegistering);
-                          setAuthError(null);
-                        }}
-                        className="text-center text-[10px] font-bold text-blue-600 hover:underline w-full py-1"
-                      >
-                        {isRegistering ? 'Já possui conta? Entrar agora' : 'Não tem conta? Registre-se aqui'}
-                      </button>
+                      {authType === 'associate' ? (
+                        <button 
+                          onClick={() => {
+                            setIsRegistering(!isRegistering);
+                            setAuthError(null);
+                          }}
+                          className="text-center text-[10px] font-bold text-blue-600 hover:underline w-full py-1 cursor-pointer"
+                        >
+                          {isRegistering ? 'Já possui conta? Entrar agora' : 'Não tem conta? Registre-se aqui'}
+                        </button>
+                      ) : (
+                        <p className="text-center text-[9px] font-bold text-slate-500 w-full pt-1">
+                          Acesso restrito. Contas de administradores são provisionadas exclusivamente pela diretoria do Sindicato.
+                        </p>
+                      )}
                     </>
                   )}
 
@@ -1713,7 +1993,7 @@ Para corrigir:
                         setIsForgotPassword(false);
                         setAuthError(null);
                       }}
-                      className="text-center text-[10px] font-bold text-gray-400 hover:text-blue-600 transition-colors w-full py-1"
+                      className="text-center text-[10px] font-bold text-gray-400 hover:text-blue-600 transition-colors w-full py-1 cursor-pointer"
                     >
                       Voltar ao login
                     </button>
@@ -1888,7 +2168,13 @@ Para corrigir:
                               </div>
                             )}
                           </div>
-                          <button className="w-full py-4 text-sm font-bold text-blue-900 bg-gray-50 hover:bg-gray-100 transition">
+                          <button 
+                            onClick={() => {
+                              setShowNotifications(false);
+                              setShowNotificationConfigModal(true);
+                            }}
+                            className="w-full py-4 text-sm font-bold text-blue-900 bg-gray-50 hover:bg-gray-100 transition cursor-pointer"
+                          >
                             Configurações de Alerta
                           </button>
                         </motion.div>
@@ -1917,6 +2203,71 @@ Para corrigir:
                         exit={{ opacity: 0, scale: 1.02 }}
                         className="space-y-8"
                       >
+                        {/* Dynamic Boleto Reminder / Alert Banner */}
+                        {pendingBoletos.length > 0 && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className={`p-6 rounded-[32px] border flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-lg z-20 ${
+                              overdueBoletos.length > 0
+                                ? 'bg-gradient-to-r from-rose-50 to-rose-100 border-rose-200 text-rose-950'
+                                : expiringTodayBoletos.length > 0
+                                ? 'bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200 text-amber-950'
+                                : 'bg-gradient-to-r from-blue-50 to-indigo-100 border-blue-200 text-blue-950'
+                            }`}
+                          >
+                            <div className="flex items-start gap-4">
+                              <div className={`p-3.5 rounded-2xl flex-shrink-0 flex items-center justify-center ${
+                                overdueBoletos.length > 0 ? 'bg-rose-600 text-white shadow-md' :
+                                expiringTodayBoletos.length > 0 ? 'bg-amber-500 text-white shadow-md' :
+                                'bg-indigo-600 text-white shadow-md'
+                              }`}>
+                                <AlertCircle className="w-6 h-6 animate-pulse" />
+                              </div>
+                              <div>
+                                <h4 className="font-extrabold text-sm uppercase tracking-wider mb-1 flex items-center gap-2">
+                                  <span>Painel de Lembretes de Vencimento</span>
+                                  <span className="text-[10px] bg-white/70 px-2 py-0.5 rounded-full font-black tracking-normal normal-case border border-black/5">
+                                    {overdueBoletos.length > 0 ? 'Atrasado' : 'Próximo ao Vencimento'}
+                                  </span>
+                                </h4>
+                                <p className="text-[13px] font-bold opacity-90 leading-relaxed pr-8">
+                                  {overdueBoletos.length > 0 ? (
+                                    <span>Prezado associado, identificamos <strong>{overdueBoletos.length} boleto(s) pendente(s) e já vencido(s)</strong> (ex: <em>{overdueBoletos[0].doc}</em>, vencido em {overdueBoletos[0].venc}). Evite multas patronais, juros e o bloqueio de certidões quitando via Pix copia e cola em instantes.</span>
+                                  ) : expiringTodayBoletos.length > 0 ? (
+                                    <span>Atenção: Você possui um boleto que <strong>vence HOJE</strong>: <em>{expiringTodayBoletos[0].doc}</em> de {expiringTodayBoletos[0].valor}. Clique abaixo para pagar com o Pix Copia e Cola instantâneo.</span>
+                                  ) : (
+                                    <span>Lembrete de Cobrança: O boleto <em>{expiringSoonBoletos[0].doc}</em> de {expiringSoonBoletos[0].valor} vencerá em breve (<strong>em {getBoletoStatusDetails(expiringSoonBoletos[0].venc, expiringSoonBoletos[0].status).daysRemaining} dias</strong>, no dia {expiringSoonBoletos[0].venc}).</span>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              <button
+                                onClick={() => {
+                                  const targetBoleto = overdueBoletos[0] || expiringTodayBoletos[0] || expiringSoonBoletos[0];
+                                  setSelectedBoletoPix({
+                                    doc: targetBoleto.doc,
+                                    valor: targetBoleto.valor,
+                                    id: targetBoleto.id
+                                  });
+                                  setShowPixModal(true);
+                                }}
+                                className="px-5 py-3.5 bg-gray-950 text-white rounded-2xl font-bold text-xs uppercase tracking-wider hover:bg-blue-900 hover:scale-[1.02] active:scale-95 transition-all shadow-md shrink-0 flex items-center gap-2 cursor-pointer"
+                              >
+                                <QrCode className="w-4 h-4" /> Pagar via PIX
+                              </button>
+                              <button
+                                onClick={() => setShowNotificationConfigModal(true)}
+                                className="p-3.5 bg-white/70 hover:bg-white rounded-2xl border border-black/5 transition-all text-gray-700 hover:text-black shrink-0 hover:rotate-12 cursor-pointer"
+                                title="Configurar Alertas"
+                              >
+                                <Settings className="w-5 h-5" />
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+
                         <div className="grid lg:grid-cols-3 gap-6">
                           <div className="lg:col-span-2 space-y-6">
                             <div className="grid md:grid-cols-2 gap-6">
@@ -2224,11 +2575,77 @@ Para corrigir:
                         key="boletos"
                         initial={{ opacity: 0, y: 30 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="grid lg:grid-cols-3 gap-8"
+                        className="space-y-8"
                       >
-                        <div className="lg:col-span-2 bg-white border border-gray-100 rounded-[40px] p-8 lg:p-12 shadow-xl">
-                          <div className="flex flex-col md:flex-row md:items-center justify-between mb-10">
-                            <h3 className="text-2xl font-bold font-display">Histórico de Cobranças</h3>
+                        {/* Dynamic Boleto Reminder / Alert Banner */}
+                        {pendingBoletos.length > 0 && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className={`p-6 rounded-[32px] border flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-lg z-20 ${
+                              overdueBoletos.length > 0
+                                ? 'bg-gradient-to-r from-rose-50 to-rose-100 border-rose-200 text-rose-950'
+                                : expiringTodayBoletos.length > 0
+                                ? 'bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200 text-amber-950'
+                                : 'bg-gradient-to-r from-blue-50 to-indigo-100 border-blue-200 text-blue-950'
+                            }`}
+                          >
+                            <div className="flex items-start gap-4">
+                              <div className={`p-3.5 rounded-2xl flex-shrink-0 flex items-center justify-center ${
+                                overdueBoletos.length > 0 ? 'bg-rose-600 text-white shadow-md' :
+                                expiringTodayBoletos.length > 0 ? 'bg-amber-500 text-white shadow-md' :
+                                'bg-indigo-600 text-white shadow-md'
+                              }`}>
+                                <AlertCircle className="w-6 h-6 animate-pulse" />
+                              </div>
+                              <div>
+                                <h4 className="font-extrabold text-sm uppercase tracking-wider mb-1 flex items-center gap-2">
+                                  <span>Painel de Lembretes de Vencimento</span>
+                                  <span className="text-[10px] bg-white/70 px-2 py-0.5 rounded-full font-black tracking-normal normal-case border border-black/5">
+                                    {overdueBoletos.length > 0 ? 'Atrasado' : 'Próximo ao Vencimento'}
+                                  </span>
+                                </h4>
+                                <p className="text-[13px] font-bold opacity-90 leading-relaxed pr-8">
+                                  {overdueBoletos.length > 0 ? (
+                                    <span>Prezado associado, identificamos <strong>{overdueBoletos.length} boleto(s) pendente(s) e já vencido(s)</strong> (ex: <em>{overdueBoletos[0].doc}</em>, vencido em {overdueBoletos[0].venc}). Evite multas patronais, juros e o bloqueio de certidões quitando via Pix copia e cola em instantes.</span>
+                                  ) : expiringTodayBoletos.length > 0 ? (
+                                    <span>Atenção: Você possui um boleto que <strong>vence HOJE</strong>: <em>{expiringTodayBoletos[0].doc}</em> de {expiringTodayBoletos[0].valor}. Clique abaixo para pagar com o Pix Copia e Cola instantâneo.</span>
+                                  ) : (
+                                    <span>Lembrete de Cobrança: O boleto <em>{expiringSoonBoletos[0].doc}</em> de {expiringSoonBoletos[0].valor} vencerá em breve (<strong>em {getBoletoStatusDetails(expiringSoonBoletos[0].venc, expiringSoonBoletos[0].status).daysRemaining} dias</strong>, no dia {expiringSoonBoletos[0].venc}).</span>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              <button
+                                onClick={() => {
+                                  const targetBoleto = overdueBoletos[0] || expiringTodayBoletos[0] || expiringSoonBoletos[0];
+                                  setSelectedBoletoPix({
+                                    doc: targetBoleto.doc,
+                                    valor: targetBoleto.valor,
+                                    id: targetBoleto.id
+                                  });
+                                  setShowPixModal(true);
+                                }}
+                                className="px-5 py-3.5 bg-gray-950 text-white rounded-2xl font-bold text-xs uppercase tracking-wider hover:bg-blue-900 hover:scale-[1.02] active:scale-95 transition-all shadow-md shrink-0 flex items-center gap-2 cursor-pointer"
+                              >
+                                <QrCode className="w-4 h-4" /> Pagar via PIX
+                              </button>
+                              <button
+                                onClick={() => setShowNotificationConfigModal(true)}
+                                className="p-3.5 bg-white/70 hover:bg-white rounded-2xl border border-black/5 transition-all text-gray-700 hover:text-black shrink-0 hover:rotate-12 cursor-pointer"
+                                title="Configurar Alertas"
+                              >
+                                <Settings className="w-5 h-5" />
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+
+                        <div className="grid lg:grid-cols-3 gap-8">
+                          <div className="lg:col-span-2 bg-white border border-gray-100 rounded-[40px] p-8 lg:p-12 shadow-xl">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between mb-10">
+                              <h3 className="text-2xl font-bold font-display">Histórico de Cobranças</h3>
                             <button className="text-sm font-bold text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all">Exportar Período</button>
                           </div>
                           
@@ -2311,7 +2728,8 @@ Para corrigir:
                             </div>
                           </div>
                         </div>
-                      </motion.div>
+                      </div>
+                    </motion.div>
                     ) : activeDashboardTab === 'docs' ? (
                       <motion.div 
                          key="docs"
@@ -4958,7 +5376,7 @@ Para corrigir:
 
                                {adminSubTab === 'docs' && (
                                  <motion.div 
-                                   key="docs"
+                                   key="admin-docs"
                                    initial={{ opacity: 0, y: 30 }} 
                                    animate={{ opacity: 1, y: 0 }} 
                                    exit={{ opacity: 0, y: -30 }}
@@ -7278,6 +7696,292 @@ Aceito o presente termo em ${new Date().toLocaleDateString()} às ${new Date().t
             </div>
           )}
         </AnimatePresence>
+
+        {showNotificationConfigModal && (
+          <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl overflow-hidden text-gray-900"
+            >
+              <div className="p-10">
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-blue-50 text-blue-900 rounded-2xl flex items-center justify-center">
+                      <Bell className="w-7 h-7" />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black text-blue-950 uppercase tracking-tighter">Gerenciar Lembretes</h3>
+                      <p className="text-sm font-bold text-gray-400">Configure como receber avisos de vencimento de boletos</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setShowNotificationConfigModal(false)}
+                    className="p-3 hover:bg-gray-50 rounded-2xl transition-all"
+                  >
+                    <X className="w-6 h-6 text-gray-400" />
+                  </button>
+                </div>
+
+                <div className="space-y-6 mb-8">
+                  {/* Push notifications toggle */}
+                  <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100 flex items-center justify-between gap-6 hover:bg-white hover:border-blue-100 transition-all">
+                    <div className="flex gap-4 items-start">
+                      <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center text-blue-900 mt-0.5">
+                        <Bell className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-900 text-sm">Notificações Push no Navegador</p>
+                        <p className="text-xs text-gray-400">Alertas flutuantes na tela quando o boleto estiver próximo ao vencimento.</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={notifConfig.pushEnabled} 
+                        onChange={(e) => {
+                          const val = e.target.checked;
+                          setNotifConfig({...notifConfig, pushEnabled: val});
+                          if (val && typeof window !== 'undefined' && 'Notification' in window) {
+                            Notification.requestPermission().then(permission => {
+                              if (permission === 'granted') {
+                                showNotification('success', 'Notificações push permitidas do navegador!');
+                              } else {
+                                showNotification('info', 'Permissão simulada ativada via interface.');
+                              }
+                            });
+                          }
+                        }}
+                        className="sr-only peer" 
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Email config toggle */}
+                  <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100 flex items-center justify-between gap-6 hover:bg-white hover:border-blue-100 transition-all">
+                    <div className="flex gap-4 items-start">
+                      <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center text-blue-900 mt-0.5">
+                        <Mail className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-900 text-sm">Alertas Diários por E-mail</p>
+                        <p className="text-xs text-gray-400">Receba no e-mail cadastrado alertas com o código Pix copia e cola.</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={notifConfig.emailEnabled} 
+                        onChange={(e) => setNotifConfig({...notifConfig, emailEnabled: e.target.checked})}
+                        className="sr-only peer" 
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {/* WhatsApp Toggle */}
+                  <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100 flex flex-col gap-4 hover:bg-white hover:border-blue-100 transition-all">
+                    <div className="flex items-center justify-between gap-6">
+                      <div className="flex gap-4 items-start">
+                        <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center text-emerald-600 mt-0.5">
+                          <MessageCircle className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-gray-900 text-sm">Mensagem no WhatsApp</p>
+                          <p className="text-xs text-gray-400">Receber notificações rápidas de cobrança diretamente no celular.</p>
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          checked={notifConfig.whatsappEnabled} 
+                          onChange={(e) => setNotifConfig({...notifConfig, whatsappEnabled: e.target.checked})}
+                          className="sr-only peer" 
+                        />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                      </label>
+                    </div>
+
+                    {notifConfig.whatsappEnabled && (
+                      <div className="pt-2 border-t border-gray-100 flex gap-3">
+                        <input 
+                          type="text" 
+                          value={notifConfig.mobileNumber} 
+                          onChange={(e) => setNotifConfig({...notifConfig, mobileNumber: e.target.value})}
+                          placeholder="Número com DDD" 
+                          className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold text-gray-800 flex-1 focus:border-emerald-500 focus:outline-none"
+                        />
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 self-center px-3 py-2 rounded-lg border border-emerald-100 uppercase tracking-wider">SMS / WhatsApp</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Pre-warning selection */}
+                  <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100">
+                    <p className="font-bold text-gray-900 text-sm mb-3">Antecedência do Alerta</p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[
+                        { val: 1, label: '1 dia' },
+                        { val: 3, label: '3 dias' },
+                        { val: 5, label: '5 dias' },
+                        { val: 10, label: '10 dias' },
+                      ].map((opt) => (
+                        <button
+                          key={opt.val}
+                          onClick={() => setNotifConfig({...notifConfig, leadTimeDays: opt.val})}
+                          className={`p-3 rounded-xl font-bold text-[11px] uppercase tracking-wider leading-none transition-all ${
+                            notifConfig.leadTimeDays === opt.val
+                              ? 'bg-blue-900 text-white shadow-md'
+                              : 'bg-white border border-gray-100 text-gray-500 hover:bg-gray-100'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Simulation sandbox panel */}
+                  <div className="p-6 bg-gradient-to-br from-blue-900 to-indigo-950 text-white rounded-3xl border border-white/5 space-y-4">
+                    <div>
+                      <p className="font-extrabold text-xs text-amber-400 tracking-widest leading-none mb-1 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> PAINEL INTERATIVO DE TESTES
+                      </p>
+                      <h4 className="font-bold text-sm text-white">Demonstrar Recebimento de Lembretes</h4>
+                      <p className="text-[11px] text-blue-200/70 leading-relaxed mt-1">Dispare instantaneamente simuladores de cobrança para validar as mensagens em tempo real.</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 pt-1">
+                      <button
+                        onClick={() => triggerSimulatedPush('expiration')}
+                        className="p-3 bg-white/10 hover:bg-white/20 active:scale-95 text-[10px] uppercase font-black tracking-wider rounded-xl transition-all text-center flex flex-col items-center justify-center gap-1.5 border border-white/10 cursor-pointer"
+                      >
+                        <Bell className="w-4 h-4 text-amber-400" />
+                        <span>A vencer</span>
+                      </button>
+                      <button
+                        onClick={() => triggerSimulatedPush('overdue')}
+                        className="p-3 bg-white/10 hover:bg-white/20 active:scale-95 text-[10px] uppercase font-black tracking-wider rounded-xl transition-all text-center flex flex-col items-center justify-center gap-1.5 border border-white/10 cursor-pointer"
+                      >
+                        <AlertCircle className="w-4 h-4 text-red-400" />
+                        <span>Vencido</span>
+                      </button>
+                      <button
+                        onClick={() => triggerSimulatedPush('whatsapp')}
+                        className="p-3 bg-white/10 hover:bg-white/20 active:scale-95 text-[10px] uppercase font-black tracking-wider rounded-xl transition-all text-center flex flex-col items-center justify-center gap-1.5 border border-white/10 cursor-pointer"
+                      >
+                        <MessageSquare className="w-4 h-4 text-emerald-400" />
+                        <span>WhatsApp</span>
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => {
+                      setShowNotificationConfigModal(false);
+                      showNotification('success', 'Preferências de lembretes salvas com sucesso!');
+                    }}
+                    className="flex-1 py-4 bg-gray-950 text-white hover:bg-blue-900 rounded-3xl font-bold uppercase text-xs tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-xl cursor-pointer text-center"
+                  >
+                    Salvar Preferências
+                  </button>
+                  <button
+                    onClick={() => setShowNotificationConfigModal(false)}
+                    className="px-8 py-4 bg-gray-100 text-gray-500 hover:bg-gray-200 rounded-3xl font-bold uppercase text-xs tracking-widest transition-all cursor-pointer"
+                  >
+                    Voltar
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {simulatedPushNotification && (
+          <motion.div
+            initial={{ opacity: 0, x: 200, y: -20, scale: 0.9 }}
+            animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
+            className={`fixed top-6 right-6 z-[9999] w-96 rounded-3xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.4)] border border-white/20 p-5 backdrop-blur-xl flex gap-4 ${
+              simulatedPushNotification.type === 'whatsapp' 
+                ? 'bg-neutral-900/90 text-white' 
+                : simulatedPushNotification.type === 'danger'
+                ? 'bg-[#191136]/95 border-rose-500/20 text-white'
+                : 'bg-indigo-950/95 border-indigo-500/20 text-white'
+            }`}
+          >
+            <div className="flex-shrink-0">
+              {simulatedPushNotification.type === 'whatsapp' ? (
+                <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center text-white font-extrabold shadow-lg shadow-emerald-500/30">
+                  <MessageSquare className="w-5 h-5 text-white" />
+                </div>
+              ) : (
+                <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-amber-400 font-extrabold border border-white/15">
+                  <Bell className="w-5 h-5" />
+                </div>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-[10px] font-black tracking-widest uppercase opacity-40">Sindicato Patronal</span>
+                <span className="text-[9px] font-bold opacity-35">Agora</span>
+              </div>
+              <h4 className="text-xs font-black text-white">{simulatedPushNotification.title}</h4>
+              <p className="text-[11px] opacity-75 mt-1 leading-normal pr-4">{simulatedPushNotification.text}</p>
+              
+              <div className="flex gap-2 mt-4 pt-1.5 border-t border-white/5">
+                {simulatedPushNotification.type !== 'whatsapp' ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setSelectedBoletoPix({
+                          doc: simulatedPushNotification.doc,
+                          valor: simulatedPushNotification.value,
+                          id: simulatedPushNotification.id
+                        });
+                        setShowPixModal(true);
+                        setSimulatedPushNotification(null);
+                      }}
+                      className="px-3.5 py-1.5 bg-white text-indigo-950 hover:bg-amber-400 hover:text-[#1e1b4b] rounded-lg font-black text-[9px] uppercase tracking-wider transition-all cursor-pointer"
+                    >
+                      Pagar Pix
+                    </button>
+                    <button
+                      onClick={() => {
+                        const payload = '00020101021126580014br.gov.bcb.pix0136' + (simulatedPushNotification.id || 'boleto') + '5204000053039865405210.005802BR5917SINDICATOPATRONAL6009SALVADOR62070503126';
+                        navigator.clipboard.writeText(payload);
+                        showNotification('success', 'Chave copia e cola copiada!');
+                        setSimulatedPushNotification(null);
+                      }}
+                      className="px-3 py-1.5 bg-white/10 text-white rounded-lg font-bold text-[9px] hover:bg-white/20 uppercase tracking-wider transition-all cursor-pointer"
+                    >
+                      Copiar Cod
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const cleanPhone = notifConfig.mobileNumber.replace(/\D/g, '');
+                      window.open(`https://api.whatsapp.com/send?phone=55${cleanPhone}&text=Olá,%20gostaria%20de%20receber%20a%20segunda%20via%20do%20meu%20boleto%20sindical.`, '_blank');
+                      setSimulatedPushNotification(null);
+                    }}
+                    className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 rounded-lg font-black text-[9px] uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1"
+                  >
+                    <ExternalLink className="w-3 h-3" /> Conversar
+                  </button>
+                )}
+                <button
+                  onClick={() => setSimulatedPushNotification(null)}
+                  className="ml-auto px-3 py-1.5 bg-transparent hover:bg-white/5 rounded-lg text-white/50 hover:text-white font-medium text-[9px] uppercase tracking-wider transition-all cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {globalMessage && (
           <motion.div
