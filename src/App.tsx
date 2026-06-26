@@ -1456,7 +1456,7 @@ function LandingPage() {
   };
 
   // Sample React Query for Member Profile
-  const { data: memberProfile, isLoading: isMemberLoading, refetch: refetchMemberProfile } = useQuery({
+  const { data: memberProfile, isLoading: isMemberLoading, refetch: refetchMemberProfile } = useQuery<any>({
     queryKey: ["member", currentUser?.uid],
     queryFn: async () => {
       if (!currentUser) return null;
@@ -2261,6 +2261,425 @@ Para corrigir:
     }
   };
 
+  // --- USER MANAGEMENT STATES & HOOKS ---
+  const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [userFilterStatus, setUserFilterStatus] = useState<"all" | "pending" | "approved">("all");
+  const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserDisplayName, setNewUserDisplayName] = useState("");
+  const [newUserRole, setNewUserRole] = useState("associado");
+  const [newUserApproved, setNewUserApproved] = useState(true);
+
+  const { data: userProfile, isLoading: isUserProfileLoading, refetch: refetchUserProfile } = useQuery<any>({
+    queryKey: ["userProfile", currentUser?.uid],
+    queryFn: async () => {
+      if (!currentUser) return null;
+      const userRef = doc(db, "users", currentUser.uid);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        return userSnap.data();
+      }
+      
+      const email = currentUser.email || "";
+      const isSuper = email === SUPER_USER_EMAIL;
+      
+      // Let's check if there's a pre-created profile matching this email
+      let preExistingDoc: any = null;
+      let preExistingDocId: string | null = null;
+      
+      try {
+        const q = query(collection(db, "users"), where("email", "==", email));
+        const querySnap = await getDocs(q);
+        if (!querySnap.empty) {
+          // Find first pre-existing document that doesn't have a UID or has a random ID
+          const match = querySnap.docs.find(d => d.id !== currentUser.uid);
+          if (match) {
+            preExistingDoc = match.data();
+            preExistingDocId = match.id;
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao buscar pré-cadastro por email:", err);
+      }
+
+      const defaultRole = preExistingDoc?.role || (isSuper ? "admin" : (
+        email.includes("presidencia") ? "presidencia" :
+        email.includes("diretoria") ? "diretoria" :
+        email.includes("gerencia") ? "gerencia" :
+        email.includes("atendimento") ? "atendimento" : "associado"
+      ));
+      
+      const defaultApproved = preExistingDoc?.approved !== undefined ? preExistingDoc.approved : (isSuper ? true : false);
+      const defaultDisplayName = preExistingDoc?.displayName || currentUser.displayName || email.split("@")[0] || "Usuário";
+      
+      const newUserDoc = {
+        uid: currentUser.uid,
+        email: email,
+        displayName: defaultDisplayName,
+        approved: defaultApproved,
+        role: defaultRole,
+        createdAt: preExistingDoc?.createdAt || new Date().toISOString(),
+      };
+      
+      await setDoc(userRef, newUserDoc);
+      
+      // Clean up the pre-existing document if it had a different ID
+      if (preExistingDocId && preExistingDocId !== currentUser.uid) {
+        try {
+          await deleteDoc(doc(db, "users", preExistingDocId));
+        } catch (err) {
+          console.error("Erro ao remover documento de pré-cadastro obsoleto:", err);
+        }
+      }
+      
+      return newUserDoc;
+    },
+    enabled: !!currentUser,
+  });
+
+  React.useEffect(() => {
+    if (userProfile?.role) {
+      setUserRole(userProfile.role);
+    }
+  }, [userProfile]);
+
+  const { data: registeredUsers, isLoading: isUsersLoading, refetch: refetchRegisteredUsers } = useQuery<any[]>({
+    queryKey: ["registeredUsers"],
+    queryFn: async () => {
+      const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
+      const snap = await getDocs(q);
+      return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    },
+    enabled: !!currentUser && (["admin", "presidencia", "diretoria", "gerencia"].includes(userRole) || currentUser?.email === SUPER_USER_EMAIL) && activeDashboardTab === "gestao_usuarios",
+  });
+
+  const handleToggleUserApproval = async (userId: string, currentApproved: boolean) => {
+    try {
+      await updateDoc(doc(db, "users", userId), {
+        approved: !currentApproved,
+      });
+      showNotification("success", `Usuário ${!currentApproved ? "aprovado" : "desaprovado"} com sucesso!`);
+      refetchRegisteredUsers();
+    } catch (err: any) {
+      console.error("Erro ao alterar aprovação:", err);
+      showNotification("error", "Erro ao alterar aprovação do usuário.");
+    }
+  };
+
+  const handleUpdateUserRole = async (userId: string, newRole: string) => {
+    try {
+      await updateDoc(doc(db, "users", userId), {
+        role: newRole,
+      });
+      showNotification("success", `Função do usuário atualizada para ${newRole.toUpperCase()} com sucesso!`);
+      refetchRegisteredUsers();
+      if (userId === currentUser?.uid) {
+        refetchUserProfile();
+      }
+    } catch (err: any) {
+      console.error("Erro ao alterar função:", err);
+      showNotification("error", "Erro ao alterar função do usuário.");
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (userId === currentUser?.uid) {
+      showNotification("error", "Você não pode excluir seu próprio usuário.");
+      return;
+    }
+    if (!window.confirm("Tem certeza que deseja excluir permanentemente o cadastro deste usuário?")) return;
+    try {
+      await deleteDoc(doc(db, "users", userId));
+      showNotification("success", "Cadastro do usuário removido com sucesso!");
+      refetchRegisteredUsers();
+    } catch (err: any) {
+      console.error("Erro ao excluir usuário:", err);
+      showNotification("error", "Erro ao excluir o usuário do banco.");
+    }
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserEmail || !newUserDisplayName) {
+      showNotification("error", "Preencha todos os campos obrigatórios.");
+      return;
+    }
+    
+    try {
+      const emailLower = newUserEmail.trim().toLowerCase();
+      
+      // Let's check if there's any user with this email already
+      const q = query(collection(db, "users"), where("email", "==", emailLower));
+      const querySnap = await getDocs(q);
+      if (!querySnap.empty) {
+        showNotification("error", "Já existe um usuário cadastrado com este e-mail.");
+        return;
+      }
+
+      const newUserDoc = {
+        email: emailLower,
+        displayName: newUserDisplayName.trim(),
+        role: newUserRole,
+        approved: newUserApproved,
+        createdAt: new Date().toISOString(),
+      };
+
+      await addDoc(collection(db, "users"), newUserDoc);
+      showNotification("success", `Usuário pré-cadastrado com sucesso como ${newUserRole.toUpperCase()}!`);
+      
+      // Reset form states
+      setNewUserEmail("");
+      setNewUserDisplayName("");
+      setNewUserRole("associado");
+      setNewUserApproved(true);
+      setIsAddUserModalOpen(false);
+      
+      refetchRegisteredUsers();
+    } catch (err: any) {
+      console.error("Erro ao pré-cadastrar usuário:", err);
+      showNotification("error", "Erro ao pré-cadastrar o novo usuário.");
+    }
+  };
+
+  const renderGestaoUsuarios = () => {
+    if (isUsersLoading) {
+      return (
+        <div className="flex flex-col items-center justify-center p-20 bg-white border border-gray-100 rounded-[44px] shadow-sm">
+          <Loader2 className="w-10 h-10 text-blue-900 animate-spin mb-4" />
+          <p className="text-sm font-bold text-gray-500 uppercase tracking-widest font-display">
+            Carregando usuários do sistema...
+          </p>
+        </div>
+      );
+    }
+
+    const list = registeredUsers || [];
+
+    // Filter list
+    const filteredList = list.filter((user) => {
+      const nameMatch = (user.displayName || "").toLowerCase().includes(userSearchTerm.toLowerCase());
+      const emailMatch = (user.email || "").toLowerCase().includes(userSearchTerm.toLowerCase());
+      const roleMatch = (user.role || "").toLowerCase().includes(userSearchTerm.toLowerCase());
+      
+      const searchMatch = nameMatch || emailMatch || roleMatch;
+      
+      if (userFilterStatus === "pending") {
+        return searchMatch && !user.approved;
+      }
+      if (userFilterStatus === "approved") {
+        return searchMatch && user.approved;
+      }
+      return searchMatch;
+    });
+
+    // Counts for stats
+    const totalCount = list.length;
+    const pendingCount = list.filter(u => !u.approved).length;
+    const managementCount = list.filter(u => ["admin", "presidencia", "diretoria", "gerencia"].includes(u.role)).length;
+
+    return (
+      <div className="space-y-8">
+        {/* Header section */}
+        <div className="bg-white border border-gray-100 rounded-[40px] p-8 sm:p-10 shadow-xl relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-400/10 rounded-bl-[100px]" />
+          <div className="flex items-center gap-6 relative z-10">
+            <div className="w-16 h-16 bg-blue-50 text-blue-900 rounded-[28px] flex items-center justify-center shadow-inner">
+              <Users className="w-8 h-8 text-blue-900" />
+            </div>
+            <div>
+              <h3 className="text-3xl font-black text-blue-950 tracking-tighter font-display">
+                Gestão de Usuários
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Gerencie permissões, aprove novos cadastros e atribua funções administrativas ou de associados aos usuários do portal.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsAddUserModalOpen(true)}
+            className="flex items-center justify-center gap-2 bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black px-6 py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md self-start md:self-auto relative z-10 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Novo Usuário
+          </button>
+        </div>
+
+        {/* Stats Row */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-md flex items-center gap-4">
+            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
+              <Users className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Total de Usuários</p>
+              <p className="text-2xl font-black text-blue-950 mt-0.5">{totalCount}</p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-md flex items-center gap-4">
+            <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center relative">
+              <Clock className="w-6 h-6" />
+              {pendingCount > 0 && (
+                <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-rose-500 rounded-full animate-ping" />
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Aguardando Aprovação</p>
+              <p className="text-2xl font-black text-amber-500 mt-0.5">{pendingCount}</p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-md flex items-center gap-4">
+            <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Admins & Gestores</p>
+              <p className="text-2xl font-black text-emerald-600 mt-0.5">{managementCount}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Controls: Search and Filters */}
+        <div className="bg-white border border-gray-100 rounded-[32px] p-6 shadow-lg flex flex-col md:flex-row gap-4 justify-between items-center">
+          {/* Status Tabs */}
+          <div className="flex gap-1.5 bg-gray-50 p-1.5 rounded-2xl border border-gray-100 w-full md:w-auto">
+            {(["all", "pending", "approved"] as const).map((status) => (
+              <button
+                key={status}
+                onClick={() => setUserFilterStatus(status)}
+                className={`flex-1 md:flex-none px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-200 ${
+                  userFilterStatus === status
+                    ? "bg-blue-900 text-white shadow-md"
+                    : "text-gray-500 hover:text-blue-900 hover:bg-gray-100"
+                }`}
+              >
+                {status === "all" ? "Todos" : status === "pending" ? "Pendentes" : "Ativos"}
+              </button>
+            ))}
+          </div>
+
+          {/* Search bar */}
+          <div className="relative w-full md:w-80">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Buscar por nome, email ou função..."
+              value={userSearchTerm}
+              onChange={(e) => setUserSearchTerm(e.target.value)}
+              className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-11 py-3.5 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+            />
+          </div>
+        </div>
+
+        {/* User Table Card */}
+        <div className="bg-white border border-gray-100 rounded-[40px] shadow-xl overflow-hidden">
+          {filteredList.length === 0 ? (
+            <div className="p-20 text-center">
+              <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-base font-bold text-gray-800">Nenhum usuário localizado.</p>
+              <p className="text-sm text-gray-500 mt-1">Tente ajustar seus termos de busca ou filtros.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest">Usuário</th>
+                    <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest">Cadastro</th>
+                    <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest">Status</th>
+                    <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest">Função</th>
+                    <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filteredList.map((user, index) => {
+                    const initials = (user.displayName || "U").substring(0, 2).toUpperCase();
+                    const registrationDate = user.createdAt ? new Date(user.createdAt).toLocaleDateString("pt-BR") : "Não Informado";
+                    
+                    return (
+                      <tr key={user.id || index} className="hover:bg-gray-50/50 transition-colors group">
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-4">
+                            <div className="w-11 h-11 bg-blue-900 text-amber-400 rounded-xl flex items-center justify-center font-black text-sm shadow-sm ring-2 ring-blue-500/10">
+                              {initials}
+                            </div>
+                            <div>
+                              <p className="font-bold text-gray-900 leading-tight">{user.displayName || "Sem Nome"}</p>
+                              <p className="text-xs text-gray-400 font-mono mt-0.5">{user.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6">
+                          <p className="text-xs font-bold text-gray-500">{registrationDate}</p>
+                          <span className="text-[10px] text-gray-400 font-mono">UID: {String(user.id).substring(0, 8).toUpperCase()}</span>
+                        </td>
+                        <td className="px-8 py-6">
+                          {user.approved ? (
+                            <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                              Aprovado
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 border border-amber-100 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider animate-pulse">
+                              <span className="w-2 h-2 rounded-full bg-amber-500" />
+                              Pendente
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={user.role || "associado"}
+                              onChange={(e) => handleUpdateUserRole(user.id, e.target.value)}
+                              className="bg-gray-50 border border-gray-100 hover:border-gray-200 text-gray-700 text-xs font-bold rounded-xl px-3 py-2 outline-none transition"
+                            >
+                              <option value="associado">Associado</option>
+                              <option value="atendimento">Atendimento</option>
+                              <option value="gerencia">Gerência</option>
+                              <option value="diretoria">Diretoria</option>
+                              <option value="presidencia">Presidência</option>
+                              <option value="admin">Administrador</option>
+                            </select>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {/* Toggle Approval Button */}
+                            <button
+                              onClick={() => handleToggleUserApproval(user.id, !!user.approved)}
+                              className={`p-2.5 rounded-xl transition-all shadow-sm ${
+                                user.approved
+                                  ? "bg-rose-50 text-rose-600 hover:bg-rose-100"
+                                  : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                              }`}
+                              title={user.approved ? "Bloquear Usuário / Revogar" : "Aprovar Usuário"}
+                            >
+                              {user.approved ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                            </button>
+                            
+                            {/* Trash Button */}
+                            <button
+                              onClick={() => handleDeleteUser(user.id)}
+                              disabled={user.id === currentUser?.uid}
+                              className="p-2.5 bg-gray-50 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Excluir Usuário"
+                            >
+                              <X className="w-4 h-4 text-red-600" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderCarteiraDigital = () => {
     if (isMemberLoading) {
       return (
@@ -2527,9 +2946,9 @@ Para corrigir:
             </div>
           ) : (
             <div className="space-y-4">
-              {pendingList.map((item) => (
+              {pendingList.map((item, index) => (
                 <div
-                  key={item.id}
+                  key={`pending-boleto-${item.id || index}-${index}`}
                   className="p-6 bg-gray-50 border border-gray-100 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-6 hover:shadow-md transition-all duration-300"
                 >
                   <div className="flex items-start gap-4">
@@ -2638,9 +3057,9 @@ Para corrigir:
             </div>
           ) : (
             <div className="space-y-4">
-              {paidList.map((item) => (
+              {paidList.map((item, index) => (
                 <div
-                  key={item.id}
+                  key={`paid-boleto-${item.id || index}-${index}`}
                   className="p-6 bg-white border border-gray-50 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-blue-100 hover:shadow-sm transition-all duration-300"
                 >
                   <div className="flex items-start gap-4">
@@ -3142,13 +3561,72 @@ Para corrigir:
       </AnimatePresence>
       <AnimatePresence mode="wait">
         {isPortalView && currentUser ? (
-          <motion.div
-            key="portal"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="flex h-screen bg-[#f8fafc] overflow-hidden font-sans w-full"
-          >
+          isUserProfileLoading ? (
+            <div className="flex flex-col items-center justify-center min-h-screen bg-[#f8fafc] w-full font-sans">
+              <Loader2 className="w-10 h-10 text-blue-900 animate-spin mb-4" />
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest font-display">
+                Autenticando perfil...
+              </p>
+            </div>
+          ) : userProfile && !userProfile.approved ? (
+            <motion.div
+              key="awaiting-approval"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center justify-center min-h-screen bg-[#f8fafc] font-sans w-full p-4"
+            >
+              <div className="max-w-md w-full bg-white border border-gray-100 rounded-[44px] p-8 sm:p-12 shadow-2xl text-center space-y-8 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-amber-400/10 rounded-bl-[100px]" />
+                <div className="w-20 h-20 bg-blue-50 text-blue-950 rounded-[28px] flex items-center justify-center mx-auto shadow-inner relative">
+                  <Clock className="w-10 h-10 animate-pulse text-amber-500" />
+                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 rounded-full border-2 border-white animate-ping" />
+                </div>
+                
+                <div className="space-y-3">
+                  <h3 className="text-3xl font-black text-blue-950 tracking-tighter">
+                    Aguardando Aprovação
+                  </h3>
+                  <p className="text-sm text-gray-500 font-medium leading-relaxed">
+                    Sua conta foi criada com sucesso sob o e-mail <strong>{currentUser.email}</strong>, mas requer aprovação de um gestor ou administrador para acessar o portal.
+                  </p>
+                </div>
+
+                <div className="p-5 bg-gray-50 rounded-2xl border border-gray-100 space-y-2 text-left">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    Status da Solicitação
+                  </p>
+                  <p className="text-xs text-gray-600 font-medium leading-relaxed">
+                    A equipe de cadastro do Sindicato Patronal SINPA já foi notificada. Assim que seu cadastro for verificado por um gestor ou admin, você terá acesso imediato aos boletos, assembleias e carteira digital.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-3 pt-2">
+                  <button
+                    onClick={async () => {
+                      await refetchUserProfile();
+                    }}
+                    className="w-full bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <RefreshCw className="w-4 h-4" /> Verificar Status Novamente
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full bg-gray-50 hover:bg-gray-100 text-red-600 font-bold py-4 rounded-2xl text-xs uppercase tracking-widest border border-gray-100 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" /> Sair da Conta
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="portal"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex h-screen bg-[#f8fafc] overflow-hidden font-sans w-full"
+            >
             {/* Persistent Sidebar */}
             <aside className="w-72 bg-blue-900 text-white flex flex-col h-full shadow-[20px_0_40px_-20px_rgba(30,58,138,0.3)] z-50">
               <div className="p-8 border-b border-white/10">
@@ -3212,6 +3690,11 @@ Para corrigir:
                       { id: "accountant", label: "Contadores", icon: UserCheck },
                       ...(isAdmin || hasManagementPower
                         ? [
+                            {
+                              id: "gestao_usuarios",
+                              label: "Gestão de Usuários",
+                              icon: Users,
+                            },
                             {
                               id: "admin",
                               label: "Administração",
@@ -3303,7 +3786,9 @@ Para corrigir:
                                       ? "Clube de Vantagens"
                                       : activeDashboardTab === "accountant"
                                         ? "Portal do Contador"
-                                        : activeDashboardTab === "admin"
+                                        : activeDashboardTab === "gestao_usuarios"
+                                          ? "Gestão de Usuários"
+                                          : activeDashboardTab === "admin"
                                           ? "Painel Administrativo"
                                           : "Configurações"}
                   </h2>
@@ -4959,6 +5444,17 @@ Para corrigir:
                             <Plus className="w-5 h-5" /> Vincular Empresa
                           </button>
                         </div>
+                      </motion.div>
+                    ) : activeDashboardTab === "gestao_usuarios" ? (
+                      <motion.div
+                        key="gestao_usuarios"
+                        initial={{ opacity: 0, y: 15 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -15 }}
+                        transition={{ duration: 0.3 }}
+                        className="max-w-[1600px] mx-auto w-full"
+                      >
+                        {renderGestaoUsuarios()}
                       </motion.div>
                     ) : activeDashboardTab === "admin" ? (
                       <motion.div
@@ -8070,23 +8566,51 @@ Para corrigir:
                                     </div>
                                   </div>
 
-                                  <div className="bg-blue-950 rounded-[48px] p-12 text-white shadow-3xl shadow-blue-950/40 relative overflow-hidden flex flex-col justify-center">
-                                    <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-[80px] -mr-32 -mt-32"></div>
-                                    <div className="relative z-10 space-y-10">
-                                      <div className="space-y-4">
-                                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-400">
-                                          Pré-visualização Mobile
-                                        </span>
-                                        <div className="bg-white/5 backdrop-blur-md rounded-[32px] p-8 border border-white/10 space-y-6">
-                                          <h2 className="text-3xl font-black leading-tight border-l-4 border-amber-400 pl-4">
-                                            {siteConfig.heroTitle}
-                                          </h2>
-                                          <p className="text-sm text-blue-200/60 leading-relaxed">
-                                            {siteConfig.heroSubtitle}
-                                          </p>
-                                          <div className="flex gap-3">
-                                            <div className="w-10 h-10 rounded-xl bg-amber-400"></div>
-                                            <div className="flex-1 h-10 rounded-xl bg-white/10 border border-white/20"></div>
+                                  {/* Smartphone Mockup Container */}
+                                  <div className="flex justify-center items-center w-full">
+                                    <div className="w-full max-w-[340px] bg-blue-950 rounded-[48px] p-6 text-white shadow-3xl shadow-blue-950/40 relative overflow-hidden flex flex-col border-[6px] border-blue-900/40">
+                                      {/* Phone Camera Notch */}
+                                      <div className="absolute top-3 left-1/2 -translate-x-1/2 w-20 h-4 bg-black/30 rounded-full z-20 flex items-center justify-center gap-1.5">
+                                        <div className="w-1.5 h-1.5 bg-gray-600 rounded-full" />
+                                        <div className="w-8 h-1 bg-gray-700 rounded-full" />
+                                      </div>
+
+                                      <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-[80px] -mr-32 -mt-32"></div>
+                                      
+                                      <div className="relative z-10 mt-6 space-y-6 flex-1 flex flex-col justify-between">
+                                        <div className="space-y-4">
+                                          <div className="flex justify-between items-center px-1 text-[9px] font-black text-blue-200/50 uppercase tracking-widest">
+                                            <span>SINPA Mobile</span>
+                                            <span className="text-amber-400">Ao Vivo</span>
+                                          </div>
+                                          
+                                          <span className="block text-[10px] font-black uppercase tracking-[0.2em] text-amber-400">
+                                            Pré-visualização Mobile
+                                          </span>
+
+                                          <div className="bg-white/5 backdrop-blur-md rounded-[28px] p-5 border border-white/10 space-y-4 shadow-xl">
+                                            <h2 className="text-2xl font-black leading-tight border-l-4 border-amber-400 pl-3 break-words">
+                                              {siteConfig.heroTitle.split(" ").map((word, i) => (
+                                                <React.Fragment key={i}>
+                                                  {word === "Patronal" || word === "Digital" ? (
+                                                    <span className="text-amber-400">{word} </span>
+                                                  ) : (
+                                                    word + " "
+                                                  )}
+                                                </React.Fragment>
+                                              ))}
+                                            </h2>
+                                            <p className="text-xs text-blue-100/70 leading-relaxed break-words">
+                                              {siteConfig.heroSubtitle}
+                                            </p>
+                                            <div className="flex gap-2 pt-2">
+                                              <div className="w-8 h-8 rounded-lg bg-amber-400 flex items-center justify-center text-blue-950 font-black text-xs">
+                                                +
+                                              </div>
+                                              <div className="flex-1 h-8 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center text-[10px] font-bold text-white/50">
+                                                Simulação
+                                              </div>
+                                            </div>
                                           </div>
                                         </div>
                                       </div>
@@ -8896,7 +9420,7 @@ Para corrigir:
               </main>
             </div>
           </motion.div>
-        ) : (
+        )) : (
           <motion.div
             key="landing"
             initial={{ opacity: 0 }}
@@ -11336,6 +11860,132 @@ Para corrigir:
               </div>
             </footer>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Add User Modal */}
+      <AnimatePresence>
+        {isAddUserModalOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddUserModalOpen(false)}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-xl rounded-[44px] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+            >
+              <div className="p-8 lg:p-12 overflow-y-auto custom-scrollbar">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-3xl font-black text-blue-950 font-display tracking-tight">
+                      Novo Usuário
+                    </h3>
+                    <p className="text-gray-500 font-semibold text-xs mt-1">
+                      Pré-cadastre um associado ou configure novas contas e permissões.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsAddUserModalOpen(false)}
+                    className="w-12 h-12 bg-gray-50 flex items-center justify-center rounded-2xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateUser} className="space-y-6">
+                  {/* Nome Completo */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      Nome Completo *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: João da Silva"
+                      value={newUserDisplayName}
+                      onChange={(e) => setNewUserDisplayName(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                    />
+                  </div>
+
+                  {/* E-mail */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      Endereço de E-mail *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="Ex: joao@empresa.com.br"
+                      value={newUserEmail}
+                      onChange={(e) => setNewUserEmail(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                    />
+                  </div>
+
+                  {/* Cargo / Função */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      Função / Cargo no Sistema
+                    </label>
+                    <select
+                      value={newUserRole}
+                      onChange={(e) => setNewUserRole(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm cursor-pointer appearance-none"
+                    >
+                      <option value="associado">Associado (Membro do Sindicato)</option>
+                      <option value="atendimento">Atendimento (Operacional)</option>
+                      <option value="gerencia">Gerência (Coordenador)</option>
+                      <option value="diretoria">Diretoria (Diretor)</option>
+                      <option value="presidencia">Presidência (Gestor Máximo)</option>
+                      <option value="admin">Administrador (TI / Suporte)</option>
+                    </select>
+                  </div>
+
+                  {/* Status de Aprovação Imediata */}
+                  <div className="bg-gray-50 rounded-3xl p-5 border border-gray-100 flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <p className="text-xs font-black text-blue-950 uppercase tracking-wider">Aprovação Imediata</p>
+                      <p className="text-[10px] font-medium text-gray-500 leading-relaxed">
+                        Se ativado, o usuário terá acesso imediato aos serviços ao criar sua conta.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newUserApproved}
+                        onChange={(e) => setNewUserApproved(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex gap-4 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddUserModalOpen(false)}
+                      className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl text-xs uppercase tracking-widest transition-all border border-gray-100 cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer"
+                    >
+                      Cadastrar Usuário
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
