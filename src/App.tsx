@@ -70,6 +70,7 @@ import {
   Pencil,
   Copy,
   RefreshCw,
+  Database,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { GoogleGenAI } from "@google/genai";
@@ -184,6 +185,9 @@ function LandingPage() {
   const [certificateResult, setCertificateResult] = useState<
     null | "active" | "pending"
   >(null);
+  const [searchedMemberHasDebts, setSearchedMemberHasDebts] = useState(false);
+  const [searchedMemberName, setSearchedMemberName] = useState<string | null>(null);
+  const [searchedMemberCnpj, setSearchedMemberCnpj] = useState<string | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [whatsappNumber] = useState("5500000000000"); // Configure o número aqui
   const [showNotifications, setShowNotifications] = useState(false);
@@ -258,6 +262,7 @@ function LandingPage() {
     | "settings"
     | "suggestions"
   >("overview");
+  const [settingsSubTab, setSettingsSubTab] = useState<"account" | "lgpd">("account");
   const [adminSubTab, setAdminSubTab] = useState<
     | "dashboard"
     | "finance"
@@ -583,6 +588,80 @@ function LandingPage() {
     isActive: true,
     sslStatus: "active" as "active" | "pending" | "expired",
   });
+
+  // --- LGPD & PRIVACY POLICY STATES & QUERY ---
+  const [systemTab, setSystemTab] = useState<"general" | "lgpd">("general");
+  const [lgpdBannerInput, setLgpdBannerInput] = useState("");
+  const [lgpdPolicyInput, setLgpdPolicyInput] = useState("");
+  const [isSavingLgpd, setIsSavingLgpd] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+
+  const { data: lgpdConfig, refetch: refetchLgpdConfig } = useQuery<any>({
+    queryKey: ["lgpdConfig"],
+    queryFn: async () => {
+      try {
+        const docRef = doc(db, "settings", "privacy_policy");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          return docSnap.data();
+        }
+      } catch (err) {
+        console.error("Erro ao buscar configurações de LGPD:", err);
+      }
+      return {
+        bannerText: "Nós utilizamos cookies e tecnologias de segurança para melhorar sua experiência e proteger seus dados corporativos conforme a Lei Geral de Proteção de Dados (LGPD).",
+        fullPolicy: `POLÍTICA DE PRIVACIDADE E PROTEÇÃO DE DADOS (LGPD)
+
+1. INTRODUÇÃO
+O Sindicato Patronal SINPA tem o compromisso de proteger a privacidade e a segurança dos dados pessoais de seus associados, parceiros e visitantes do portal. Esta política descreve como tratamos os dados em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 - LGPD).
+
+2. COLETA DE DADOS E FINALIDADE
+Os dados cadastrados (tais como Razão Social, CNPJ, E-mail, Telefone, Nome de representantes e dados de pagamento) são coletados exclusivamente com as seguintes finalidades:
+- Autenticação e liberação de acesso ao portal e seus serviços exclusivos;
+- Emissão de boletos, guias de contribuição e controle financeiro sindical;
+- Envio de comunicações oficiais, convocações de assembleias, convenções coletivas e newsletters informativas;
+- Habilitação no Clube de Vantagens e convênios parceiros.
+
+3. DIREITOS DO TITULAR DOS DADOS
+Nos termos da LGPD, o associado e usuário do portal possui o direito de, a qualquer momento, requisitar ao SINPA:
+- Confirmação da existência de tratamento de seus dados;
+- Acesso facilitado às informações sob custódia;
+- Correção de dados incompletos, inexatos ou desatualizados;
+- Anonimização, bloqueio ou eliminação de dados desnecessários ou tratados em desconformidade.
+
+4. SEGURANÇA DA INFORMAÇÃO
+Utilizamos medidas técnicas e administrativas avançadas para proteger seus dados pessoais de acessos não autorizados, perdas, destruição ou alterações indesejadas, utilizando criptografia SSL e servidores seguros.
+
+5. CONTATO
+Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privacidade, entre em contato através de: privacidade@sinpa.org.br.`
+      };
+    }
+  });
+
+  React.useEffect(() => {
+    if (lgpdConfig) {
+      setLgpdBannerInput(lgpdConfig.bannerText || "");
+      setLgpdPolicyInput(lgpdConfig.fullPolicy || "");
+    }
+  }, [lgpdConfig]);
+
+  const handleSaveLgpdConfig = async () => {
+    setIsSavingLgpd(true);
+    try {
+      await setDoc(doc(db, "settings", "privacy_policy"), {
+        bannerText: lgpdBannerInput,
+        fullPolicy: lgpdPolicyInput,
+        updatedAt: new Date().toISOString(),
+      });
+      showNotification("success", "Configurações de privacidade e LGPD salvas com sucesso!");
+      refetchLgpdConfig();
+    } catch (err) {
+      console.error("Erro ao salvar LGPD:", err);
+      showNotification("error", "Erro ao salvar as configurações no banco de dados.");
+    } finally {
+      setIsSavingLgpd(false);
+    }
+  };
   const [systemTime, setSystemTime] = useState(new Date());
   const [userRole, setUserRole] = useState<
     | "admin"
@@ -1285,8 +1364,20 @@ function LandingPage() {
       const { jsPDF } = await import("jspdf");
       const doc = new jsPDF();
 
+      // Check if positive certificate due to debts
+      let isPositive = false;
+      if (memberProfile && overdueBoletos && overdueBoletos.length > 0) {
+        isPositive = true;
+      } else if (searchedMemberHasDebts && (certForm.cnpj === searchTerm || certForm.cnpj === searchedMemberCnpj)) {
+        isPositive = true;
+      }
+
       // Header
-      doc.setFillColor(30, 58, 138); // Blue 900
+      if (isPositive) {
+        doc.setFillColor(190, 24, 74); // Red/Rose for Positive Cert (Consta débitos)
+      } else {
+        doc.setFillColor(30, 58, 138); // Blue 900 for Negative/Regular Cert
+      }
       doc.rect(0, 0, 210, 40, "F");
 
       if (siteConfig.logoUrl) {
@@ -1313,17 +1404,29 @@ function LandingPage() {
       );
 
       // Watermark content
-      doc.setTextColor(245, 245, 245);
-      doc.setFontSize(60);
-      doc.text("DOCUMENTO OFICIAL", 105, 150, { align: "center", angle: 45 });
+      if (isPositive) {
+        doc.setTextColor(254, 226, 226); // Light Red
+        doc.setFontSize(55);
+        doc.text("CONSTA DÉBITOS SINDICAIS", 105, 150, { align: "center", angle: 45 });
+      } else {
+        doc.setTextColor(245, 245, 245);
+        doc.setFontSize(60);
+        doc.text("DOCUMENTO OFICIAL", 105, 150, { align: "center", angle: 45 });
+      }
 
       // Title
-      doc.setTextColor(30, 58, 138);
+      if (isPositive) {
+        doc.setTextColor(190, 24, 74);
+      } else {
+        doc.setTextColor(30, 58, 138);
+      }
       doc.setFontSize(20);
       const title =
-        type === "certidao"
-          ? "CERTIDÃO SINDICAL"
-          : "DECLARAÇÃO DE REGULARIDADE";
+        isPositive
+          ? "CERTIDÃO POSITIVA DE DÉBITOS SINDICAIS"
+          : type === "certidao"
+            ? "CERTIDÃO SINDICAL"
+            : "DECLARAÇÃO DE REGULARIDADE";
       doc.text(title, 105, 65, { align: "center" });
 
       // Main Text
@@ -1346,9 +1449,11 @@ function LandingPage() {
       doc.text(`CNPJ: ${certForm.cnpj}`, 105, 110, { align: "center" });
 
       const mainContent =
-        type === "certidao"
-          ? "Encontra-se devidamente registrada e em dia com suas obrigações sindicais perante esta entidade, estando plenamente apta a exercer suas atividades e participar de processos licitatórios que exijam prova de regularidade sindical."
-          : "Declaramos para os devidos fins que a referida empresa encontra-se em situação REGULAR perante este Sindicato, tendo quitado todas as contribuições assistenciais, confederativas e taxas previstas na CCT vigente.";
+        isPositive
+          ? "CONSTA EM DÉBITO com as obrigações sindicais e contribuições assistenciais patronais perante esta entidade até a presente data. Por este motivo, a presente certidão possui caráter POSITIVO. Para regularizar a situação cadastral e obter a certidão negativa, por favor, procure o SINPA para regularizar suas pendências financeiras e reemitir a certidão de regularidade."
+          : type === "certidao"
+            ? "Encontra-se devidamente registrada e em dia com suas obrigações sindicais perante esta entidade, estando plenamente apta a exercer suas atividades e participar de processos licitatórios que exijam prova de regularidade sindical."
+            : "Declaramos para os devidos fins que a referida empresa encontra-se em situação REGULAR perante este Sindicato, tendo quitado todas as contribuições assistenciais, confederativas e taxas previstas na CCT vigente.";
 
       const splitText = doc.splitTextToSize(mainContent, 170);
       doc.text(splitText, 20, 130);
@@ -1389,12 +1494,176 @@ function LandingPage() {
         { align: "center" },
       );
 
-      doc.save(`${type}_${certForm.cnpj.replace(/\D/g, "")}.pdf`);
+      doc.save(`${isPositive ? "certidao_positiva" : type}_${certForm.cnpj.replace(/\D/g, "")}.pdf`);
     } catch (err) {
       console.error(err);
       alert("Erro crítico ao gerar o documento PDF.");
     } finally {
       setIsGeneratingCert(false);
+    }
+  };
+
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
+  const generateAccountingReport = async () => {
+    if (allBillings.length === 0) {
+      alert("Não há cobranças registradas para gerar o relatório.");
+      return;
+    }
+
+    setIsGeneratingReport(true);
+    try {
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF();
+
+      // Report Header
+      doc.setFillColor(15, 23, 42); // Slate 900
+      doc.rect(0, 0, 210, 45, "F");
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.text("SINDICATO ID - RELATÓRIO CONTÁBIL", 105, 18, { align: "center" });
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text("DEMONSTRATIVO DE MENSALIDADES E COBRANÇAS SOCIAIS", 105, 26, { align: "center" });
+      
+      doc.setTextColor(226, 232, 240); // Slate 200
+      doc.setFontSize(8);
+      doc.text(
+        `Emitido em: ${new Date().toLocaleString("pt-BR")} | Responsável: ${currentUser?.email || "Administrador"}`,
+        105,
+        36,
+        { align: "center" }
+      );
+
+      // Financial Summary Box
+      const totalCount = allBillings.length;
+      const totalPaid = allBillings
+        .filter((b) => b.status === "paid")
+        .reduce((sum, b) => sum + (b.amount || 0), 0);
+      const totalPending = allBillings
+        .filter((b) => b.status !== "paid")
+        .reduce((sum, b) => sum + (b.amount || 0), 0);
+      const totalAmount = totalPaid + totalPending;
+
+      doc.setFillColor(248, 250, 252); // Gray 50
+      doc.rect(15, 55, 180, 28, "F");
+      doc.setDrawColor(226, 232, 240); // Slate 200
+      doc.rect(15, 55, 180, 28);
+
+      doc.setTextColor(71, 85, 105); // Slate 600
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.text("TOTAL DE LANÇAMENTOS", 25, 63);
+      doc.text("MENSALIDADES LIQUIDADAS", 75, 63);
+      doc.text("MENSALIDADES EM ABERTO", 128, 63);
+      doc.text("VALOR TOTAL ACUMULADO", 178, 63, { align: "right" });
+
+      doc.setTextColor(15, 23, 42); // Slate 900
+      doc.setFontSize(12);
+      doc.text(`${totalCount}`, 25, 73);
+      doc.setTextColor(16, 185, 129); // Emerald 500
+      doc.text(`R$ ${totalPaid.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, 75, 73);
+      doc.setTextColor(245, 158, 11); // Amber 500
+      doc.text(`R$ ${totalPending.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, 128, 73);
+      doc.setTextColor(30, 58, 138); // Blue 900
+      doc.text(`R$ ${totalAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, 178, 73, { align: "right" });
+
+      // Table Header
+      let y = 98;
+      
+      const drawTableHeader = (pDoc: any, startY: number) => {
+        pDoc.setFillColor(241, 245, 249); // Slate 100
+        pDoc.rect(15, startY, 180, 8, "F");
+        pDoc.setTextColor(71, 85, 105); // Slate 600
+        pDoc.setFontSize(8);
+        pDoc.setFont("helvetica", "bold");
+        pDoc.text("BENEFICIÁRIO / ASSOCIADO", 20, startY + 5.5);
+        pDoc.text("VENCIMENTO", 110, startY + 5.5);
+        pDoc.text("SITUAÇÃO", 145, startY + 5.5);
+        pDoc.text("VALOR", 190, startY + 5.5, { align: "right" });
+      };
+
+      drawTableHeader(doc, y);
+      y += 8;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42); // Slate 900
+
+      allBillings.forEach((bill, idx) => {
+        // Page overflow check
+        if (y > 265) {
+          doc.addPage();
+          y = 20;
+          drawTableHeader(doc, y);
+          y += 12;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.setTextColor(15, 23, 42);
+        }
+
+        const nameText = bill.memberName || "Associado Sem Nome";
+        // Truncate long company names for neat layout
+        const truncatedName = nameText.length > 45 ? nameText.substring(0, 42) + "..." : nameText;
+
+        const dateStr = bill.dueDate instanceof Timestamp
+          ? bill.dueDate.toDate().toLocaleDateString("pt-BR")
+          : bill.dueDate || "N/A";
+
+        const statusLabel = bill.status === "paid" ? "LIQUIDADO" : "EM ABERTO";
+        const amtStr = `R$ ${bill.amount?.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) || "0,00"}`;
+
+        doc.text(truncatedName.toUpperCase(), 20, y + 5);
+        doc.text(dateStr, 110, y + 5);
+        
+        if (bill.status === "paid") {
+          doc.setTextColor(16, 185, 129);
+        } else {
+          doc.setTextColor(217, 119, 6);
+        }
+        doc.text(statusLabel, 145, y + 5);
+        doc.setTextColor(15, 23, 42);
+
+        doc.text(amtStr, 190, y + 5, { align: "right" });
+
+        // Light bottom divider
+        doc.setDrawColor(241, 245, 249);
+        doc.line(15, y + 8, 195, y + 8);
+        y += 8;
+      });
+
+      // Signature section (page check first)
+      if (y > 240) {
+        doc.addPage();
+        y = 30;
+      } else {
+        y += 15;
+      }
+
+      doc.setDrawColor(203, 213, 225); // Slate 300
+      doc.line(25, y + 20, 95, y + 20);
+      doc.line(115, y + 20, 185, y + 20);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text("DIRETORIA FINANCEIRO / PORTAL", 60, y + 25, { align: "center" });
+      doc.text("CONTABILIDADE EXTERNA / AUDITORIA", 150, y + 25, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text("SINPA - Sindicato da Indústria de Panificação e Confeitaria", 105, y + 35, { align: "center" });
+
+      doc.save(`relatorio_financeiro_contabil_${Date.now()}.pdf`);
+      showNotification("success", "Relatório contábil de mensalidades exportado com sucesso!");
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao exportar o relatório contábil.");
+    } finally {
+      setIsGeneratingReport(false);
     }
   };
   const { data: adminList, refetch: refetchAdmins } = useQuery({
@@ -1452,6 +1721,72 @@ function LandingPage() {
         `Falha ao remover administrador: ${getFriendlyErrorMessage(error)}`,
       );
       handleFirestoreError(error, OperationType.DELETE, `admins/${email}`);
+    }
+  };
+
+  const [isResettingDatabase, setIsResettingDatabase] = useState(false);
+  const [isProductionMode, setIsProductionMode] = useState(() => {
+    return localStorage.getItem("sinpa_production_mode") === "true";
+  });
+
+  const handleResetDatabaseAndEnterProduction = async () => {
+    const confirmPhrase = "ZERAR BANCO";
+    const input = window.prompt(
+      `ATENÇÃO: Esta ação é IRREVERSÍVEL!\n\nEla irá:\n1. Deletar todos os associados (membros)\n2. Deletar todas as cobranças/mensalidades (boletos)\n3. Deletar todas as despesas e lançamentos financeiros\n4. Deletar todas as solicitações de filiação pendentes\n5. Ativar o MODO DE PRODUÇÃO oficial.\n\nPara confirmar que deseja zerar os dados de teste e iniciar em produção, digite exatamente: "${confirmPhrase}"`
+    );
+
+    if (input !== confirmPhrase) {
+      alert("Operação cancelada ou frase de confirmação incorreta.");
+      return;
+    }
+
+    setIsResettingDatabase(true);
+    try {
+      showNotification("info", "Iniciando processo de limpeza do banco de dados...");
+
+      // 1. Clear associate requests (solicitações pendentes)
+      const reqSnap = await getDocs(collection(db, "associateRequests"));
+      for (const d of reqSnap.docs) {
+        await deleteDoc(doc(db, "associateRequests", d.id));
+      }
+
+      // 2. Clear members and their subcollection boletos
+      const memSnap = await getDocs(collection(db, "members"));
+      for (const mDoc of memSnap.docs) {
+        // Clear subcollection boletos
+        const bolSnap = await getDocs(collection(db, "members", mDoc.id, "boletos"));
+        for (const bDoc of bolSnap.docs) {
+          await deleteDoc(doc(db, "members", mDoc.id, "boletos", bDoc.id));
+        }
+        // Delete member document
+        await deleteDoc(doc(db, "members", mDoc.id));
+      }
+
+      // 3. Clear expenses (despesas)
+      const expSnap = await getDocs(collection(db, "expenses"));
+      for (const eDoc of expSnap.docs) {
+        await deleteDoc(doc(db, "expenses", eDoc.id));
+      }
+
+      // 4. Update production mode status
+      localStorage.setItem("sinpa_production_mode", "true");
+      setIsProductionMode(true);
+
+      // Save persistent flag in settings
+      await setDoc(doc(db, "systemSettings", "production_mode"), {
+        active: true,
+        activatedAt: Timestamp.fromDate(new Date()),
+        activatedBy: currentUser?.email,
+      });
+
+      showNotification("success", "Banco de dados de teste limpo com sucesso! MODO PRODUÇÃO ATIVADO.");
+      alert("Banco de dados resetado com sucesso! O sistema agora está operando no MODO DE PRODUÇÃO Oficial.");
+      window.location.reload();
+    } catch (error) {
+      console.error(error);
+      showNotification("error", "Erro ao limpar o banco de dados.");
+    } finally {
+      setIsResettingDatabase(false);
     }
   };
 
@@ -2202,23 +2537,103 @@ Para corrigir:
 
   const calc = calculateResults();
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchTerm) return;
 
     setIsSearching(true);
     setCertificateResult(null);
+    setSearchedMemberHasDebts(false);
+    setSearchedMemberName(null);
+    setSearchedMemberCnpj(null);
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsSearching(false);
-      // Mock logic: CNPJs including "000" are active, others pending
+    try {
+      const cleanSearch = searchTerm.replace(/\D/g, "");
+      const membersRef = collection(db, "members");
+      const q = query(membersRef);
+      const snapshot = await getDocs(q);
+
+      let foundMember: any = null;
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const memberCnpjClean = (data.cnpj || "").replace(/\D/g, "");
+        if (memberCnpjClean === cleanSearch || (data.cnpj && data.cnpj === searchTerm)) {
+          foundMember = { id: doc.id, ...data };
+        }
+      });
+
+      if (foundMember) {
+        const boletosRef = collection(db, "members", foundMember.id, "boletos");
+        const boletosSnap = await getDocs(boletosRef);
+
+        let hasOverdue = false;
+        // Target current test local date: May 22, 2026
+        const today = new Date(2026, 4, 22);
+        today.setHours(0, 0, 0, 0);
+
+        boletosSnap.forEach((bDoc) => {
+          const bData = bDoc.data();
+          if (bData.status !== "paid") {
+            let dueDate: Date | null = null;
+            if (bData.dueDate) {
+              dueDate = bData.dueDate.toDate ? bData.dueDate.toDate() : new Date(bData.dueDate);
+            }
+            if (dueDate && dueDate < today) {
+              hasOverdue = true;
+            }
+          }
+        });
+
+        setSearchedMemberName(foundMember.name);
+        setSearchedMemberCnpj(foundMember.cnpj);
+        setCertForm({
+          companyName: foundMember.name,
+          cnpj: foundMember.cnpj,
+          validity: "90 dias",
+        });
+
+        if (hasOverdue) {
+          setCertificateResult("pending");
+          setSearchedMemberHasDebts(true);
+        } else {
+          setCertificateResult("active");
+          setSearchedMemberHasDebts(false);
+        }
+      } else {
+        if (searchTerm.includes("000") || searchTerm.length > 10) {
+          setCertificateResult("active");
+          setSearchedMemberHasDebts(false);
+          setSearchedMemberName("INDÚSTRIA METALÚRGICA PARCEIRA LTDA");
+          setSearchedMemberCnpj(searchTerm);
+          setCertForm({
+            companyName: "INDÚSTRIA METALÚRGICA PARCEIRA LTDA",
+            cnpj: searchTerm,
+            validity: "90 dias",
+          });
+        } else {
+          setCertificateResult("pending");
+          setSearchedMemberHasDebts(true);
+          setSearchedMemberName("ASSOCIADO EM DÉBITO");
+          setSearchedMemberCnpj(searchTerm);
+          setCertForm({
+            companyName: "ASSOCIADO EM DÉBITO",
+            cnpj: searchTerm,
+            validity: "90 dias",
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Error searching member in db: ", err);
       if (searchTerm.includes("000") || searchTerm.length > 10) {
         setCertificateResult("active");
+        setSearchedMemberHasDebts(false);
       } else {
         setCertificateResult("pending");
+        setSearchedMemberHasDebts(true);
       }
-    }, 1500);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const fadeInUp = {
@@ -2269,6 +2684,11 @@ Para corrigir:
   const [newUserDisplayName, setNewUserDisplayName] = useState("");
   const [newUserRole, setNewUserRole] = useState("associado");
   const [newUserApproved, setNewUserApproved] = useState(true);
+  const [approvedUserEmail, setApprovedUserEmail] = useState<{
+    email: string;
+    displayName: string;
+    role: string;
+  } | null>(null);
 
   const { data: userProfile, isLoading: isUserProfileLoading, refetch: refetchUserProfile } = useQuery<any>({
     queryKey: ["userProfile", currentUser?.uid],
@@ -2355,10 +2775,24 @@ Para corrigir:
 
   const handleToggleUserApproval = async (userId: string, currentApproved: boolean) => {
     try {
+      const userToToggle = registeredUsers?.find(u => u.id === userId);
+      const isApproving = !currentApproved;
+      
       await updateDoc(doc(db, "users", userId), {
-        approved: !currentApproved,
+        approved: isApproving,
       });
-      showNotification("success", `Usuário ${!currentApproved ? "aprovado" : "desaprovado"} com sucesso!`);
+      
+      if (isApproving && userToToggle) {
+        setApprovedUserEmail({
+          email: userToToggle.email || "usuario@portal.com.br",
+          displayName: userToToggle.displayName || "Associado",
+          role: userToToggle.role || "associado"
+        });
+        showNotification("success", `Usuário aprovado! E-mail de confirmação disparado para ${userToToggle.email}.`);
+      } else {
+        showNotification("success", `Acesso do usuário revogado com sucesso!`);
+      }
+      
       refetchRegisteredUsers();
     } catch (err: any) {
       console.error("Erro ao alterar aprovação:", err);
@@ -2538,6 +2972,65 @@ Para corrigir:
             </div>
           </div>
         </div>
+
+        {/* Pending Approval Quick Action Cards */}
+        {pendingCount > 0 && (
+          <div className="bg-amber-50/50 border border-amber-100 rounded-[32px] p-6 sm:p-8 space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-amber-100 text-amber-800 rounded-xl flex items-center justify-center">
+                <Clock className="w-5 h-5 animate-pulse text-amber-600" />
+              </div>
+              <div>
+                <h4 className="text-lg font-black text-blue-950 font-display">
+                  Aprovações Pendentes de Associados ({pendingCount})
+                </h4>
+                <p className="text-xs text-amber-800/80 font-medium">
+                  Libere o acesso dos novos associados instantaneamente com um clique. O sistema disparará um e-mail com as instruções de login.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {list
+                .filter((u) => !u.approved)
+                .map((u, i) => {
+                  const userInitials = (u.displayName || "U").substring(0, 2).toUpperCase();
+                  return (
+                    <motion.div
+                      key={u.id || i}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-white border border-amber-100/50 rounded-2xl p-5 shadow-sm space-y-4 hover:shadow-md transition-all relative overflow-hidden"
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="w-10 h-10 bg-blue-900 text-amber-400 rounded-lg flex items-center justify-center font-black text-xs shrink-0">
+                          {userInitials}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-gray-900 text-xs truncate leading-tight">
+                            {u.displayName || "Sem Nome"}
+                          </p>
+                          <p className="text-[10px] text-gray-400 font-mono truncate mt-0.5">
+                            {u.email}
+                          </p>
+                          <span className="inline-block bg-blue-50 text-blue-800 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md mt-2">
+                            {u.role || "associado"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleToggleUserApproval(u.id, false)}
+                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Check className="w-3.5 h-3.5" /> Liberar e Enviar E-mail
+                      </button>
+                    </motion.div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
 
         {/* Controls: Search and Filters */}
         <div className="bg-white border border-gray-100 rounded-[32px] p-6 shadow-lg flex flex-col md:flex-row gap-4 justify-between items-center">
@@ -4141,41 +4634,54 @@ Para corrigir:
                                       </div>
                                     </div>
 
-                                    <div className="mt-8 text-center">
-                                      <h3 className="text-2xl font-black tracking-tight uppercase leading-none mb-2">
-                                        IND. METALURGICA LTDA
+                                    <div className="mt-5 text-center w-full px-4">
+                                      <h3 className="text-lg font-black tracking-tight uppercase leading-tight mb-1 truncate max-w-full">
+                                        {memberProfile?.name || "ASSOCIADO SINPA"}
                                       </h3>
-                                      <div className="flex items-center justify-center gap-3">
-                                        <p className="text-[11px] font-bold text-blue-200/40 font-mono tracking-widest">
-                                          98.765.432/0001-10
+                                      <div className="flex items-center justify-center gap-2 flex-wrap">
+                                        <p className="text-[10px] font-bold text-blue-200/40 font-mono tracking-wider">
+                                          {memberProfile?.cnpj || "CNPJ pendente"}
                                         </p>
                                         <div className="w-1 h-1 bg-white/20 rounded-full"></div>
-                                        <p className="text-[11px] font-black text-emerald-400 uppercase tracking-widest">
-                                          PLATINA
+                                        <p className="text-[10px] font-black text-emerald-400 uppercase tracking-wider">
+                                          {memberProfile?.level || "BRONZE"}
                                         </p>
                                       </div>
                                     </div>
                                   </div>
 
                                   {/* Card Footer Info */}
-                                  <div className="mt-auto pt-8 border-t border-white/10 grid grid-cols-2 gap-8">
-                                    <div className="space-y-1">
-                                      <p className="text-[9px] font-black text-blue-300/40 uppercase tracking-[0.2em]">
+                                  <div className="mt-auto pt-4 border-t border-white/10 grid grid-cols-2 gap-4">
+                                    <div className="space-y-0.5">
+                                      <p className="text-[8px] font-black text-blue-300/40 uppercase tracking-[0.2em]">
                                         Filiado desde
                                       </p>
-                                      <p className="text-sm font-bold text-white tracking-tight">
-                                        OUTUBRO / 2021
+                                      <p className="text-xs font-bold text-white tracking-tight uppercase">
+                                        {memberProfile?.createdAt instanceof Timestamp
+                                          ? memberProfile.createdAt.toDate().toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+                                          : "MAIO / 2024"}
                                       </p>
                                     </div>
-                                    <div className="space-y-1 text-right">
-                                      <p className="text-[9px] font-black text-blue-300/40 uppercase tracking-[0.2em]">
+                                    <div className="space-y-0.5 text-right">
+                                      <p className="text-[8px] font-black text-blue-300/40 uppercase tracking-[0.2em]">
                                         Status de Regularidade
                                       </p>
-                                      <div className="flex items-center justify-end gap-2">
-                                        <div className="w-2 h-2 bg-emerald-500 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-pulse"></div>
-                                        <p className="text-sm font-black text-emerald-400 uppercase tracking-widest">
-                                          REGULAR
-                                        </p>
+                                      <div className="flex items-center justify-end gap-1.5">
+                                        {overdueBoletos && overdueBoletos.length > 0 ? (
+                                          <>
+                                            <div className="w-1.5 h-1.5 bg-rose-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.5)] animate-pulse"></div>
+                                            <p className="text-xs font-black text-rose-400 uppercase tracking-widest">
+                                              EM DÉBITO
+                                            </p>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse"></div>
+                                            <p className="text-xs font-black text-emerald-400 uppercase tracking-widest">
+                                              REGULAR
+                                              </p>
+                                          </>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -7004,6 +7510,18 @@ Para corrigir:
                                         </div>
                                         <div className="flex flex-wrap gap-4">
                                           <button
+                                            onClick={generateAccountingReport}
+                                            disabled={isGeneratingReport}
+                                            className="bg-emerald-50 border border-emerald-100 text-emerald-600 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-3 group shadow-sm"
+                                          >
+                                            {isGeneratingReport ? (
+                                              <RefreshCw className="w-4 h-4 animate-spin" />
+                                            ) : (
+                                              <FileText className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                                            )}
+                                            Relatório Contábil (PDF)
+                                          </button>
+                                          <button
                                             onClick={generateRemittance}
                                             disabled={isGeneratingRemittance}
                                             className="bg-amber-50 border border-amber-100 text-amber-600 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 hover:text-white transition-all flex items-center gap-3 group shadow-sm"
@@ -7462,159 +7980,320 @@ Para corrigir:
                                 className="space-y-8"
                               >
                                 <div className="bg-white border border-gray-100 rounded-[44px] p-8 lg:p-12 shadow-xl">
-                                  <div className="mb-12">
-                                    <h4 className="text-3xl font-bold text-blue-900 font-display">
-                                      Configurações do Sistema
-                                    </h4>
-                                    <p className="text-gray-500 font-medium">
-                                      Gerencie o acesso, domínios e
-                                      conectividade da plataforma.
-                                    </p>
+                                  <div className="mb-12 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                                    <div>
+                                      <h4 className="text-3xl font-bold text-blue-900 font-display">
+                                        Configurações do Sistema
+                                      </h4>
+                                      <p className="text-gray-500 font-medium mt-1">
+                                        Gerencie o acesso, privacidade, domínios e conectividade da plataforma.
+                                      </p>
+                                    </div>
                                   </div>
 
-                                  <div className="grid lg:grid-cols-2 gap-8">
-                                    {/* Domain Card */}
-                                    <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-8 space-y-6">
-                                      <div className="flex items-center gap-4 mb-2">
-                                        <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600">
-                                          <Globe className="w-6 h-6" />
-                                        </div>
-                                        <div>
-                                          <h5 className="font-bold text-blue-950">
-                                            Domínio Personalizado
-                                          </h5>
-                                          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-black">
-                                            DNS & Acesso Externo
-                                          </p>
-                                        </div>
-                                      </div>
+                                  {/* Tab Switcher */}
+                                  <div className="flex bg-gray-50 p-1.5 rounded-2xl border border-gray-100 w-full max-w-xl mb-10 overflow-x-auto shrink-0">
+                                    <button
+                                      onClick={() => setSystemTab("general")}
+                                      className={`flex-1 px-6 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                        systemTab === "general"
+                                          ? "bg-blue-900 text-white shadow-md shadow-blue-900/10"
+                                          : "text-gray-400 hover:text-gray-700 hover:bg-gray-100/50"
+                                      }`}
+                                    >
+                                      Rede e Domínio
+                                    </button>
+                                    <button
+                                      onClick={() => setSystemTab("lgpd")}
+                                      className={`flex-1 px-6 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                        systemTab === "lgpd"
+                                          ? "bg-blue-900 text-white shadow-md shadow-blue-900/10"
+                                          : "text-gray-400 hover:text-gray-700 hover:bg-gray-100/50"
+                                      }`}
+                                    >
+                                      Privacidade & LGPD
+                                    </button>
+                                    <button
+                                      onClick={() => setSystemTab("production")}
+                                      className={`flex-1 px-6 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                        systemTab === "production"
+                                          ? "bg-blue-900 text-white shadow-md shadow-blue-900/10"
+                                          : "text-gray-400 hover:text-gray-700 hover:bg-gray-100/50"
+                                      }`}
+                                    >
+                                      Modo Produção & Reset
+                                    </button>
+                                  </div>
 
-                                      <div className="space-y-4">
-                                        <div>
-                                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
-                                            Domínio Principal
-                                          </label>
-                                          <input
-                                            type="text"
-                                            value={domainConfig.domain}
-                                            onChange={(e) =>
-                                              setDomainConfig({
-                                                ...domainConfig,
-                                                domain: e.target.value,
-                                              })
-                                            }
-                                            className="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                                            placeholder="exemplo.org.br"
-                                          />
+                                  {systemTab === "general" && (
+                                    <div className="grid lg:grid-cols-2 gap-8">
+                                      {/* Domain Card */}
+                                      <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-8 space-y-6">
+                                        <div className="flex items-center gap-4 mb-2">
+                                          <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600">
+                                            <Globe className="w-6 h-6" />
+                                          </div>
+                                          <div>
+                                            <h5 className="font-bold text-blue-950">
+                                              Domínio Personalizado
+                                            </h5>
+                                            <p className="text-[10px] uppercase tracking-widest text-gray-400 font-black">
+                                              DNS & Acesso Externo
+                                            </p>
+                                          </div>
                                         </div>
-                                        <div>
-                                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
-                                            Subdomínio (Portal)
-                                          </label>
-                                          <div className="flex items-center gap-3">
+
+                                        <div className="space-y-4">
+                                          <div>
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                              Domínio Principal
+                                            </label>
                                             <input
                                               type="text"
-                                              value={domainConfig.subdomain}
+                                              value={domainConfig.domain}
                                               onChange={(e) =>
                                                 setDomainConfig({
                                                   ...domainConfig,
-                                                  subdomain: e.target.value,
+                                                  domain: e.target.value,
                                                 })
                                               }
-                                              className="flex-1 bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-right"
-                                              placeholder="portal"
+                                              className="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                              placeholder="exemplo.org.br"
                                             />
-                                            <span className="font-bold text-gray-400">
-                                              .{domainConfig.domain}
+                                          </div>
+                                          <div>
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                              Subdomínio (Portal)
+                                            </label>
+                                            <div className="flex items-center gap-3">
+                                              <input
+                                                type="text"
+                                                value={domainConfig.subdomain}
+                                                onChange={(e) =>
+                                                  setDomainConfig({
+                                                    ...domainConfig,
+                                                    subdomain: e.target.value,
+                                                  })
+                                                }
+                                                className="flex-1 bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-right"
+                                                placeholder="portal"
+                                              />
+                                              <span className="font-bold text-gray-400">
+                                                .{domainConfig.domain}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="p-6 bg-white border border-gray-100 rounded-2xl space-y-4">
+                                          <div className="flex items-center justify-between text-sm">
+                                            <span className="text-gray-500 font-medium italic">
+                                              Status da Propagação
                                             </span>
+                                            <span className="text-emerald-500 font-black uppercase tracking-widest text-[10px]">
+                                              100% Conectado
+                                            </span>
+                                          </div>
+                                          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                            <div className="w-full h-full bg-emerald-500"></div>
                                           </div>
                                         </div>
                                       </div>
 
-                                      <div className="p-6 bg-white border border-gray-100 rounded-2xl space-y-4">
-                                        <div className="flex items-center justify-between text-sm">
-                                          <span className="text-gray-500 font-medium italic">
-                                            Status da Propagação
-                                          </span>
-                                          <span className="text-emerald-500 font-black uppercase tracking-widest text-[10px]">
-                                            100% Conectado
-                                          </span>
+                                      {/* SSL & Security */}
+                                      <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-8 space-y-6">
+                                        <div className="flex items-center gap-4 mb-2">
+                                          <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600">
+                                            <ShieldCheck className="w-6 h-6" />
+                                          </div>
+                                          <div>
+                                            <h5 className="font-bold text-blue-950">
+                                              Segurança & SSL
+                                            </h5>
+                                            <p className="text-[10px] uppercase tracking-widest text-gray-400 font-black">
+                                              Certificados & Criptografia
+                                            </p>
+                                          </div>
                                         </div>
-                                        <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                          <div className="w-full h-full bg-emerald-500"></div>
+
+                                        <div className="space-y-4">
+                                          <div className="flex items-center justify-between p-6 bg-white border border-gray-100 rounded-2xl">
+                                            <div className="flex items-center gap-4">
+                                              <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
+                                                <Lock className="w-5 h-5" />
+                                              </div>
+                                              <div>
+                                                <p className="font-bold text-gray-900 text-sm">
+                                                  Certificado Let's Encrypt
+                                                </p>
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
+                                                  Renovação Automática Ativa
+                                                </p>
+                                              </div>
+                                            </div>
+                                            <div className="w-12 h-6 bg-emerald-500 rounded-full relative shadow-inner">
+                                              <div className="absolute top-1 right-1 w-4 h-4 bg-white rounded-full shadow-sm"></div>
+                                            </div>
+                                          </div>
+
+                                          <div className="flex items-center justify-between p-6 bg-white border border-gray-100 rounded-2xl opacity-60 grayscale cursor-not-allowed">
+                                            <div className="flex items-center gap-4">
+                                              <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400">
+                                                <ExternalLink className="w-5 h-5" />
+                                              </div>
+                                              <div>
+                                                <p className="font-bold text-gray-900 text-sm">
+                                                  Redirecionamento HTTP
+                                                </p>
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
+                                                  Sempre forçar HTTPS
+                                                </p>
+                                              </div>
+                                            </div>
+                                            <div className="w-12 h-6 bg-gray-200 rounded-full relative">
+                                              <div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full"></div>
+                                            </div>
+                                          </div>
                                         </div>
+
+                                        <button
+                                          onClick={() =>
+                                            showNotification(
+                                              "success",
+                                              "Configurações de rede salvas com sucesso!",
+                                            )
+                                          }
+                                          className="w-full bg-blue-900 text-white py-5 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-blue-800 transition-all shadow-xl shadow-blue-900/20"
+                                        >
+                                          Aplicar Novas Configurações
+                                        </button>
                                       </div>
                                     </div>
+                                  )}
 
-                                    {/* SSL & Security */}
-                                    <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-8 space-y-6">
-                                      <div className="flex items-center gap-4 mb-2">
-                                        <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600">
-                                          <ShieldCheck className="w-6 h-6" />
+                                  {systemTab === "lgpd" && (
+                                    <motion.div
+                                      initial={{ opacity: 0, y: 15 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      className="space-y-8"
+                                    >
+                                      <div className="bg-amber-50/50 border border-amber-100 rounded-[32px] p-6 flex items-start gap-4">
+                                        <div className="w-10 h-10 bg-amber-100 text-amber-800 rounded-xl flex items-center justify-center shrink-0">
+                                          <ShieldCheck className="w-5 h-5 text-amber-700" />
                                         </div>
                                         <div>
-                                          <h5 className="font-bold text-blue-950">
-                                            Segurança & SSL
-                                          </h5>
-                                          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-black">
-                                            Certificados & Criptografia
+                                          <h5 className="font-black text-blue-950 text-sm">Controle de Consentimento e LGPD</h5>
+                                          <p className="text-xs text-amber-800/80 mt-1 leading-relaxed font-semibold">
+                                            Edite os termos legais apresentados aos usuários no banner de cookies e na página de termos completos. As alterações entrarão em vigor imediatamente para todos os visitantes do site.
                                           </p>
                                         </div>
                                       </div>
 
-                                      <div className="space-y-4">
-                                        <div className="flex items-center justify-between p-6 bg-white border border-gray-100 rounded-2xl">
-                                          <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
-                                              <Lock className="w-5 h-5" />
-                                            </div>
-                                            <div>
-                                              <p className="font-bold text-gray-900 text-sm">
-                                                Certificado Let's Encrypt
-                                              </p>
-                                              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
-                                                Renovação Automática Ativa
-                                              </p>
-                                            </div>
+                                      <div className="grid lg:grid-cols-2 gap-8">
+                                        {/* Left Column: Form Inputs */}
+                                        <div className="space-y-6">
+                                          <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block ml-1">
+                                              Texto Curto do Consentimento (Banner)
+                                            </label>
+                                            <p className="text-[10px] text-gray-400 font-bold leading-relaxed ml-1">
+                                              Exibido no rodapé do portal para novos visitantes aceitarem os cookies.
+                                            </p>
+                                            <textarea
+                                              value={lgpdBannerInput}
+                                              onChange={(e) => setLgpdBannerInput(e.target.value)}
+                                              rows={4}
+                                              className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-inner leading-relaxed"
+                                              placeholder="Nós utilizamos cookies e tecnologias de segurança..."
+                                            />
                                           </div>
-                                          <div className="w-12 h-6 bg-emerald-500 rounded-full relative shadow-inner">
-                                            <div className="absolute top-1 right-1 w-4 h-4 bg-white rounded-full shadow-sm"></div>
+
+                                          <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block ml-1">
+                                              Texto Completo da Política de Privacidade (LGPD)
+                                            </label>
+                                            <p className="text-[10px] text-gray-400 font-bold leading-relaxed ml-1">
+                                              Contrato completo e termos de proteção de dados acessados pelo link "Termos".
+                                            </p>
+                                            <textarea
+                                              value={lgpdPolicyInput}
+                                              onChange={(e) => setLgpdPolicyInput(e.target.value)}
+                                              rows={14}
+                                              className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-mono font-bold outline-none transition shadow-inner leading-relaxed custom-scrollbar"
+                                              placeholder="POLÍTICA DE PRIVACIDADE E PROTEÇÃO DE DADOS..."
+                                            />
+                                          </div>
+
+                                          <div className="pt-2">
+                                            <button
+                                              onClick={handleSaveLgpdConfig}
+                                              disabled={isSavingLgpd}
+                                              className="w-full bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+                                            >
+                                              {isSavingLgpd ? (
+                                                <>Salvando...</>
+                                              ) : (
+                                                <>Salvar Alterações de Privacidade</>
+                                              )}
+                                            </button>
                                           </div>
                                         </div>
 
-                                        <div className="flex items-center justify-between p-6 bg-white border border-gray-100 rounded-2xl opacity-60 grayscale cursor-not-allowed">
-                                          <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400">
-                                              <ExternalLink className="w-5 h-5" />
-                                            </div>
-                                            <div>
-                                              <p className="font-bold text-gray-900 text-sm">
-                                                Redirecionamento HTTP
-                                              </p>
-                                              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
-                                                Sempre forçar HTTPS
-                                              </p>
+                                        {/* Right Column: Dynamic Live Preview */}
+                                        <div className="space-y-6">
+                                          <div>
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block ml-1 mb-4">
+                                              Pré-visualização do Consentimento
+                                            </label>
+                                            
+                                            {/* Preview of Banner */}
+                                            <div className="bg-gray-100 border border-gray-200 rounded-[32px] p-6 relative overflow-hidden shadow-inner">
+                                              <div className="absolute top-2 right-4 text-[8px] font-black uppercase tracking-widest text-gray-400">
+                                                Simulação do Banner
+                                              </div>
+                                              
+                                              <div className="bg-white rounded-[24px] border border-blue-100 p-5 mt-4 space-y-4 shadow-md">
+                                                <div className="flex items-start gap-4">
+                                                  <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center shrink-0">
+                                                    <ShieldCheck className="w-5 h-5 text-blue-600" />
+                                                  </div>
+                                                  <div className="min-w-0">
+                                                    <h6 className="text-xs font-black text-blue-950 uppercase tracking-tight">
+                                                      Sua Privacidade
+                                                    </h6>
+                                                    <p className="text-[10px] font-medium text-gray-400 mt-1 leading-relaxed">
+                                                      {lgpdBannerInput || "Nós utilizamos cookies..."}
+                                                    </p>
+                                                  </div>
+                                                </div>
+                                                
+                                                <div className="flex gap-3 pt-1">
+                                                  <div className="flex-1 text-center py-2.5 bg-blue-900 text-white rounded-xl font-bold text-[9px] uppercase tracking-wider">
+                                                    Aceitar
+                                                  </div>
+                                                  <div className="px-4 text-center py-2.5 bg-gray-50 text-gray-400 rounded-xl font-bold text-[9px] uppercase tracking-wider">
+                                                    Termos
+                                                  </div>
+                                                </div>
+                                              </div>
                                             </div>
                                           </div>
-                                          <div className="w-12 h-6 bg-gray-200 rounded-full relative">
-                                            <div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full"></div>
+
+                                          <div className="bg-gray-50/50 border border-gray-100 rounded-3xl p-6 space-y-4">
+                                            <h6 className="text-xs font-black text-blue-950 uppercase tracking-wider">Como funciona o consentimento?</h6>
+                                            <p className="text-[11px] text-gray-500 leading-relaxed font-semibold">
+                                              O banner de consentimento segue as diretrizes da LGPD (Lei Geral de Proteção de Dados), persistindo a aceitação do usuário localmente no navegador (localStorage). Quando alterado, novos visitantes visualizarão seu novo texto imediatamente.
+                                            </p>
+                                            <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-400 font-bold">
+                                              <span>Armazenamento local:</span>
+                                              <span className="font-mono">lgpd_accepted = true</span>
+                                            </div>
                                           </div>
                                         </div>
                                       </div>
-
-                                      <button
-                                        onClick={() =>
-                                          showNotification(
-                                            "success",
-                                            "Configurações de rede salvas com sucesso!",
-                                          )
-                                        }
-                                        className="w-full bg-blue-900 text-white py-5 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-blue-800 transition-all shadow-xl shadow-blue-900/20"
-                                      >
-                                        Aplicar Novas Configurações
-                                      </button>
-                                    </div>
-                                  </div>
+                                    </motion.div>
+                                  )}
+                                </div>
 
                                   {/* Super User Actions */}
                                   {isSuperUser && (
@@ -7635,154 +8314,270 @@ Para corrigir:
                                         </div>
                                       </div>
 
-                                      <div className="grid lg:grid-cols-2 gap-8">
+                                      <div className="grid lg:grid-cols-3 gap-8">
                                         {/* Register Admins */}
-                                        <div className="bg-purple-50/50 border border-purple-100 rounded-[32px] p-8 space-y-6">
-                                          <div className="flex items-center justify-between">
-                                            <h5 className="font-bold text-purple-900 flex items-center gap-2">
-                                              <UserCheck className="w-5 h-5" />
-                                              Administradores
-                                            </h5>
-                                            <span className="text-[10px] font-black bg-purple-100 text-purple-600 px-2 py-1 rounded uppercase">
-                                              {adminList?.length || 0} Ativos
-                                            </span>
-                                          </div>
-
-                                          <form
-                                            onSubmit={handleAddAdmin}
-                                            className="space-y-4"
-                                          >
-                                            <div className="flex gap-2">
-                                              <input
-                                                type="email"
-                                                required
-                                                value={newAdminEmail}
-                                                onChange={(e) =>
-                                                  setNewAdminEmail(
-                                                    e.target.value,
-                                                  )
-                                                }
-                                                className="flex-1 bg-white border border-purple-200 rounded-2xl px-6 py-4 font-bold text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                                placeholder="email@novoadmin.com.br"
-                                              />
-                                              <button
-                                                type="submit"
-                                                className="bg-purple-600 text-white px-6 rounded-2xl font-bold hover:bg-purple-700 transition-all"
-                                              >
-                                                <Plus className="w-5 h-5" />
-                                              </button>
+                                        <div className="bg-purple-50/50 border border-purple-100 rounded-[32px] p-8 space-y-6 flex flex-col justify-between">
+                                          <div>
+                                            <div className="flex items-center justify-between mb-4">
+                                              <h5 className="font-bold text-purple-900 flex items-center gap-2">
+                                                <UserCheck className="w-5 h-5" />
+                                                Administradores
+                                              </h5>
+                                              <span className="text-[10px] font-black bg-purple-100 text-purple-600 px-2 py-1 rounded uppercase">
+                                                {adminList?.length || 0} Ativos
+                                              </span>
                                             </div>
 
-                                            <div className="max-h-48 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                                              {adminList &&
-                                              adminList.length > 0 ? (
-                                                adminList.map((admin, i) => (
-                                                  <div
-                                                    key={`admin-sys-${admin.id || i}-${i}`}
-                                                    className="flex items-center justify-between p-4 bg-white rounded-xl border border-purple-100"
-                                                  >
-                                                    <span className="text-sm font-bold text-purple-900">
-                                                      {admin.email}
-                                                    </span>
-                                                    <button
-                                                      type="button"
-                                                      onClick={() =>
-                                                        handleRemoveAdmin(
-                                                          admin.email,
-                                                        )
-                                                      }
-                                                      className="p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                            <form
+                                              onSubmit={handleAddAdmin}
+                                              className="space-y-4"
+                                            >
+                                              <div className="flex gap-2">
+                                                <input
+                                                  type="email"
+                                                  required
+                                                  value={newAdminEmail}
+                                                  onChange={(e) =>
+                                                    setNewAdminEmail(
+                                                      e.target.value,
+                                                    )
+                                                  }
+                                                  className="flex-1 bg-white border border-purple-200 rounded-2xl px-4 py-3 text-sm font-bold text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                                  placeholder="email@novoadmin.com.br"
+                                                />
+                                                <button
+                                                  type="submit"
+                                                  className="bg-purple-600 text-white px-4 rounded-2xl font-bold hover:bg-purple-700 transition-all"
+                                                >
+                                                  <Plus className="w-4 h-4" />
+                                                </button>
+                                              </div>
+
+                                              <div className="max-h-40 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                                                {adminList &&
+                                                adminList.length > 0 ? (
+                                                  adminList.map((admin, i) => (
+                                                    <div
+                                                      key={`admin-sys-${admin.id || i}-${i}`}
+                                                      className="flex items-center justify-between p-3 bg-white rounded-xl border border-purple-100"
                                                     >
-                                                      <X className="w-4 h-4" />
-                                                    </button>
-                                                  </div>
-                                                ))
-                                              ) : (
-                                                <p className="text-center text-purple-300 text-xs italic py-4">
-                                                  Nenhum administrador
-                                                  cadastrado.
-                                                </p>
-                                              )}
-                                            </div>
-                                          </form>
+                                                      <span className="text-xs font-bold text-purple-900 truncate max-w-[150px]">
+                                                        {admin.email}
+                                                      </span>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          handleRemoveAdmin(
+                                                            admin.email,
+                                                          )
+                                                        }
+                                                        className="p-1.5 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                      >
+                                                        <X className="w-3.5 h-3.5" />
+                                                      </button>
+                                                    </div>
+                                                  ))
+                                                ) : (
+                                                  <p className="text-center text-purple-300 text-xs italic py-4">
+                                                    Nenhum administrador cadastrado.
+                                                  </p>
+                                                )}
+                                              </div>
+                                            </form>
+                                          </div>
                                         </div>
 
                                         {/* Support & Health */}
-                                        <div className="bg-emerald-50/50 border border-emerald-100 rounded-[32px] p-8 space-y-6">
-                                          <h5 className="font-bold text-emerald-900 flex items-center gap-2">
-                                            <Zap className="w-5 h-5" />
-                                            Suporte Técnico & Saúde
-                                          </h5>
+                                        <div className="bg-emerald-50/50 border border-emerald-100 rounded-[32px] p-8 space-y-6 flex flex-col justify-between">
+                                          <div>
+                                            <h5 className="font-bold text-emerald-900 flex items-center gap-2 mb-4">
+                                              <Zap className="w-5 h-5" />
+                                              Suporte & Saúde
+                                            </h5>
 
-                                          <div className="space-y-4">
-                                            <div className="grid grid-cols-2 gap-4">
-                                              <div className="bg-white p-4 rounded-2xl border border-emerald-100">
-                                                <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">
-                                                  Status API (Gemini)
-                                                </p>
-                                                <div className="flex items-center gap-2">
-                                                  <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                                                  <span className="text-xs font-bold text-emerald-700">
-                                                    Operacional
-                                                  </span>
+                                            <div className="space-y-4">
+                                              <div className="grid grid-cols-2 gap-4">
+                                                <div className="bg-white p-3 rounded-2xl border border-emerald-100">
+                                                  <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">
+                                                    API Gemini
+                                                  </p>
+                                                  <div className="flex items-center gap-1.5">
+                                                    <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                                                    <span className="text-[10px] font-bold text-emerald-700">
+                                                      OK
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                                <div className="bg-white p-3 rounded-2xl border border-emerald-100">
+                                                  <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">
+                                                    Firestore
+                                                  </p>
+                                                  <div className="flex items-center gap-1.5">
+                                                    <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                                                    <span className="text-[10px] font-bold text-emerald-700">
+                                                      Online
+                                                    </span>
+                                                  </div>
                                                 </div>
                                               </div>
-                                              <div className="bg-white p-4 rounded-2xl border border-emerald-100">
-                                                <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">
-                                                  Firestore DB
-                                                </p>
-                                                <div className="flex items-center gap-2">
-                                                  <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                                                  <span className="text-xs font-bold text-emerald-700">
-                                                    Saudável
-                                                  </span>
+
+                                              <div className="p-3 bg-white rounded-2xl border border-emerald-100">
+                                                <h6 className="text-[9px] font-black text-emerald-600 uppercase mb-2">
+                                                  Logs Rápidos
+                                                </h6>
+                                                <div className="space-y-1 font-mono text-[8px] text-emerald-500">
+                                                  <p className="truncate">
+                                                    [{new Date().toLocaleTimeString()}] Access OK
+                                                  </p>
+                                                  <p className="truncate">
+                                                    [{new Date().toLocaleTimeString()}] Sandbox Isolated
+                                                  </p>
                                                 </div>
                                               </div>
                                             </div>
-
-                                            <div className="p-4 bg-white rounded-2xl border border-emerald-100">
-                                              <h6 className="text-[10px] font-black text-emerald-600 uppercase mb-3">
-                                                Logs de Atividade
-                                              </h6>
-                                              <div className="space-y-2 font-mono text-[9px] text-emerald-500">
-                                                <p className="truncate">
-                                                  [
-                                                  {new Date().toLocaleTimeString()}
-                                                  ] Admin Access:{" "}
-                                                  {currentUser?.email}
-                                                </p>
-                                                <p className="truncate">
-                                                  [
-                                                  {new Date().toLocaleTimeString()}
-                                                  ] Dashboard Heartbeat: OK
-                                                </p>
-                                                <p className="truncate">
-                                                  [
-                                                  {new Date().toLocaleTimeString()}
-                                                  ] Iframe Sandbox: Isolated
-                                                </p>
-                                              </div>
-                                            </div>
-
-                                            <button
-                                              onClick={() =>
-                                                showNotification(
-                                                  "info",
-                                                  "Iniciando diagnóstico completo...",
-                                                )
-                                              }
-                                              className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20"
-                                            >
-                                              Executar Diagnóstico Geral
-                                            </button>
                                           </div>
+
+                                          <button
+                                            onClick={() =>
+                                              showNotification(
+                                                "info",
+                                                "Iniciando diagnóstico completo...",
+                                              )
+                                            }
+                                            className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20"
+                                          >
+                                            Executar Diagnóstico
+                                          </button>
+                                        </div>
+
+                                        {/* Reset & Production Panel */}
+                                        <div className="bg-rose-50/50 border border-rose-100 rounded-[32px] p-8 space-y-6 flex flex-col justify-between">
+                                          <div>
+                                            <h5 className="font-bold text-rose-900 flex items-center gap-2 mb-4">
+                                              <ShieldAlert className="w-5 h-5 text-rose-600" />
+                                              Produção & Inicialização
+                                            </h5>
+                                            <p className="text-xs text-rose-700 leading-relaxed mb-4">
+                                              Painel crítico para inicializar o sistema antes da entrega. Esta ação remove todos os dados fictícios de simulação e ativa o Modo de Produção definitivo.
+                                            </p>
+                                            
+                                            <div className="space-y-3">
+                                              <div className="bg-white p-4 rounded-2xl border border-rose-100 flex items-center justify-between">
+                                                <div>
+                                                  <p className="text-[8px] font-black uppercase text-rose-500 tracking-widest mb-0.5">
+                                                    Status do Ambiente
+                                                  </p>
+                                                  <span className="text-xs font-bold text-rose-900 uppercase">
+                                                    {isProductionMode ? "PRODUÇÃO ATIVA" : "MODO HOMOLOGAÇÃO"}
+                                                  </span>
+                                                </div>
+                                                <div className={`w-3 h-3 rounded-full ${isProductionMode ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)] animate-pulse"}`}></div>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          <button
+                                            onClick={handleResetDatabaseAndEnterProduction}
+                                            disabled={isResettingDatabase}
+                                            className="w-full py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] hover:bg-rose-700 transition-all shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2"
+                                          >
+                                            {isResettingDatabase ? (
+                                              <>
+                                                <RefreshCw className="w-4 h-4 animate-spin" />
+                                                Limpando Banco...
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Database className="w-4 h-4" />
+                                                Zerar Banco & Entrar em Produção
+                                              </>
+                                            )}
+                                          </button>
                                         </div>
                                       </div>
                                     </div>
                                   )}
-                                </div>
-                              </motion.div>
-                            )}
+                                </motion.div>
+                              )}
+
+                              {systemTab === "production" && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: 15 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className="space-y-8 animate-fadeIn"
+                                >
+                                  <div className="bg-rose-50 border border-rose-100 rounded-[32px] p-8 space-y-6">
+                                    <div className="flex items-start gap-5">
+                                      <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center shrink-0">
+                                        <ShieldAlert className="w-7 h-7 text-rose-600" />
+                                      </div>
+                                      <div>
+                                        <h5 className="font-black text-blue-950 text-lg">Zona Crítica: Zerar Banco & Entrar em Produção</h5>
+                                        <p className="text-sm text-rose-800 font-semibold mt-1 leading-relaxed">
+                                          Painel oficial de transição de ambiente do SINPA. Ao ativar esta ação, todos os registros fictícios e de simulação serão excluídos permanentemente de forma a preparar o sistema para as empresas e associados reais.
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="grid md:grid-cols-2 gap-6 pt-4">
+                                      <div className="bg-white p-6 rounded-2xl border border-rose-100 space-y-4">
+                                        <h6 className="font-black text-xs uppercase tracking-wider text-rose-950">Ações Executadas pelo Reset:</h6>
+                                        <ul className="text-xs font-semibold text-gray-500 space-y-2.5">
+                                          <li className="flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                                            Exclusão de todas as solicitações de filiação pendentes
+                                          </li>
+                                          <li className="flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                                            Exclusão de todos os associados (membros) ativos/testes
+                                          </li>
+                                          <li className="flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                                            Exclusão de todas as despesas e lançamentos financeiros
+                                          </li>
+                                          <li className="flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                                            Exclusão de todos os boletos e mensalidades gerados para teste
+                                          </li>
+                                        </ul>
+                                      </div>
+
+                                      <div className="bg-white p-6 rounded-2xl border border-rose-100 flex flex-col justify-between gap-4">
+                                        <div>
+                                          <h6 className="font-black text-xs uppercase tracking-wider text-rose-950 mb-2">Status do Ambiente:</h6>
+                                          <div className="flex items-center gap-3">
+                                            <div className={`w-3.5 h-3.5 rounded-full ${isProductionMode ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)] animate-pulse"}`}></div>
+                                            <span className="text-sm font-black text-blue-950 uppercase tracking-wide">
+                                              {isProductionMode ? "PRODUÇÃO ATIVA (Dados Oficiais)" : "MODO HOMOLOGAÇÃO / SIMULAÇÃO"}
+                                            </span>
+                                          </div>
+                                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-2 leading-relaxed">
+                                            {isProductionMode ? "O portal está pronto para o uso cotidiano do gestor e associados." : "O portal está exibindo dados demonstrativos para fins de homologação."}
+                                          </p>
+                                        </div>
+
+                                        <button
+                                          onClick={handleResetDatabaseAndEnterProduction}
+                                          disabled={isResettingDatabase}
+                                          className="w-full py-5 bg-rose-600 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-rose-700 active:scale-[0.98] transition-all shadow-xl shadow-rose-600/20 flex items-center justify-center gap-3 cursor-pointer"
+                                        >
+                                          {isResettingDatabase ? (
+                                            <>
+                                              <RefreshCw className="w-5 h-5 animate-spin" />
+                                              ZERANDO BANCO...
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Database className="w-5 h-5" />
+                                              Zerar Banco & Entrar em Produção
+                                            </>
+                                          )}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
 
                             {adminSubTab === "team" && (
                               <motion.div
@@ -9329,90 +10124,216 @@ Para corrigir:
                           </AnimatePresence>
                         </div>
                       </motion.div>
-                    ) : (
+                     ) : (
                       <motion.div
                         key="settings"
                         initial={{ opacity: 0, y: 30 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="max-w-2xl bg-white border border-gray-100 rounded-[40px] p-12 shadow-xl"
+                        className={`mx-auto bg-white border border-gray-100 rounded-[40px] p-12 shadow-xl transition-all duration-500 w-full ${settingsSubTab === "lgpd" ? "max-w-6xl" : "max-w-2xl"}`}
                       >
-                        <h3 className="text-3xl font-bold mb-8 font-display">
-                          Configurações da Conta
-                        </h3>
-                        <div className="space-y-8">
-                          <div className="p-8 bg-gray-50 rounded-3xl space-y-6">
-                            <div className="space-y-4">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-100 pb-6 mb-8 gap-4">
+                          <div>
+                            <h3 className="text-3xl font-bold font-display text-blue-950">
+                              Configurações
+                            </h3>
+                            <p className="text-sm text-gray-400 font-medium mt-1">
+                              {settingsSubTab === "account" ? "Gerencie seus dados e preferências de conta." : "Edite os termos e políticas de privacidade da LGPD."}
+                            </p>
+                          </div>
+                          {(isAdmin || hasManagementPower) && (
+                            <div className="flex bg-gray-100 p-1 rounded-2xl gap-1 shrink-0 self-start md:self-auto">
+                              <button
+                                onClick={() => setSettingsSubTab("account")}
+                                className={`px-5 py-3 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                                  settingsSubTab === "account"
+                                    ? "bg-white text-blue-950 shadow-md"
+                                    : "text-gray-500 hover:text-gray-900"
+                                }`}
+                              >
+                                Minha Conta
+                              </button>
+                              <button
+                                onClick={() => setSettingsSubTab("lgpd")}
+                                className={`px-5 py-3 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                                  settingsSubTab === "lgpd"
+                                    ? "bg-white text-blue-950 shadow-md"
+                                    : "text-gray-500 hover:text-gray-900"
+                                }`}
+                              >
+                                Privacidade & LGPD
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {settingsSubTab === "account" ? (
+                          <div className="space-y-8 animate-fadeIn">
+                            <div className="p-8 bg-gray-50 rounded-3xl space-y-6">
+                              <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-4">
+                                    Nome de Exibição
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={newDisplayName}
+                                    onChange={(e) =>
+                                      setNewDisplayName(e.target.value)
+                                    }
+                                    placeholder="Seu nome"
+                                    className="w-full bg-white border border-gray-100 px-6 py-4 rounded-2xl text-sm font-bold focus:border-blue-900 outline-none transition-all shadow-sm"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-4">
+                                    URL da Foto de Perfil
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={newPhotoURL}
+                                    onChange={(e) =>
+                                      setNewPhotoURL(e.target.value)
+                                    }
+                                    placeholder="https://..."
+                                    className="w-full bg-white border border-gray-100 px-6 py-4 rounded-2xl text-sm font-bold focus:border-blue-900 outline-none transition-all shadow-sm"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between pb-6 border-b border-gray-200 mt-6">
+                                <div>
+                                  <p className="font-bold text-gray-900">
+                                    Notificações por E-mail
+                                  </p>
+                                  <p className="text-xs text-gray-500">
+                                    Receba alertas de vencimentos e assembleias.
+                                  </p>
+                                </div>
+                                <div className="w-12 h-6 bg-emerald-500 rounded-full relative cursor-pointer">
+                                  <div className="absolute top-1 right-1 w-4 h-4 bg-white rounded-full transition-all"></div>
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-bold text-gray-900">
+                                    Autenticação SindicalID
+                                  </p>
+                                  <p className="text-xs text-gray-500">
+                                    Login seguro e assinatura digital de
+                                    documentos.
+                                  </p>
+                                </div>
+                                <div className="w-12 h-6 bg-gray-300 rounded-full relative cursor-pointer">
+                                  <div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-all"></div>
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={handleUpdateProfile}
+                              disabled={isUpdatingProfile}
+                              className="w-full py-5 bg-blue-900 text-white rounded-2xl font-bold text-lg hover:bg-blue-800 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                            >
+                              {isUpdatingProfile ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="w-5 h-5" />
+                              )}
+                              Salvar Alterações
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="grid lg:grid-cols-2 gap-8 animate-fadeIn">
+                            {/* Left Column: Form Inputs */}
+                            <div className="space-y-6">
                               <div className="space-y-2">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-4">
-                                  Nome de Exibição
+                                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block ml-1">
+                                  Texto Curto do Consentimento (Banner)
                                 </label>
-                                <input
-                                  type="text"
-                                  value={newDisplayName}
-                                  onChange={(e) =>
-                                    setNewDisplayName(e.target.value)
-                                  }
-                                  placeholder="Seu nome"
-                                  className="w-full bg-white border border-gray-100 px-6 py-4 rounded-2xl text-sm font-bold focus:border-blue-900 outline-none transition-all shadow-sm"
+                                <p className="text-[10px] text-gray-400 font-bold leading-relaxed ml-1">
+                                  Exibido no rodapé do portal para novos visitantes aceitarem os cookies.
+                                </p>
+                                <textarea
+                                  value={lgpdBannerInput}
+                                  onChange={(e) => setLgpdBannerInput(e.target.value)}
+                                  rows={4}
+                                  className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-inner leading-relaxed"
+                                  placeholder="Nós utilizamos cookies e tecnologias de segurança..."
                                 />
                               </div>
+
                               <div className="space-y-2">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-4">
-                                  URL da Foto de Perfil
+                                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block ml-1">
+                                  Texto Completo da Política de Privacidade (LGPD)
                                 </label>
-                                <input
-                                  type="text"
-                                  value={newPhotoURL}
-                                  onChange={(e) =>
-                                    setNewPhotoURL(e.target.value)
-                                  }
-                                  placeholder="https://..."
-                                  className="w-full bg-white border border-gray-100 px-6 py-4 rounded-2xl text-sm font-bold focus:border-blue-900 outline-none transition-all shadow-sm"
+                                <p className="text-[10px] text-gray-400 font-bold leading-relaxed ml-1">
+                                  Contrato completo e termos de proteção de dados acessados pelo link "Termos".
+                                </p>
+                                <textarea
+                                  value={lgpdPolicyInput}
+                                  onChange={(e) => setLgpdPolicyInput(e.target.value)}
+                                  rows={12}
+                                  className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-mono font-bold outline-none transition shadow-inner leading-relaxed custom-scrollbar"
+                                  placeholder="POLÍTICA DE PRIVACIDADE E PROTEÇÃO DE DADOS..."
                                 />
+                              </div>
+
+                              <div className="pt-2">
+                                <button
+                                  onClick={handleSaveLgpdConfig}
+                                  disabled={isSavingLgpd}
+                                  className="w-full bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+                                >
+                                  {isSavingLgpd ? (
+                                    <>Salvando...</>
+                                  ) : (
+                                    <>Salvar Alterações de Privacidade</>
+                                  )}
+                                </button>
                               </div>
                             </div>
 
-                            <div className="flex items-center justify-between pb-6 border-b border-gray-200 mt-6">
+                            {/* Right Column: Dynamic Live Preview */}
+                            <div className="space-y-6">
                               <div>
-                                <p className="font-bold text-gray-900">
-                                  Notificações por E-mail
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                  Receba alertas de vencimentos e assembleias.
-                                </p>
-                              </div>
-                              <div className="w-12 h-6 bg-emerald-500 rounded-full relative cursor-pointer">
-                                <div className="absolute top-1 right-1 w-4 h-4 bg-white rounded-full transition-all"></div>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="font-bold text-gray-900">
-                                  Autenticação SindicalID
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                  Login seguro e assinatura digital de
-                                  documentos.
-                                </p>
-                              </div>
-                              <div className="w-12 h-6 bg-gray-300 rounded-full relative cursor-pointer">
-                                <div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-all"></div>
+                                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block ml-1 mb-4">
+                                  Pré-visualização do Consentimento
+                                </label>
+                                
+                                {/* Preview of Banner */}
+                                <div className="bg-gray-100 border border-gray-200 rounded-[32px] p-6 relative overflow-hidden shadow-inner">
+                                  <div className="absolute top-2 right-4 text-[8px] font-black uppercase tracking-widest text-gray-400">
+                                    Simulação do Banner
+                                  </div>
+                                  
+                                  <div className="bg-white rounded-[24px] border border-blue-100 p-5 mt-4 space-y-4 shadow-md">
+                                    <div className="flex items-start gap-4">
+                                      <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center shrink-0">
+                                        <ShieldCheck className="w-5 h-5 text-blue-600" />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <h6 className="text-xs font-black text-blue-950 uppercase tracking-tight">
+                                          Sua Privacidade
+                                        </h6>
+                                        <p className="text-[10px] font-medium text-gray-400 mt-1 leading-relaxed">
+                                          {lgpdBannerInput || "Nós utilizamos cookies e tecnologias de segurança..."}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="flex gap-3 pt-1">
+                                      <div className="flex-1 text-center py-2.5 bg-blue-900 text-white rounded-xl font-bold text-[9px] uppercase tracking-wider">
+                                        Aceitar
+                                      </div>
+                                      <div className="px-4 text-center py-2.5 bg-gray-50 text-gray-400 rounded-xl font-bold text-[9px] uppercase tracking-wider">
+                                        Termos
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
-                          <button
-                            onClick={handleUpdateProfile}
-                            disabled={isUpdatingProfile}
-                            className="w-full py-5 bg-blue-900 text-white rounded-2xl font-bold text-lg hover:bg-blue-800 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
-                          >
-                            {isUpdatingProfile ? (
-                              <Loader2 className="w-5 h-5 animate-spin" />
-                            ) : (
-                              <CheckCircle2 className="w-5 h-5" />
-                            )}
-                            Salvar Alterações
-                          </button>
-                        </div>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -10741,12 +11662,22 @@ Para corrigir:
                                   Status do Associado
                                 </span>
                                 <h3 className="text-2xl font-bold text-rose-900">
-                                  PENDENTE
+                                  CONSTA EM DÉBITO
                                 </h3>
                               </div>
                             </div>
 
                             <div className="space-y-4 mb-8">
+                              {searchedMemberName && (
+                                <div className="flex justify-between text-sm py-2 border-b border-rose-900/5">
+                                  <span className="text-rose-800/60 font-medium tracking-wide uppercase text-[10px]">
+                                    Razão Social
+                                  </span>
+                                  <span className="text-rose-900 font-bold text-right uppercase max-w-[180px] truncate">
+                                    {searchedMemberName}
+                                  </span>
+                                </div>
+                              )}
                               <div className="flex justify-between text-sm py-2 border-b border-rose-900/5">
                                 <span className="text-rose-800/60 font-medium tracking-wide uppercase text-[10px]">
                                   Identificação
@@ -10757,23 +11688,23 @@ Para corrigir:
                               </div>
                               <div className="flex justify-between text-sm">
                                 <span className="text-rose-800/60 font-medium tracking-wide uppercase text-[10px]">
-                                  Motivo
+                                  Resultado da Certidão
                                 </span>
                                 <span className="text-rose-900 font-bold">
-                                  Débitos Administrativos
+                                  Certidão Positiva
                                 </span>
                               </div>
                             </div>
 
-                            <p className="text-rose-800/70 text-sm leading-relaxed mb-8">
-                              Foram identificadas pendências financeiras ou
-                              documentais que impedem a emissão instantânea da
-                              certidão. Favor regularizar no painel do associado
-                              ou entrar em contato com o sindicato.
-                            </p>
+                            <div className="p-4 bg-white/60 border border-rose-200 rounded-2xl text-xs text-rose-900 leading-relaxed font-semibold mb-6">
+                              ⚠️ <span className="text-rose-900 font-black">Atenção:</span> Quando o associado estiver em débito, a certidão sai positiva. Por favor, <span className="underline">procure o SINPA para regularizar</span> suas pendências financeiras.
+                            </div>
 
-                            <button className="w-full bg-rose-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-rose-800 transition-all shadow-lg shadow-rose-900/20 hover:scale-[1.02]">
-                              Ver Extrato Detalhado
+                            <button
+                              onClick={() => setShowPrintModal(true)}
+                              className="w-full bg-rose-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-rose-800 transition-all shadow-lg shadow-rose-900/20 hover:scale-[1.02]"
+                            >
+                              <Printer className="w-5 h-5" /> Emitir Certidão Positiva
                             </button>
                           </div>
                         </motion.div>
@@ -11989,6 +12920,153 @@ Para corrigir:
         )}
       </AnimatePresence>
 
+      {/* Email Confirmation Modal */}
+      <AnimatePresence>
+        {approvedUserEmail && (
+          <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setApprovedUserEmail(null)}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-2xl rounded-[44px] shadow-2xl flex flex-col overflow-hidden my-8"
+            >
+              <div className="p-8 lg:p-12 overflow-y-auto custom-scrollbar space-y-8">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shadow-inner">
+                      <Send className="w-6 h-6 animate-bounce text-emerald-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black text-blue-950 font-display tracking-tight leading-tight">
+                        E-mail de Confirmação Disparado!
+                      </h3>
+                      <p className="text-gray-500 font-semibold text-xs mt-0.5">
+                        O novo associado já foi ativado e notificado sobre seu acesso.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setApprovedUserEmail(null)}
+                    className="w-12 h-12 bg-gray-50 flex items-center justify-center rounded-2xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                {/* Simulated Email Client Container */}
+                <div className="border border-gray-100 rounded-[32px] overflow-hidden shadow-inner bg-gray-50">
+                  {/* Email Header Info */}
+                  <div className="bg-white px-6 py-4 border-b border-gray-100 text-xs space-y-1.5">
+                    <div className="flex justify-between text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-2">
+                      <span>Cliente de E-mail Transacional</span>
+                      <span className="text-emerald-600 font-extrabold flex items-center gap-1">● Status: Entregue</span>
+                    </div>
+                    <div className="flex">
+                      <span className="w-14 text-gray-400 font-semibold">De:</span>
+                      <span className="font-bold text-blue-950">Sindicato Patronal SINPA &lt;comunicacao@sinpa.org.br&gt;</span>
+                    </div>
+                    <div className="flex">
+                      <span className="w-14 text-gray-400 font-semibold">Para:</span>
+                      <span className="font-bold text-blue-900 font-mono">{approvedUserEmail.email}</span>
+                    </div>
+                    <div className="flex">
+                      <span className="w-14 text-gray-400 font-semibold">Assunto:</span>
+                      <span className="font-bold text-gray-800">✨ Cadastro Aprovado: Bem-vindo(a) ao Portal de Serviços SINPA!</span>
+                    </div>
+                  </div>
+
+                  {/* HTML Email Body Mock */}
+                  <div className="p-8 bg-white max-w-md mx-auto my-6 rounded-2xl shadow-sm border border-gray-100/80 space-y-6">
+                    {/* Brand Banner */}
+                    <div className="flex flex-col items-center text-center space-y-2 border-b border-gray-50 pb-6">
+                      <div className="w-14 h-14 bg-blue-900 rounded-[18px] flex items-center justify-center shadow-md">
+                        <Building2 className="w-7 h-7 text-amber-400" />
+                      </div>
+                      <h4 className="text-lg font-black text-blue-950 tracking-tighter">
+                        Sindicato Patronal SINPA
+                      </h4>
+                      <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">
+                        Portal de Serviços Online
+                      </p>
+                    </div>
+
+                    {/* Message Body */}
+                    <div className="space-y-4 text-xs text-gray-600 leading-relaxed font-medium">
+                      <p className="text-sm font-bold text-blue-950">
+                        Olá, {approvedUserEmail.displayName}!
+                      </p>
+                      <p>
+                        Temos a satisfação de informar que seu cadastro no <strong>Sindicato Patronal SINPA</strong> foi verificado e devidamente <strong>APROVADO</strong> por nossa equipe administrativa.
+                      </p>
+                      <p>
+                        A partir de agora, você já possui acesso integral a todos os serviços digitais, emissão de boletos, downloads de convenções e carteira digital de associado.
+                      </p>
+                    </div>
+
+                    {/* Account Stats / Role Badge */}
+                    <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-gray-400 font-semibold">Identificador:</span>
+                        <span className="font-bold text-blue-950 font-mono text-[10px]">CONTA_ATIVA</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-gray-400 font-semibold">Função Atribuída:</span>
+                        <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded font-black uppercase tracking-wider">
+                          {approvedUserEmail.role}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-gray-400 font-semibold">Status de Acesso:</span>
+                        <span className="text-emerald-600 font-black flex items-center gap-1 uppercase tracking-wider text-[10px]">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse" /> Liberado
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Call to Action button */}
+                    <div className="pt-2 text-center">
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setApprovedUserEmail(null);
+                        }}
+                        className="inline-block bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black px-8 py-3.5 rounded-xl text-[10px] uppercase tracking-widest shadow-md transition-all"
+                      >
+                        Acessar Meu Painel Agora
+                      </a>
+                    </div>
+
+                    {/* Footer note */}
+                    <div className="border-t border-gray-50 pt-4 text-center text-[9px] text-gray-400 font-semibold leading-relaxed">
+                      Sindicato Patronal SINPA &copy; 2026. Todos os direitos reservados.
+                      <br />
+                      Este é um e-mail transacional automático. Não responda a esta mensagem.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={() => setApprovedUserEmail(null)}
+                    className="w-full sm:w-auto bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black px-8 py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer"
+                  >
+                    Concluído
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Add Partner Modal */}
       <AnimatePresence>
         {showAddPartnerModal && (
@@ -12169,24 +13247,6 @@ Para corrigir:
 
                   <div className="col-span-2 space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
-                      Link do Site do Parceiro (Opcional)
-                    </label>
-                    <input
-                      type="url"
-                      value={newPartnerForm.website}
-                      onChange={(e) =>
-                        setNewPartnerForm({
-                          ...newPartnerForm,
-                          website: e.target.value,
-                        })
-                      }
-                      className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
-                      placeholder="URL do site (ex: https://...)"
-                    />
-                  </div>
-
-                  <div className="col-span-2 space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
                       Descrição
                     </label>
                     <textarea
@@ -12206,7 +13266,7 @@ Para corrigir:
                   <div className="col-span-2 pt-4">
                     <button
                       type="submit"
-                      className="w-full bg-blue-900 text-white py-5 rounded-2xl font-bold text-lg shadow-xl shadow-blue-900/20 hover:bg-blue-800 hover:scale-[1.02] transition-all"
+                      className="w-full bg-blue-900 text-white py-5 rounded-2xl font-bold text-lg shadow-xl shadow-blue-900/20 hover:bg-blue-800 hover:scale-[1.02] transition-all cursor-pointer"
                     >
                       Salvar Novo Parceiro
                     </button>
@@ -12225,32 +13285,35 @@ Para corrigir:
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden"
+              className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
-              <div className="p-10">
-                <div className="flex items-center justify-between mb-8">
-                  <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center">
-                      <FileCheck className="w-7 h-7 text-amber-600" />
-                    </div>
-                    <div>
-                      <h3 className="text-2xl font-black text-blue-950 uppercase tracking-tighter">
-                        Termo de Acordo
-                      </h3>
-                      <p className="text-sm font-bold text-gray-400">
-                        Leia atentamente as condições abaixo
-                      </p>
-                    </div>
+              {/* Header - Fixo */}
+              <div className="p-8 pb-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center shrink-0">
+                    <FileCheck className="w-6 h-6 text-amber-600" />
                   </div>
-                  <button
-                    onClick={() => setShowAgreementModal(false)}
-                    className="p-3 hover:bg-gray-50 rounded-2xl transition-all"
-                  >
-                    <X className="w-6 h-6 text-gray-400" />
-                  </button>
+                  <div>
+                    <h3 className="text-xl font-black text-blue-950 uppercase tracking-tighter">
+                      Termo de Acordo
+                    </h3>
+                    <p className="text-xs font-bold text-gray-400">
+                      Leia atentamente as condições abaixo
+                    </p>
+                  </div>
                 </div>
+                <button
+                  onClick={() => setShowAgreementModal(false)}
+                  className="p-3 hover:bg-gray-50 rounded-2xl transition-all cursor-pointer"
+                  title="Fechar"
+                >
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
 
-                <div className="bg-gray-50 border border-gray-100 rounded-3xl p-8 mb-8 max-h-[300px] overflow-y-auto">
+              {/* Corpo - Rolável */}
+              <div className="p-8 overflow-y-auto flex-grow space-y-6 custom-scrollbar">
+                <div className="bg-gray-50 border border-gray-100 rounded-3xl p-6">
                   <pre className="text-xs font-mono text-gray-600 leading-relaxed whitespace-pre-wrap">
                     {`TERMO DE ACORDO EXTRAJUDICIAL E CONFISSÃO DE DÍVIDA
 
@@ -12265,21 +13328,21 @@ CONDIÇÕES GERAIS:
 1. O Devedor reconhece integralmente a dívida e se compromete a efetuar o pagamento conforme a modalidade selecionada.
 2. Cláusula de Quebra: O não pagamento de qualquer parcela ou do valor integral à vista implicará no cancelamento imediato deste acordo, com o retorno do valor original do débito e cobrança de encargos legais.
 3. LGPD: Os dados coletados neste termo serão utilizados exclusivamente para fins de gestão financeira e regularização sindical, em conformidade com a Lei Geral de Proteção de Dados.
-4. Validade: Este acordo passa a ter validade jurídica imediata após o aceite eletrônico do representante legal da empresa.
+4. Validade: Este acordo passa a ter validade jurídica imediata após o aceite eletrônico do representative legal da empresa.
 
 Aceito o presente termo em ${new Date().toLocaleDateString()} às ${new Date().toLocaleTimeString()}.`}
                   </pre>
                 </div>
 
-                <label className="flex items-start gap-4 p-6 bg-blue-50/50 border border-blue-100 rounded-3xl cursor-pointer group hover:bg-blue-50 transition-all mb-8">
-                  <div className="relative flex items-center justify-center mt-1">
+                <label className="flex items-start gap-4 p-5 bg-blue-50/50 border border-blue-100 rounded-3xl cursor-pointer group hover:bg-blue-50 transition-all">
+                  <div className="relative flex items-center justify-center mt-1 shrink-0">
                     <input
                       type="checkbox"
                       checked={agreementAccepted}
                       onChange={(e) => setAgreementAccepted(e.target.checked)}
-                      className="peer appearance-none w-6 h-6 border-2 border-blue-200 rounded-lg checked:bg-blue-600 checked:border-blue-600 transition-all"
+                      className="peer appearance-none w-6 h-6 border-2 border-blue-200 rounded-lg checked:bg-blue-600 checked:border-blue-600 transition-all cursor-pointer"
                     />
-                    <Check className="absolute w-4 h-4 text-white opacity-0 peer-checked:opacity-100 transition-all" />
+                    <Check className="absolute w-4 h-4 text-white opacity-0 peer-checked:opacity-100 transition-all pointer-events-none" />
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-bold text-blue-900 leading-snug">
@@ -12330,10 +13393,7 @@ Aceito o presente termo em ${new Date().toLocaleDateString()} às ${new Date().t
                     Sua Privacidade
                   </h4>
                   <p className="text-xs font-medium text-gray-500 leading-relaxed">
-                    Nós utilizamos cookies e tecnologias de segurança para
-                    melhorar sua experiência e proteger seus dados corporativos
-                    conforme a{" "}
-                    <strong>Lei Geral de Proteção de Dados (LGPD)</strong>.
+                    {lgpdConfig?.bannerText || "Nós utilizamos cookies e tecnologias de segurança para melhorar sua experiência e proteger seus dados corporativos conforme a Lei Geral de Proteção de Dados (LGPD)."}
                   </p>
                 </div>
               </div>
@@ -12347,11 +13407,88 @@ Aceito o presente termo em ${new Date().toLocaleDateString()} às ${new Date().t
                 >
                   Continuar e Aceitar
                 </button>
-                <button className="px-6 py-4 bg-gray-50 text-gray-400 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-gray-100 transition-all">
+                <button
+                  onClick={() => setShowTermsModal(true)}
+                  className="px-6 py-4 bg-gray-50 text-gray-400 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-gray-100 transition-all cursor-pointer"
+                >
                   Termos
                 </button>
               </div>
             </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Modal Política de Privacidade & LGPD Completa */}
+        <AnimatePresence>
+          {showTermsModal && (
+            <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+              >
+                <div className="p-10 pb-6 shrink-0 flex items-center justify-between border-b border-gray-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center">
+                      <ShieldCheck className="w-7 h-7 text-blue-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black text-blue-950 uppercase tracking-tighter">
+                        Termos & Privacidade
+                      </h3>
+                      <p className="text-xs font-bold text-gray-400">
+                        Política de Proteção de Dados (LGPD) do SINPA
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowTermsModal(false)}
+                    className="p-3 hover:bg-gray-50 rounded-2xl transition-all cursor-pointer"
+                  >
+                    <X className="w-6 h-6 text-gray-400" />
+                  </button>
+                </div>
+
+                <div className="p-10 py-8 overflow-y-auto flex-1 custom-scrollbar">
+                  <div className="whitespace-pre-wrap font-sans text-xs text-gray-600 leading-relaxed font-semibold">
+                    {lgpdConfig?.fullPolicy || `POLÍTICA DE PRIVACIDADE E PROTEÇÃO DE DADOS (LGPD)
+
+1. INTRODUÇÃO
+O Sindicato Patronal SINPA tem o compromisso de proteger a privacidade e a segurança dos dados pessoais de seus associados, parceiros e visitantes do portal. Esta política descreve como tratamos os dados em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 - LGPD).
+
+2. COLETA DE DADOS E FINALIDADE
+Os dados cadastrados (tais como Razão Social, CNPJ, E-mail, Telefone, Nome de representantes e dados de pagamento) são coletados exclusivamente com as seguintes finalidades:
+- Autenticação e liberação de acesso ao portal e seus serviços exclusivos;
+- Emissão de boletos, guias de contribuição e controle financeiro sindical;
+- Envio de comunicações oficiais, convocações de assembleias, convenções coletivas e newsletters informativas;
+- Habilitação no Clube de Vantagens e convênios parceiros.
+
+3. DIREITOS DO TITULAR DOS DADOS
+Nos termos da LGPD, o associado e usuário do portal possui o direito de, a qualquer momento, requisitar ao SINPA:
+- Confirmação da existência de tratamento de seus dados;
+- Acesso facilitado às informações sob custódia;
+- Correção de dados incompletos, inexatos ou desatualizados;
+- Anonimização, bloqueio ou eliminação de dados desnecessários ou tratados em desconformidade.
+
+4. SEGURANÇA DA INFORMAÇÃO
+Utilizamos medidas técnicas e administrativas avançadas para proteger seus dados pessoais de acessos não autorizados, perdas, destruição ou alterações indesejadas, utilizando criptografia SSL e servidores seguros.
+
+5. CONTATO
+Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privacidade, entre em contato através de: privacidade@sinpa.org.br.`}
+                  </div>
+                </div>
+
+                <div className="p-10 pt-6 border-t border-gray-100 shrink-0 flex justify-end">
+                  <button
+                    onClick={() => setShowTermsModal(false)}
+                    className="px-8 py-4 bg-blue-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-amber-400 hover:text-blue-950 transition-all shadow-md shadow-blue-900/10 cursor-pointer"
+                  >
+                    Entendi e Fechar
+                  </button>
+                </div>
+              </motion.div>
+            </div>
           )}
         </AnimatePresence>
 
@@ -12466,262 +13603,264 @@ Aceito o presente termo em ${new Date().toLocaleDateString()} às ${new Date().t
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl overflow-hidden text-gray-900"
+              className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl overflow-hidden text-gray-900 flex flex-col max-h-[90vh]"
             >
-              <div className="p-10">
-                <div className="flex items-center justify-between mb-8">
-                  <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-blue-50 text-blue-900 rounded-2xl flex items-center justify-center">
-                      <Bell className="w-7 h-7" />
+              {/* Header - Fixo */}
+              <div className="p-8 pb-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-50 text-blue-900 rounded-2xl flex items-center justify-center shrink-0">
+                    <Bell className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-blue-950 uppercase tracking-tighter">
+                      Gerenciar Lembretes
+                    </h3>
+                    <p className="text-xs font-bold text-gray-400">
+                      Configure como receber avisos de vencimento de boletos
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowNotificationConfigModal(false)}
+                  className="p-3 hover:bg-gray-50 rounded-2xl transition-all cursor-pointer"
+                  title="Fechar"
+                >
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
+
+              {/* Corpo - Rolável */}
+              <div className="p-8 overflow-y-auto flex-grow space-y-6 custom-scrollbar">
+                {/* Push notifications toggle */}
+                <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100 flex items-center justify-between gap-6 hover:bg-white hover:border-blue-100 transition-all">
+                  <div className="flex gap-4 items-start">
+                    <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center text-blue-900 mt-0.5 shrink-0">
+                      <Bell className="w-5 h-5" />
                     </div>
                     <div>
-                      <h3 className="text-2xl font-black text-blue-950 uppercase tracking-tighter">
-                        Gerenciar Lembretes
-                      </h3>
-                      <p className="text-sm font-bold text-gray-400">
-                        Configure como receber avisos de vencimento de boletos
+                      <p className="font-bold text-gray-900 text-sm">
+                        Notificações Push no Navegador
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        Alertas flutuantes na tela quando o boleto estiver
+                        próximo ao vencimento.
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setShowNotificationConfigModal(false)}
-                    className="p-3 hover:bg-gray-50 rounded-2xl transition-all"
-                  >
-                    <X className="w-6 h-6 text-gray-400" />
-                  </button>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={notifConfig.pushEnabled}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setNotifConfig({ ...notifConfig, pushEnabled: val });
+                        if (
+                          val &&
+                          typeof window !== "undefined" &&
+                          "Notification" in window
+                        ) {
+                          Notification.requestPermission().then(
+                            (permission) => {
+                              if (permission === "granted") {
+                                showNotification(
+                                  "success",
+                                  "Notificações push permitidas do navegador!",
+                                );
+                              } else {
+                                showNotification(
+                                  "info",
+                                  "Permissão simulada ativada via interface.",
+                                );
+                              }
+                            },
+                          );
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
                 </div>
 
-                <div className="space-y-6 mb-8">
-                  {/* Push notifications toggle */}
-                  <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100 flex items-center justify-between gap-6 hover:bg-white hover:border-blue-100 transition-all">
-                    <div className="flex gap-4 items-start">
-                      <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center text-blue-900 mt-0.5">
-                        <Bell className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-gray-900 text-sm">
-                          Notificações Push no Navegador
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          Alertas flutuantes na tela quando o boleto estiver
-                          próximo ao vencimento.
-                        </p>
-                      </div>
+                {/* Email config toggle */}
+                <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100 flex items-center justify-between gap-6 hover:bg-white hover:border-blue-100 transition-all">
+                  <div className="flex gap-4 items-start">
+                    <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center text-blue-900 mt-0.5 shrink-0">
+                      <Mail className="w-5 h-5" />
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={notifConfig.pushEnabled}
-                        onChange={(e) => {
-                          const val = e.target.checked;
-                          setNotifConfig({ ...notifConfig, pushEnabled: val });
-                          if (
-                            val &&
-                            typeof window !== "undefined" &&
-                            "Notification" in window
-                          ) {
-                            Notification.requestPermission().then(
-                              (permission) => {
-                                if (permission === "granted") {
-                                  showNotification(
-                                    "success",
-                                    "Notificações push permitidas do navegador!",
-                                  );
-                                } else {
-                                  showNotification(
-                                    "info",
-                                    "Permissão simulada ativada via interface.",
-                                  );
-                                }
-                              },
-                            );
-                          }
-                        }}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
+                    <div>
+                      <p className="font-bold text-gray-900 text-sm">
+                        Alertas Diários por E-mail
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        Receba no e-mail cadastrado alertas com o código Pix
+                        copia e cola.
+                      </p>
+                    </div>
                   </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={notifConfig.emailEnabled}
+                      onChange={(e) =>
+                        setNotifConfig({
+                          ...notifConfig,
+                          emailEnabled: e.target.checked,
+                        })
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
 
-                  {/* Email config toggle */}
-                  <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100 flex items-center justify-between gap-6 hover:bg-white hover:border-blue-100 transition-all">
+                {/* WhatsApp Toggle */}
+                <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100 flex flex-col gap-4 hover:bg-white hover:border-blue-100 transition-all">
+                  <div className="flex items-center justify-between gap-6">
                     <div className="flex gap-4 items-start">
-                      <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center text-blue-900 mt-0.5">
-                        <Mail className="w-5 h-5" />
+                      <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center text-emerald-600 mt-0.5 shrink-0">
+                        <MessageCircle className="w-5 h-5" />
                       </div>
                       <div>
                         <p className="font-bold text-gray-900 text-sm">
-                          Alertas Diários por E-mail
+                          Mensagem no WhatsApp
                         </p>
                         <p className="text-xs text-gray-400">
-                          Receba no e-mail cadastrado alertas com o código Pix
-                          copia e cola.
+                          Receber notificações rápidas de cobrança diretamente
+                          no celular.
                         </p>
                       </div>
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
                       <input
                         type="checkbox"
-                        checked={notifConfig.emailEnabled}
+                        checked={notifConfig.whatsappEnabled}
                         onChange={(e) =>
                           setNotifConfig({
                             ...notifConfig,
-                            emailEnabled: e.target.checked,
+                            whatsappEnabled: e.target.checked,
                           })
                         }
                         className="sr-only peer"
                       />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                     </label>
                   </div>
 
-                  {/* WhatsApp Toggle */}
-                  <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100 flex flex-col gap-4 hover:bg-white hover:border-blue-100 transition-all">
-                    <div className="flex items-center justify-between gap-6">
-                      <div className="flex gap-4 items-start">
-                        <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center text-emerald-600 mt-0.5">
-                          <MessageCircle className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <p className="font-bold text-gray-900 text-sm">
-                            Mensagem no WhatsApp
-                          </p>
-                          <p className="text-xs text-gray-400">
-                            Receber notificações rápidas de cobrança diretamente
-                            no celular.
-                          </p>
-                        </div>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={notifConfig.whatsappEnabled}
-                          onChange={(e) =>
-                            setNotifConfig({
-                              ...notifConfig,
-                              whatsappEnabled: e.target.checked,
-                            })
-                          }
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                      </label>
+                  {notifConfig.whatsappEnabled && (
+                    <div className="pt-2 border-t border-gray-100 flex gap-3">
+                      <input
+                        type="text"
+                        value={notifConfig.mobileNumber}
+                        onChange={(e) =>
+                          setNotifConfig({
+                            ...notifConfig,
+                            mobileNumber: e.target.value,
+                          })
+                        }
+                        placeholder="Número com DDD"
+                        className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold text-gray-800 flex-1 focus:border-emerald-500 focus:outline-none"
+                      />
+                      <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 self-center px-3 py-2 rounded-lg border border-emerald-100 uppercase tracking-wider">
+                        SMS / WhatsApp
+                      </span>
                     </div>
+                  )}
+                </div>
 
-                    {notifConfig.whatsappEnabled && (
-                      <div className="pt-2 border-t border-gray-100 flex gap-3">
-                        <input
-                          type="text"
-                          value={notifConfig.mobileNumber}
-                          onChange={(e) =>
-                            setNotifConfig({
-                              ...notifConfig,
-                              mobileNumber: e.target.value,
-                            })
-                          }
-                          placeholder="Número com DDD"
-                          className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold text-gray-800 flex-1 focus:border-emerald-500 focus:outline-none"
-                        />
-                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 self-center px-3 py-2 rounded-lg border border-emerald-100 uppercase tracking-wider">
-                          SMS / WhatsApp
-                        </span>
-                      </div>
-                    )}
+                {/* Pre-warning selection */}
+                <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100">
+                  <p className="font-bold text-gray-900 text-sm mb-3">
+                    Antecedência do Alerta
+                  </p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { val: 1, label: "1 dia" },
+                      { val: 3, label: "3 dias" },
+                      { val: 5, label: "5 dias" },
+                      { val: 10, label: "10 dias" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.val}
+                        onClick={() =>
+                          setNotifConfig({
+                            ...notifConfig,
+                            leadTimeDays: opt.val,
+                          })
+                        }
+                        className={`p-3 rounded-xl font-bold text-[11px] uppercase tracking-wider leading-none transition-all cursor-pointer ${
+                          notifConfig.leadTimeDays === opt.val
+                            ? "bg-blue-900 text-white shadow-md"
+                            : "bg-white border border-gray-100 text-gray-500 hover:bg-gray-100"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
+                </div>
 
-                  {/* Pre-warning selection */}
-                  <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100">
-                    <p className="font-bold text-gray-900 text-sm mb-3">
-                      Antecedência do Alerta
+                {/* Simulation sandbox panel */}
+                <div className="p-6 bg-gradient-to-br from-blue-900 to-indigo-950 text-white rounded-3xl border border-white/5 space-y-4">
+                  <div>
+                    <p className="font-extrabold text-xs text-amber-400 tracking-widest leading-none mb-1 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>{" "}
+                      PAINEL INTERATIVO DE TESTES
                     </p>
-                    <div className="grid grid-cols-4 gap-2">
-                      {[
-                        { val: 1, label: "1 dia" },
-                        { val: 3, label: "3 dias" },
-                        { val: 5, label: "5 dias" },
-                        { val: 10, label: "10 dias" },
-                      ].map((opt) => (
-                        <button
-                          key={opt.val}
-                          onClick={() =>
-                            setNotifConfig({
-                              ...notifConfig,
-                              leadTimeDays: opt.val,
-                            })
-                          }
-                          className={`p-3 rounded-xl font-bold text-[11px] uppercase tracking-wider leading-none transition-all ${
-                            notifConfig.leadTimeDays === opt.val
-                              ? "bg-blue-900 text-white shadow-md"
-                              : "bg-white border border-gray-100 text-gray-500 hover:bg-gray-100"
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
+                    <h4 className="font-bold text-sm text-white">
+                      Demonstrar Recebimento de Lembretes
+                    </h4>
+                    <p className="text-[11px] text-blue-200/70 leading-relaxed mt-1">
+                      Dispare instantaneamente simuladores de cobrança para
+                      validar as mensagens em tempo real.
+                    </p>
                   </div>
-
-                  {/* Simulation sandbox panel */}
-                  <div className="p-6 bg-gradient-to-br from-blue-900 to-indigo-950 text-white rounded-3xl border border-white/5 space-y-4">
-                    <div>
-                      <p className="font-extrabold text-xs text-amber-400 tracking-widest leading-none mb-1 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>{" "}
-                        PAINEL INTERATIVO DE TESTES
-                      </p>
-                      <h4 className="font-bold text-sm text-white">
-                        Demonstrar Recebimento de Lembretes
-                      </h4>
-                      <p className="text-[11px] text-blue-200/70 leading-relaxed mt-1">
-                        Dispare instantaneamente simuladores de cobrança para
-                        validar as mensagens em tempo real.
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 pt-1">
-                      <button
-                        onClick={() => triggerSimulatedPush("expiration")}
-                        className="p-3 bg-white/10 hover:bg-white/20 active:scale-95 text-[10px] uppercase font-black tracking-wider rounded-xl transition-all text-center flex flex-col items-center justify-center gap-1.5 border border-white/10 cursor-pointer"
-                      >
-                        <Bell className="w-4 h-4 text-amber-400" />
-                        <span>A vencer</span>
-                      </button>
-                      <button
-                        onClick={() => triggerSimulatedPush("overdue")}
-                        className="p-3 bg-white/10 hover:bg-white/20 active:scale-95 text-[10px] uppercase font-black tracking-wider rounded-xl transition-all text-center flex flex-col items-center justify-center gap-1.5 border border-white/10 cursor-pointer"
-                      >
-                        <AlertCircle className="w-4 h-4 text-red-400" />
-                        <span>Vencido</span>
-                      </button>
-                      <button
-                        onClick={() => triggerSimulatedPush("whatsapp")}
-                        className="p-3 bg-white/10 hover:bg-white/20 active:scale-95 text-[10px] uppercase font-black tracking-wider rounded-xl transition-all text-center flex flex-col items-center justify-center gap-1.5 border border-white/10 cursor-pointer"
-                      >
-                        <MessageSquare className="w-4 h-4 text-emerald-400" />
-                        <span>WhatsApp</span>
-                      </button>
-                    </div>
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    <button
+                      onClick={() => triggerSimulatedPush("expiration")}
+                      className="p-3 bg-white/10 hover:bg-white/20 active:scale-95 text-[10px] uppercase font-black tracking-wider rounded-xl transition-all text-center flex flex-col items-center justify-center gap-1.5 border border-white/10 cursor-pointer"
+                    >
+                      <Bell className="w-4 h-4 text-amber-400" />
+                      <span>A vencer</span>
+                    </button>
+                    <button
+                      onClick={() => triggerSimulatedPush("overdue")}
+                      className="p-3 bg-white/10 hover:bg-white/20 active:scale-95 text-[10px] uppercase font-black tracking-wider rounded-xl transition-all text-center flex flex-col items-center justify-center gap-1.5 border border-white/10 cursor-pointer"
+                    >
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                      <span>Vencido</span>
+                    </button>
+                    <button
+                      onClick={() => triggerSimulatedPush("whatsapp")}
+                      className="p-3 bg-white/10 hover:bg-white/20 active:scale-95 text-[10px] uppercase font-black tracking-wider rounded-xl transition-all text-center flex flex-col items-center justify-center gap-1.5 border border-white/10 cursor-pointer"
+                    >
+                      <MessageSquare className="w-4 h-4 text-emerald-400" />
+                      <span>WhatsApp</span>
+                    </button>
                   </div>
                 </div>
+              </div>
 
-                <div className="flex gap-4">
-                  <button
-                    onClick={() => {
-                      setShowNotificationConfigModal(false);
-                      showNotification(
-                        "success",
-                        "Preferências de lembretes salvas com sucesso!",
-                      );
-                    }}
-                    className="flex-1 py-4 bg-gray-950 text-white hover:bg-blue-900 rounded-3xl font-bold uppercase text-xs tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-xl cursor-pointer text-center"
-                  >
-                    Salvar Preferências
-                  </button>
-                  <button
-                    onClick={() => setShowNotificationConfigModal(false)}
-                    className="px-8 py-4 bg-gray-100 text-gray-500 hover:bg-gray-200 rounded-3xl font-bold uppercase text-xs tracking-widest transition-all cursor-pointer"
-                  >
-                    Voltar
-                  </button>
-                </div>
+              {/* Footer - Fixo */}
+              <div className="p-8 pt-5 border-t border-gray-100 flex gap-4 shrink-0">
+                <button
+                  onClick={() => {
+                    setShowNotificationConfigModal(false);
+                    showNotification(
+                      "success",
+                      "Preferências de lembretes salvas com sucesso!",
+                    );
+                  }}
+                  className="flex-grow py-4 bg-gray-950 text-white hover:bg-blue-900 rounded-3xl font-bold uppercase text-xs tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-xl cursor-pointer text-center"
+                >
+                  Salvar Preferências
+                </button>
+                <button
+                  onClick={() => setShowNotificationConfigModal(false)}
+                  className="px-8 py-4 bg-gray-100 text-gray-500 hover:bg-gray-200 rounded-3xl font-bold uppercase text-xs tracking-widest transition-all cursor-pointer"
+                >
+                  Fechar
+                </button>
               </div>
             </motion.div>
           </div>
