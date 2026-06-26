@@ -112,22 +112,31 @@ service cloud.firestore {
     }
 
     match /members/{memberId} {
-      allow get: if isOwner(memberId) || isAdmin();
-      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.email == request.auth.token.email || isAdmin());
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid || resource.data.email == request.auth.token.email);
       
-      allow create: if (isOwner(memberId) && isValidMember(incoming())) || isAdmin();
+      allow create: if isSignedIn() || isAdmin();
       allow update: if (
-        (isOwner(memberId) && isValidMember(incoming()) && 
-         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email'])) || 
+        (isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.email == request.auth.token.email) &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['userId', 'name', 'email', 'phone', 'representative'])) || 
         isAdmin()
       );
       allow delete: if isAdmin();
 
       // Sub-collection: Boletos
       match /boletos/{boletoId} {
-        allow read: if isOwner(memberId) || isAdmin();
+        allow read: if isSignedIn() && (
+          get(/databases/$(database)/documents/members/$(memberId)).data.userId == request.auth.uid || 
+          get(/databases/$(database)/documents/members/$(memberId)).data.email == request.auth.token.email || 
+          isAdmin()
+        );
         allow write: if isAdmin(); // Members cannot write boletos
       }
+    }
+
+    match /settings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     match /notifications/{notificationId} {
