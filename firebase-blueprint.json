@@ -86,6 +86,50 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "companyCNPJ", "companyName", "subject", "question", "category", "urgency", "assignedLawyer", "assignedLawyerEmail", "aiAnalysis", "status", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Log of site configuration changes made by admins",
+      "type": "object",
+      "properties": {
+        "adminEmail": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "changes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["adminEmail", "timestamp", "changes"]
+    },
+    "BillingConfig": {
+      "title": "BillingConfig",
+      "description": "Configuration for automatic due date calculation of guides and slips",
+      "type": "object",
+      "properties": {
+        "defaultDaysToDue": { "type": "number" },
+        "acceptWeekendPayment": { "type": "boolean" },
+        "calculationMethod": { "type": "string" },
+        "workdays": {
+          "type": "object",
+          "properties": {
+            "monday": { "type": "boolean" },
+            "tuesday": { "type": "boolean" },
+            "wednesday": { "type": "boolean" },
+            "thursday": { "type": "boolean" },
+            "friday": { "type": "boolean" },
+            "saturday": { "type": "boolean" },
+            "sunday": { "type": "boolean" }
+          }
+        },
+        "holidays": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["defaultDaysToDue", "acceptWeekendPayment", "calculationMethod", "workdays"]
     }
   },
   "firestore": {
@@ -112,6 +156,14 @@
     "/plantao_juridico/{queryId}": {
       "schema": "LegalQuery",
       "description": "Collection of legal queries submitted to the Plantão Jurídico"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Log entries for administrative settings changes"
+    },
+    "/settings/{settingId}": {
+      "schema": "BillingConfig",
+      "description": "Global settings documents including site config and billing config"
     }
   }
 }

@@ -16,8 +16,11 @@ import {
   Phone,
   BarChart3,
   Bell,
+  Play,
+  Move,
   Info,
   AlertCircle,
+  Sliders,
   ExternalLink,
   Search,
   Printer,
@@ -306,34 +309,65 @@ function LandingPage() {
     },
   ]);
 
-  const [partners, setPartners] = useState<Partner[]>([
-    {
-      id: "1",
-      name: "Unimed Regional",
-      category: "saude",
-      discount: "20%",
-      description:
-        "Plano de saúde empresarial com carência zero para associados.",
-      logo: "https://images.unsplash.com/photo-1505751172107-5739a007721d?auto=format&fit=crop&q=80",
-      featured: true,
-    },
-    {
-      id: "2",
-      name: "Faculdade Impacto",
-      category: "educacao",
-      discount: "35%",
-      description: "Desconto em cursos de graduação e pós-graduação.",
-      logo: "https://images.unsplash.com/photo-1523050353055-f184e92672ba?auto=format&fit=crop&q=80",
-    },
-    {
-      id: "3",
-      name: "Hotel Vista Mar",
-      category: "lazer",
-      discount: "15%",
-      description: "Tarifas diferenciadas para lazer e convenções.",
-      logo: "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&q=80",
-    },
-  ]);
+  const [partners, setPartners] = useState<Partner[]>(() => {
+    const today = new Date();
+    const addDays = (days: number) => {
+      const d = new Date(today);
+      d.setDate(today.getDate() + days);
+      return d.toISOString().split("T")[0]; // YYYY-MM-DD
+    };
+
+    return [
+      {
+        id: "1",
+        name: "Unimed Regional",
+        category: "saude",
+        discount: "20%",
+        description:
+          "Plano de saúde empresarial com carência zero para associados.",
+        logo: "https://images.unsplash.com/photo-1505751172107-5739a007721d?auto=format&fit=crop&q=80",
+        featured: true,
+        expiresAt: addDays(5),
+      },
+      {
+        id: "2",
+        name: "Faculdade Impacto",
+        category: "educacao",
+        discount: "35%",
+        description: "Desconto em cursos de graduação e pós-graduação.",
+        logo: "https://images.unsplash.com/photo-1523050353055-f184e92672ba?auto=format&fit=crop&q=80",
+        expiresAt: addDays(20),
+      },
+      {
+        id: "3",
+        name: "Hotel Vista Mar",
+        category: "lazer",
+        discount: "15%",
+        description: "Tarifas diferenciadas para lazer e convenções.",
+        logo: "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&q=80",
+        expiresAt: addDays(-3),
+      },
+    ];
+  });
+
+  const [editingPartnerId, setEditingPartnerId] = useState<string | null>(null);
+
+  const getPartnerRenewalStatus = (expiresAtStr?: string) => {
+    if (!expiresAtStr) return null;
+    const expiry = new Date(expiresAtStr + "T12:00:00");
+    const today = new Date();
+    expiry.setHours(0,0,0,0);
+    today.setHours(0,0,0,0);
+    const diffTime = expiry.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return {
+      days: diffDays,
+      isExpired: diffDays < 0,
+      isExpiringToday: diffDays === 0,
+      isExpiringSoon: diffDays > 0 && diffDays <= 30,
+      isCloseToRenewal: diffDays >= -10 && diffDays <= 30,
+    };
+  };
 
   // New Modern Features States
   const [showAIAdvisor, setShowAIAdvisor] = useState(false);
@@ -411,7 +445,31 @@ function LandingPage() {
     email: "contato@sinpaba.com.br",
     mission:
       "Promover a integração, fortalecimento e desenvolvimento sustentável das empresas e indústrias da nossa região.",
+    qrIncludeName: true,
+    qrIncludeCnpj: true,
+    qrIncludeValidity: true,
+    qrCustomVerificationUrl: "",
+    qrCustomFields: "",
   });
+
+  const [billingConfig, setBillingConfig] = useState({
+    defaultDaysToDue: 5,
+    acceptWeekendPayment: false,
+    calculationMethod: "workdays", // "workdays" (counts only business days) or "calendar" (counts calendar days)
+    workdays: {
+      monday: true,
+      tuesday: true,
+      wednesday: true,
+      thursday: true,
+      friday: true,
+      saturday: false,
+      sunday: false,
+    } as Record<string, boolean>,
+    holidays: ["2026-01-01", "2026-04-21", "2026-05-01", "2026-09-07", "2026-10-12", "2026-11-02", "2026-11-15", "2026-12-25"],
+  });
+
+  const [simIssueDate, setSimIssueDate] = useState("2026-06-30");
+  const [newHolidayInput, setNewHolidayInput] = useState("");
   const [jucebProcesses, setJucebProcesses] = useState([
     {
       id: "1",
@@ -695,7 +753,7 @@ function LandingPage() {
   });
 
   // --- LGPD & PRIVACY POLICY STATES & QUERY ---
-  const [systemTab, setSystemTab] = useState<"general" | "lgpd">("general");
+  const [systemTab, setSystemTab] = useState<"general" | "lgpd" | "production" | "audit">("general");
   const [lgpdBannerInput, setLgpdBannerInput] = useState("");
   const [lgpdPolicyInput, setLgpdPolicyInput] = useState("");
   const [isSavingLgpd, setIsSavingLgpd] = useState(false);
@@ -794,10 +852,259 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
     }
   }, [dbSiteConfig]);
 
+  // --- BILLING / BUSINESS DAYS CONFIG QUERY ---
+  const { data: dbBillingConfig, refetch: refetchBillingConfig } = useQuery<any>({
+    queryKey: ["billingConfig"],
+    queryFn: async () => {
+      try {
+        const docRef = doc(db, "settings", "billing_config");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          return docSnap.data();
+        }
+      } catch (err) {
+        console.error("Erro ao buscar configurações de faturamento/dias úteis:", err);
+      }
+      return null;
+    },
+    enabled: !!currentUser,
+  });
+
+  React.useEffect(() => {
+    if (dbBillingConfig) {
+      setBillingConfig((prev) => ({
+        ...prev,
+        ...dbBillingConfig,
+      }));
+    }
+  }, [dbBillingConfig]);
+
+  const [isSavingBillingConfig, setIsSavingBillingConfig] = useState(false);
+  const handleSaveBillingConfig = async (newConfig: typeof billingConfig) => {
+    setIsSavingBillingConfig(true);
+    try {
+      const diffs: string[] = [];
+      const oldVal = dbBillingConfig || {};
+      
+      if (oldVal.defaultDaysToDue !== newConfig.defaultDaysToDue) {
+        diffs.push(`Prazo padrão de vencimento: alterado de ${oldVal.defaultDaysToDue || 5} para ${newConfig.defaultDaysToDue} dias`);
+      }
+      if (oldVal.acceptWeekendPayment !== newConfig.acceptWeekendPayment) {
+        diffs.push(`Aceitar pagamentos no final de semana: alterado de ${oldVal.acceptWeekendPayment ? "Ativo" : "Inativo"} para ${newConfig.acceptWeekendPayment ? "Ativo" : "Inativo"}`);
+      }
+      if (oldVal.calculationMethod !== newConfig.calculationMethod) {
+        diffs.push(`Método de cálculo: alterado de ${oldVal.calculationMethod === "workdays" ? "Dias Úteis" : "Dias Corridos"} para ${newConfig.calculationMethod === "workdays" ? "Dias Úteis" : "Dias Corridos"}`);
+      }
+
+      const daysTranslation: Record<string, string> = {
+        monday: "Segunda-feira",
+        tuesday: "Terça-feira",
+        wednesday: "Quarta-feira",
+        thursday: "Quinta-feira",
+        friday: "Sexta-feira",
+        saturday: "Sábado",
+        sunday: "Domingo"
+      };
+
+      const oldWorkdays = oldVal.workdays || {};
+      const newWorkdays = newConfig.workdays || {};
+      Object.keys(daysTranslation).forEach((day) => {
+        const oldDayVal = oldWorkdays[day] !== undefined ? oldWorkdays[day] : (day !== "saturday" && day !== "sunday");
+        const newDayVal = newWorkdays[day];
+        if (oldDayVal !== newDayVal) {
+          diffs.push(`Dia útil (${daysTranslation[day]}): alterado para ${newDayVal ? "Ativo" : "Inativo"}`);
+        }
+      });
+
+      await setDoc(doc(db, "settings", "billing_config"), {
+        defaultDaysToDue: newConfig.defaultDaysToDue,
+        acceptWeekendPayment: newConfig.acceptWeekendPayment,
+        calculationMethod: newConfig.calculationMethod,
+        workdays: newConfig.workdays,
+        holidays: newConfig.holidays,
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser?.email || "Contador Parceiro",
+      });
+
+      if (diffs.length > 0) {
+        const logId = `log_${Date.now()}`;
+        await setDoc(doc(db, "audit_logs", logId), {
+          adminEmail: currentUser?.email || "Contador Parceiro",
+          timestamp: new Date().toISOString(),
+          changes: diffs,
+          createdAt: serverTimestamp(),
+        });
+        refetchAuditLogs();
+      }
+
+      showNotification("success", "Configurações de dias úteis salvas com sucesso!");
+      refetchBillingConfig();
+    } catch (err) {
+      console.error("Erro ao salvar configurações de cobrança:", err);
+      showNotification("error", "Erro ao salvar as configurações.");
+    } finally {
+      setIsSavingBillingConfig(false);
+    }
+  };
+
+  const calculateDueDateTrace = (
+    issueDateStr: string,
+    days: number,
+    method: "workdays" | "calendar",
+    acceptWeekend: boolean,
+    workdays: Record<string, boolean>,
+    holidays: string[]
+  ) => {
+    if (!issueDateStr) return { date: null, trace: [] as string[] };
+    const trace: string[] = [];
+    const parts = issueDateStr.split("-");
+    let currentDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
+    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const dayNamesPt = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+
+    trace.push(`Data de Emissão selecionada: ${currentDate.toLocaleDateString("pt-BR")} (${dayNamesPt[currentDate.getDay()]})`);
+
+    const isHoliday = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      const formatted = `${year}-${month}-${day}`;
+      return holidays.includes(formatted);
+    };
+
+    const isWorkday = (date: Date) => {
+      const dayName = dayNames[date.getDay()];
+      const isWeekWorkday = workdays[dayName] === true;
+      return isWeekWorkday && !isHoliday(date);
+    };
+
+    if (method === "workdays") {
+      trace.push(`Modo selecionado: Contar apenas DIAS ÚTEIS (${days} dias)`);
+      let daysCounted = 0;
+      let iterations = 0;
+      while (daysCounted < days && iterations < 100) {
+        iterations++;
+        currentDate.setDate(currentDate.getDate() + 1);
+        const dayNamePt = dayNamesPt[currentDate.getDay()];
+        const formattedDate = currentDate.toLocaleDateString("pt-BR");
+        
+        if (isHoliday(currentDate)) {
+          trace.push(`⏩ ${formattedDate} (${dayNamePt}) é Feriado. Ignorado.`);
+        } else if (!workdays[dayNames[currentDate.getDay()]]) {
+          trace.push(`⏩ ${formattedDate} (${dayNamePt}) não é dia útil de trabalho. Ignorado.`);
+        } else {
+          daysCounted++;
+          trace.push(`✅ Dia Útil ${daysCounted}: ${formattedDate} (${dayNamePt})`);
+        }
+      }
+    } else {
+      trace.push(`Modo selecionado: Contar DIAS CORRIDOS (${days} dias)`);
+      currentDate.setDate(currentDate.getDate() + days);
+      trace.push(`📅 Data calculada corrida: ${currentDate.toLocaleDateString("pt-BR")} (${dayNamesPt[currentDate.getDay()]})`);
+    }
+
+    if (!acceptWeekend) {
+      let rollCount = 0;
+      while ((!isWorkday(currentDate)) && rollCount < 30) {
+        rollCount++;
+        const dayNamePt = dayNamesPt[currentDate.getDay()];
+        const formattedDate = currentDate.toLocaleDateString("pt-BR");
+        if (isHoliday(currentDate)) {
+          trace.push(`⚠️ ${formattedDate} (${dayNamePt}) é Feriado e vencimentos no final de semana/feriado estão desativados.`);
+        } else {
+          trace.push(`⚠️ ${formattedDate} (${dayNamePt}) não é dia útil e vencimentos no final de semana estão desativados.`);
+        }
+        currentDate.setDate(currentDate.getDate() + 1);
+        trace.push(`↪️ Prorrogando para o próximo dia útil: ${currentDate.toLocaleDateString("pt-BR")} (${dayNamesPt[currentDate.getDay()]})`);
+      }
+    } else {
+      trace.push(`ℹ️ Vencimentos no final de semana estão permitidos, mantendo data calculada.`);
+    }
+
+    return {
+      date: currentDate,
+      trace
+    };
+  };
+
+  // --- AUDIT LOGS QUERY ---
+  const { data: auditLogs, refetch: refetchAuditLogs } = useQuery<any[]>({
+    queryKey: ["auditLogs"],
+    queryFn: async () => {
+      try {
+        const querySnap = await getDocs(
+          query(collection(db, "audit_logs"), orderBy("timestamp", "desc"))
+        );
+        return querySnap.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+      } catch (err) {
+        console.error("Erro ao buscar logs de auditoria:", err);
+        return [];
+      }
+    },
+    enabled: !!currentUser,
+  });
+
+  const getSiteConfigDifferences = (oldConfig: any, newConfig: any) => {
+    const differences: string[] = [];
+    const fieldsMap: { [key: string]: string } = {
+      primaryColor: "Cor primária",
+      accentColor: "Cor de destaque",
+      heroTitle: "Título principal",
+      heroSubtitle: "Subtítulo principal",
+      logoUrl: "Logotipo do portal",
+      headerLogoWidth: "Largura do logo do cabeçalho",
+      footerLogoWidth: "Largura do logo do rodapé",
+      name: "Nome do sindicato",
+      cnpj: "CNPJ",
+      address: "Endereço",
+      phone: "Telefone",
+      email: "E-mail de contato",
+      mission: "Missão",
+      qrIncludeName: "Exibir nome no QR Code",
+      qrIncludeCnpj: "Exibir CNPJ no QR Code",
+      qrIncludeValidity: "Exibir validade no QR Code",
+      qrCustomVerificationUrl: "URL de verificação do QR Code",
+      qrCustomFields: "Campos personalizados do QR Code",
+    };
+
+    const oldVal = oldConfig || {};
+    const newVal = newConfig || {};
+
+    Object.keys(fieldsMap).forEach((key) => {
+      const oldFieldVal = oldVal[key];
+      const newFieldVal = newVal[key];
+
+      if (oldFieldVal === newFieldVal) return;
+      if (oldFieldVal === undefined && (newFieldVal === "" || newFieldVal === null)) return;
+      if (newFieldVal === undefined && (oldFieldVal === "" || oldFieldVal === null)) return;
+
+      const label = fieldsMap[key];
+      
+      let oldStr = oldFieldVal !== undefined && oldFieldVal !== null ? String(oldFieldVal) : "não definido";
+      let newStr = newFieldVal !== undefined && newFieldVal !== null ? String(newFieldVal) : "não definido";
+
+      if (key === "logoUrl") {
+        oldStr = oldFieldVal ? "Imagem anterior" : "sem imagem";
+        newStr = newFieldVal ? "Nova imagem" : "sem imagem";
+      }
+
+      if (oldStr === "não definido" && (newStr === "" || newStr === "não definido")) return;
+
+      differences.push(`${label}: alterado de "${oldStr}" para "${newStr}"`);
+    });
+
+    return differences;
+  };
+
   const [isSavingSiteConfig, setIsSavingSiteConfig] = useState(false);
   const handleSaveSiteConfig = async () => {
     setIsSavingSiteConfig(true);
     try {
+      const diffs = getSiteConfigDifferences(dbSiteConfig, siteConfig);
+
       await setDoc(doc(db, "settings", "site_config"), {
         primaryColor: siteConfig.primaryColor,
         accentColor: siteConfig.accentColor,
@@ -812,13 +1119,30 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
         phone: siteConfig.phone,
         email: siteConfig.email,
         mission: siteConfig.mission,
+        qrIncludeName: siteConfig.qrIncludeName !== undefined ? siteConfig.qrIncludeName : true,
+        qrIncludeCnpj: siteConfig.qrIncludeCnpj !== undefined ? siteConfig.qrIncludeCnpj : true,
+        qrIncludeValidity: siteConfig.qrIncludeValidity !== undefined ? siteConfig.qrIncludeValidity : true,
+        qrCustomVerificationUrl: siteConfig.qrCustomVerificationUrl || "",
+        qrCustomFields: siteConfig.qrCustomFields || "",
         updatedAt: new Date().toISOString(),
       });
-      showNotification("success", "Configurações visuais e logomarca do sindicato salvas com sucesso!");
+
+      if (diffs.length > 0) {
+        const logId = `log_${Date.now()}`;
+        await setDoc(doc(db, "audit_logs", logId), {
+          adminEmail: currentUser?.email || "Administrador",
+          timestamp: new Date().toISOString(),
+          changes: diffs,
+          createdAt: serverTimestamp(),
+        });
+        refetchAuditLogs();
+      }
+
+      showNotification("success", "Configurações do sindicato salvas com sucesso!");
       refetchSiteConfig();
     } catch (err) {
       console.error("Erro ao salvar configurações do site:", err);
-      showNotification("error", "Erro ao salvar as configurações visuais no banco de dados.");
+      showNotification("error", "Erro ao salvar as configurações no banco de dados.");
     } finally {
       setIsSavingSiteConfig(false);
     }
@@ -1075,6 +1399,70 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
     message: string;
   } | null>(null);
   const [adminLogo, setAdminLogo] = useState<string | null>(null);
+  const [logoScale, setLogoScale] = useState(1.0);
+  const [sigY, setSigY] = useState(250);
+  const [sigX, setSigX] = useState(105);
+  const [showSigLine, setShowSigLine] = useState(true);
+  const [sigText, setSigText] = useState("DIRETORIA ADMINISTRATIVA");
+  const [previewType, setPreviewType] = useState<"certidao" | "regularidade">("certidao");
+
+  // Real-time visual layout designer states and ref
+  const [isDraggingSig, setIsDraggingSig] = useState(false);
+  const [isResizingLogo, setIsResizingLogo] = useState(false);
+  const paperRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!isDraggingSig && !isResizingLogo) return;
+
+    const handlePointerMove = (e: MouseEvent | TouchEvent) => {
+      if (!paperRef.current) return;
+      const rect = paperRef.current.getBoundingClientRect();
+      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+      const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+
+      const pctX = ((clientX - rect.left) / rect.width) * 100;
+      const pctY = ((clientY - rect.top) / rect.height) * 100;
+
+      if (isDraggingSig) {
+        // Convert pct to mm (width = 210mm, height = 297mm)
+        let mmX = Math.round((pctX / 100) * 210);
+        let mmY = Math.round((pctY / 100) * 297);
+
+        // Clamp to safe boundaries
+        mmX = Math.max(30, Math.min(180, mmX));
+        mmY = Math.max(130, Math.min(285, mmY));
+
+        setSigX(mmX);
+        setSigY(mmY);
+      } else if (isResizingLogo) {
+        // Estimate logo scale based on its horizontal progress inside the paper (starts at 15mm)
+        const mmX = (pctX / 100) * 210;
+        let scale = (mmX - 15) / 54;
+        
+        // Clamp logoScale to [0.5, 1.8]
+        scale = Math.max(0.5, Math.min(1.8, scale));
+        setLogoScale(parseFloat(scale.toFixed(2)));
+      }
+    };
+
+    const handlePointerUp = () => {
+      setIsDraggingSig(false);
+      setIsResizingLogo(false);
+    };
+
+    window.addEventListener("mousemove", handlePointerMove);
+    window.addEventListener("mouseup", handlePointerUp);
+    window.addEventListener("touchmove", handlePointerMove, { passive: false });
+    window.addEventListener("touchend", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handlePointerMove);
+      window.removeEventListener("mouseup", handlePointerUp);
+      window.removeEventListener("touchmove", handlePointerMove);
+      window.removeEventListener("touchend", handlePointerUp);
+    };
+  }, [isDraggingSig, isResizingLogo]);
+
   React.useEffect(() => {
     if (siteConfig?.logoUrl) {
       setAdminLogo(siteConfig.logoUrl);
@@ -1556,10 +1944,10 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       }
 
       // Convert SVG to PNG if needed for jsPDF compatibility
-      let pdfLogo = siteConfig.logoUrl;
+      let pdfLogo = adminLogo || siteConfig.logoUrl;
       if (pdfLogo && pdfLogo.startsWith("data:image/svg+xml")) {
         try {
-          const pngBase64 = await getLogoPngBase64(siteConfig.logoUrl);
+          const pngBase64 = await getLogoPngBase64(pdfLogo);
           if (pngBase64) {
             pdfLogo = pngBase64;
           }
@@ -1568,7 +1956,34 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
         }
       }
 
-      // Header layout
+      // Generate control numbers early so they can be placed in the header and QR Code
+      const controlNum = `SINPA-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+      const authCode = Math.random()
+        .toString(36)
+        .substring(2, 12)
+        .toUpperCase();
+
+      // Generate QR Code data of authenticity
+      const qrParts = ["SINPA BA - Autenticação Digital"];
+      if (siteConfig.qrIncludeName !== false) {
+        qrParts.push(`Sindicato: ${siteConfig.name}`);
+      }
+      qrParts.push(`Controle: ${controlNum}`);
+      qrParts.push(`Autenticação: ${authCode}`);
+      if (siteConfig.qrIncludeCnpj !== false) {
+        qrParts.push(`CNPJ: ${certForm.cnpj}`);
+      }
+      if (siteConfig.qrIncludeValidity !== false) {
+        qrParts.push(`Validade: ${certForm.validity}`);
+      }
+      const verifyUrl = siteConfig.qrCustomVerificationUrl || window.location.origin;
+      qrParts.push(`Verifique em: ${verifyUrl}`);
+      if (siteConfig.qrCustomFields) {
+        qrParts.push(siteConfig.qrCustomFields);
+      }
+      const qrData = qrParts.join("\n");
+
+      // Header layout (box containing Logo on the left and Authenticity QR Code + Control info on the right)
       if (isPositive) {
         doc.setDrawColor(190, 24, 74); // Red/Rose for Positive Cert
       } else {
@@ -1577,39 +1992,55 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       doc.setLineWidth(1);
       doc.rect(10, 10, 190, 35);
 
+      // Add logo on the left of the header box with adjustable scale
       if (pdfLogo) {
         try {
-          doc.addImage(pdfLogo, "PNG", 15, 15, 54, 18);
+          const logoW = 54 * logoScale;
+          const logoH = 18 * logoScale;
+          // Center vertically inside the 35mm header box (from Y=10 to Y=45)
+          const logoY = 10 + (35 - logoH) / 2;
+          doc.addImage(pdfLogo, "PNG", 15, logoY, logoW, logoH);
         } catch (e) {
           console.warn("Could not add logo to PDF", e);
         }
       }
 
-      // Sindicato Text Header
-      doc.setTextColor(11, 67, 140); // Deep Blue
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(20);
-      doc.text("SINPA BA", 135, 23, { align: "center" });
+      // Add QR Code on the right of the header box
+      try {
+        const qrBase64 = await loadQrCodeAsBase64(qrData);
+        if (qrBase64) {
+          doc.addImage(qrBase64, "PNG", 164, 12, 31, 31);
+          // Subtle border around the QR Code
+          doc.setDrawColor(226, 232, 240);
+          doc.setLineWidth(0.2);
+          doc.rect(163, 11, 33, 33);
+        }
+      } catch (qrErr) {
+        console.warn("Could not load QR code image for Certificate PDF header", qrErr);
+      }
 
-      doc.setTextColor(230, 145, 0); // Gold
-      doc.setFontSize(10);
+      // Control info text next to the QR Code inside the header box
+      doc.setTextColor(30, 41, 59); // Slate 800
       doc.setFont("helvetica", "bold");
-      doc.text("SINDICATO PATRONAL", 135, 29, { align: "center" });
+      doc.setFontSize(8);
+      doc.text("CONTROLE DE AUTENTICIDADE", 78, 18);
 
-      doc.setTextColor(71, 85, 105); // Slate 600
-      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(11, 67, 140); // Sinpa Blue
+      doc.text(controlNum, 78, 24);
+
       doc.setFont("helvetica", "normal");
-      doc.text("Paulo Afonso e Região", 135, 35, { align: "center" });
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139); // Slate 500
+      doc.text(`Autenticação: ${authCode}-${Date.now()}`, 78, 29);
+      doc.text("Valide a assinatura lendo o QR Code ao lado", 78, 34);
 
       // Watermark content
       if (isPositive) {
         doc.setTextColor(254, 226, 226); // Light Red
         doc.setFontSize(55);
         doc.text("CONSTA DÉBITOS SINDICAIS", 105, 150, { align: "center", angle: 45 });
-      } else {
-        doc.setTextColor(245, 245, 245);
-        doc.setFontSize(60);
-        doc.text("DOCUMENTO OFICIAL", 105, 150, { align: "center", angle: 45 });
       }
 
       // Title
@@ -1667,29 +2098,33 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
         180,
       );
 
-      const authCode = Math.random()
-        .toString(36)
-        .substring(2, 12)
-        .toUpperCase();
-      doc.setFontSize(10);
-      doc.text(
-        `Código de Autenticação Digital: ${authCode}-${Date.now()}`,
-        20,
-        195,
-      );
+      // Digital Signature & Disclaimer (adjustable coordinates X and Y)
+      if (showSigLine) {
+        doc.setDrawColor(200, 200, 200);
+        doc.setLineWidth(0.5);
+        // Draw centered line relative to sigX
+        doc.line(sigX - 45, sigY - 5, sigX + 45, sigY - 5);
+      }
 
-      // Signature area
-      doc.line(60, 245, 150, 245);
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.text("DIRETORIA ADMINISTRATIVA", 105, 252, { align: "center" });
-      doc.setFont("helvetica", "normal");
+      doc.setTextColor(30, 41, 59); // Slate 800
       doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text(sigText.toUpperCase(), sigX, sigY, { align: "center" });
+
+      doc.setTextColor(148, 163, 184); // Slate 400
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
       doc.text(
-        "Verificação de autenticidade disponível no portal SindicatoID",
-        105,
-        258,
-        { align: "center" },
+        "Este documento foi gerado e assinado eletronicamente por SINPA BA. A sua autenticidade jurídica e validade",
+        sigX,
+        sigY + 5,
+        { align: "center" }
+      );
+      doc.text(
+        `podem ser validadas lendo o QR Code acima ou acessando ${verifyUrl} com os códigos de controle.`,
+        sigX,
+        sigY + 10,
+        { align: "center" }
       );
 
       doc.save(`${isPositive ? "certidao_positiva" : type}_${certForm.cnpj.replace(/\D/g, "")}.pdf`);
@@ -3255,8 +3690,9 @@ Para corrigir:
 
   const markAsRead = (id: string) => {
     if (id.startsWith("dynamic-boleto-")) {
-      // For dynamic alerts, we can't write to DB easily, so we can track read in local memory or just let them read
       showNotification("success", "Lembrete de boleto visualizado.");
+    } else if (id.startsWith("dynamic-partner-")) {
+      showNotification("success", "Alerta de convênio visualizado.");
     } else {
       setDbNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
@@ -3326,8 +3762,40 @@ Para corrigir:
       })
       .filter(Boolean) as any[];
 
-    return [...boletoAlerts, ...dbNotifications];
-  }, [displayBoletos, dbNotifications]);
+    const partnerAlerts = partners
+      .map((p) => {
+        const status = getPartnerRenewalStatus(p.expiresAt);
+        if (!status || !status.isCloseToRenewal) return null;
+
+        const dateFormatted = p.expiresAt ? p.expiresAt.split("-").reverse().join("/") : "";
+
+        let title = "";
+        let description = "";
+
+        if (status.isExpired) {
+          title = `❌ Convênio Expirado: ${p.name}`;
+          description = `O acordo do Clube de Vantagens com ${p.name} expirou em ${dateFormatted}. Entre em contato para renovação dos benefícios.`;
+        } else if (status.isExpiringToday) {
+          title = `🚨 Renovação Hoje: ${p.name}`;
+          description = `O convênio com ${p.name} vence hoje (${dateFormatted})! Entre em contato para renovar as condições especiais.`;
+        } else {
+          title = `📬 Renovação Próxima: ${p.name}`;
+          description = `O convênio com ${p.name} expira em ${status.days} dias (${dateFormatted}). Acompanhe o andamento da parceria.`;
+        }
+
+        return {
+          id: `dynamic-partner-${p.id}`,
+          title,
+          description,
+          date: `Validade: ${dateFormatted}`,
+          read: false,
+          type: "announcement",
+        };
+      })
+      .filter(Boolean) as any[];
+
+    return [...boletoAlerts, ...partnerAlerts, ...dbNotifications];
+  }, [displayBoletos, dbNotifications, partners]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -6695,6 +7163,88 @@ Para corrigir:
                             </div>
                           </div>
 
+                          {/* Painel de Alertas de Renovação de Convênios */}
+                          {(() => {
+                            const expiringOrExpired = partners.filter(p => {
+                              if (!p.expiresAt) return false;
+                              const expDate = new Date(p.expiresAt + "T00:00:00");
+                              const today = new Date();
+                              today.setHours(0, 0, 0, 0);
+                              expDate.setHours(0, 0, 0, 0);
+                              const diffDays = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                              return diffDays <= 30; // expired or expiring in 30 days
+                            });
+
+                            if (expiringOrExpired.length === 0) return null;
+
+                            return (
+                              <div className="mb-10 p-8 bg-amber-50/40 border border-amber-200 rounded-[32px] shadow-sm">
+                                <div className="flex items-center gap-3 mb-3">
+                                  <div className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping shrink-0" />
+                                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                                  <h4 className="text-lg font-bold text-amber-900 font-display">
+                                    Painel de Alertas de Renovação ({expiringOrExpired.length} {expiringOrExpired.length === 1 ? "alerta ativo" : "alertas ativos"})
+                                  </h4>
+                                </div>
+                                <p className="text-sm text-amber-800/80 font-medium mb-6">
+                                  O sistema identificou acordos do Clube de Vantagens que precisam de atenção por estarem expirados ou próximos do vencimento. Você pode acionar os alertas automáticos para avisar os associados e parceiros.
+                                </p>
+                                <div className="grid gap-4">
+                                  {expiringOrExpired.map((p) => {
+                                    const expDate = new Date(p.expiresAt + "T00:00:00");
+                                    const today = new Date();
+                                    today.setHours(0, 0, 0, 0);
+                                    expDate.setHours(0, 0, 0, 0);
+                                    const diffDays = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                                    const isExpired = diffDays < 0;
+
+                                    return (
+                                      <div key={`exp-alert-${p.id}`} className="bg-white border border-amber-100/80 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm hover:border-amber-200 transition-all">
+                                        <div className="flex items-center gap-4">
+                                          <img src={p.logo} alt={p.name} className="w-14 h-14 rounded-xl object-cover border border-gray-100 shrink-0" referrerPolicy="no-referrer" />
+                                          <div>
+                                            <p className="font-bold text-base text-blue-950">{p.name}</p>
+                                            <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                                              <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg ${isExpired ? "bg-rose-50 text-rose-600 border border-rose-100" : "bg-amber-50 text-amber-700 border border-amber-100"}`}>
+                                                {isExpired ? "Expirado" : `Expira em ${diffDays} dias`}
+                                              </span>
+                                              <span className="text-xs text-gray-400 font-medium font-mono">
+                                                Validade: {expDate.toLocaleDateString("pt-BR")}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <button
+                                            onClick={() => {
+                                              showNotification("success", `Notificação de renovação enviada para ${p.name} e associados!`);
+                                              const alertTitle = `📢 Renovação Iniciada: ${p.name}`;
+                                              const alertDesc = `O alerta automático de renovação do convênio com ${p.name} foi disparado com sucesso para todos os associados ativos e ao e-mail de contato da empresa.`;
+                                              setDbNotifications(prev => [
+                                                {
+                                                  id: `manual-renew-log-${Date.now()}`,
+                                                  title: alertTitle,
+                                                  description: alertDesc,
+                                                  date: "Agora mesmo",
+                                                  read: false,
+                                                  type: "alert",
+                                                },
+                                                ...prev
+                                              ]);
+                                            }}
+                                            className="bg-blue-900 text-white text-xs font-bold px-5 py-3 rounded-xl hover:bg-blue-800 transition-all shadow-md shadow-blue-900/15 flex items-center gap-2"
+                                          >
+                                            <Send className="w-4 h-4" /> Enviar Alerta
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
                           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                             {partners
                               .filter(
@@ -6727,9 +7277,46 @@ Para corrigir:
                                     </div>
                                   </div>
                                   <div className="p-8">
-                                    <h4 className="text-xl font-bold mb-3 text-blue-900">
+                                    <h4 className="text-xl font-bold mb-1 text-blue-900">
                                       {partner.name}
                                     </h4>
+
+                                    {partner.expiresAt && (
+                                      (() => {
+                                        const status = getPartnerRenewalStatus(partner.expiresAt);
+                                        if (!status) return null;
+                                        const dateFormatted = partner.expiresAt.split("-").reverse().join("/");
+
+                                        if (status.isExpired) {
+                                          return (
+                                            <div className="mb-4 text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-100 px-3 py-1.5 rounded-xl flex items-center gap-1.5 w-fit">
+                                              <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping shrink-0" />
+                                              <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Expirado ({dateFormatted})
+                                            </div>
+                                          );
+                                        } else if (status.isExpiringToday) {
+                                          return (
+                                            <div className="mb-4 text-[11px] font-bold text-amber-600 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-xl flex items-center gap-1.5 w-fit">
+                                              <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-bounce shrink-0" />
+                                              <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Vence Hoje! ({dateFormatted})
+                                            </div>
+                                          );
+                                        } else if (status.isExpiringSoon) {
+                                          return (
+                                            <div className="mb-4 text-[11px] font-bold text-amber-500 bg-amber-50/50 border border-amber-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 w-fit">
+                                              <Clock className="w-3.5 h-3.5 shrink-0 text-amber-500" /> Expira em {status.days} dias ({dateFormatted})
+                                            </div>
+                                          );
+                                        } else {
+                                          return (
+                                            <div className="mb-4 text-[11px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-xl flex items-center gap-1.5 w-fit">
+                                              <CheckCircle className="w-3.5 h-3.5 shrink-0 text-emerald-500" /> Válido até {dateFormatted}
+                                            </div>
+                                          );
+                                        }
+                                      })()
+                                    )}
+
                                     <p className="text-gray-500 text-sm leading-relaxed mb-6 line-clamp-3">
                                       {partner.description}
                                     </p>
@@ -6871,6 +7458,334 @@ Para corrigir:
                                       </div>
                                     </button>
                                   ))}
+                                </div>
+                              </div>
+
+                              {/* CONFIGURAÇÃO DE DIAS ÚTEIS E VENCIMENTOS */}
+                              <div className="bg-white border border-gray-100 rounded-[40px] p-8 lg:p-10 shadow-xl space-y-8">
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 pb-6">
+                                  <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-inner">
+                                      <Calendar className="w-6 h-6" />
+                                    </div>
+                                    <div>
+                                      <h4 className="font-black text-xl text-blue-950 font-display">
+                                        Regras de Dias Úteis e Vencimentos
+                                      </h4>
+                                      <p className="text-xs text-gray-500 font-medium">
+                                        Configure os dias de expediente e prazos para cálculo automático de guias e boletos.
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="self-start md:self-auto bg-amber-50 text-amber-800 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-amber-200">
+                                    Configurações
+                                  </span>
+                                </div>
+
+                                <div className="grid md:grid-cols-2 gap-8">
+                                  {/* COLUNA ESQUERDA */}
+                                  <div className="space-y-6">
+                                    <div className="space-y-2">
+                                      <label className="block text-xs font-black text-gray-700 uppercase tracking-wider">
+                                        Método de Cálculo Padrão
+                                      </label>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => setBillingConfig(prev => ({ ...prev, calculationMethod: "workdays" }))}
+                                          className={`py-3 px-4 rounded-2xl text-xs font-bold transition-all border flex flex-col items-center gap-1 cursor-pointer ${
+                                            billingConfig.calculationMethod === "workdays"
+                                              ? "bg-blue-50 border-blue-600 text-blue-900 shadow-sm"
+                                              : "bg-gray-50/50 border-gray-200 text-gray-500 hover:bg-gray-50"
+                                          }`}
+                                        >
+                                          <span>Apenas Dias Úteis</span>
+                                          <span className="text-[9px] font-medium opacity-80">Pula fds e feriados</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setBillingConfig(prev => ({ ...prev, calculationMethod: "calendar" }))}
+                                          className={`py-3 px-4 rounded-2xl text-xs font-bold transition-all border flex flex-col items-center gap-1 cursor-pointer ${
+                                            billingConfig.calculationMethod === "calendar"
+                                              ? "bg-blue-50 border-blue-600 text-blue-900 shadow-sm"
+                                              : "bg-gray-50/50 border-gray-200 text-gray-500 hover:bg-gray-50"
+                                          }`}
+                                        >
+                                          <span>Dias Corridos</span>
+                                          <span className="text-[9px] font-medium opacity-80">Conta todos os dias</span>
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                      <div className="flex justify-between items-center">
+                                        <label className="block text-xs font-black text-gray-700 uppercase tracking-wider">
+                                          Prazo de Vencimento Padrão
+                                        </label>
+                                        <span className="text-xs font-black text-blue-900 bg-blue-50 px-2 py-1 rounded-md">
+                                          {billingConfig.defaultDaysToDue} {billingConfig.calculationMethod === "workdays" ? "dias úteis" : "dias corridos"}
+                                        </span>
+                                      </div>
+                                      <input
+                                        type="range"
+                                        min="1"
+                                        max="30"
+                                        value={billingConfig.defaultDaysToDue}
+                                        onChange={(e) => setBillingConfig(prev => ({ ...prev, defaultDaysToDue: parseInt(e.target.value) }))}
+                                        className="w-full accent-blue-900 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                                      />
+                                      <p className="text-[10px] text-gray-400 font-semibold leading-relaxed">
+                                        Número de dias após a emissão da guia ou boleto para fixar o vencimento.
+                                      </p>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                      <label className="block text-xs font-black text-gray-700 uppercase tracking-wider">
+                                        Dias de Expediente (Dias Úteis)
+                                      </label>
+                                      <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                                        {[
+                                          { key: "monday", label: "Seg", full: "Segunda-feira" },
+                                          { key: "tuesday", label: "Ter", full: "Terça-feira" },
+                                          { key: "wednesday", label: "Qua", full: "Quarta-feira" },
+                                          { key: "thursday", label: "Qui", full: "Quinta-feira" },
+                                          { key: "friday", label: "Sex", full: "Sexta-feira" },
+                                          { key: "saturday", label: "Sáb", full: "Sábado" },
+                                          { key: "sunday", label: "Dom", full: "Domingo" },
+                                        ].map((day) => (
+                                          <button
+                                            key={day.key}
+                                            type="button"
+                                            onClick={() => setBillingConfig(prev => ({
+                                              ...prev,
+                                              workdays: {
+                                                ...prev.workdays,
+                                                [day.key]: !prev.workdays[day.key]
+                                              }
+                                            }))}
+                                            className={`py-2 rounded-xl text-xs font-black transition-all border cursor-pointer ${
+                                              billingConfig.workdays[day.key]
+                                                ? "bg-emerald-50 border-emerald-500 text-emerald-800 shadow-sm"
+                                                : "bg-gray-50 border-gray-200 text-gray-400"
+                                            }`}
+                                            title={day.full}
+                                          >
+                                            {day.label}
+                                          </button>
+                                        ))}
+                                      </div>
+                                      <p className="text-[10px] text-gray-400 font-semibold leading-relaxed">
+                                        Dias ativos para contagem se o método de cálculo for "Apenas Dias Úteis".
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {/* COLUNA DIREITA */}
+                                  <div className="space-y-6">
+                                    <div className="space-y-3">
+                                      <label className="block text-xs font-black text-gray-700 uppercase tracking-wider">
+                                        Vencimentos nos Finais de Semana
+                                      </label>
+                                      <div className="space-y-3 bg-gray-50 p-4 rounded-3xl border border-gray-100">
+                                        <div className="flex items-center justify-between">
+                                          <div className="pr-4">
+                                            <p className="text-xs font-bold text-gray-800">Aceitar pagamentos no final de semana?</p>
+                                            <p className="text-[10px] text-gray-500 font-medium leading-relaxed mt-0.5">
+                                              Permitir vencimento automático em Sábados, Domingos ou Feriados.
+                                            </p>
+                                          </div>
+                                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                            <input
+                                              type="checkbox"
+                                              checked={billingConfig.acceptWeekendPayment}
+                                              onChange={(e) => setBillingConfig(prev => ({ ...prev, acceptWeekendPayment: e.target.checked }))}
+                                              className="sr-only peer"
+                                            />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-900"></div>
+                                          </label>
+                                        </div>
+
+                                        <div className="border-t border-gray-200/50 pt-3 flex gap-2 items-start">
+                                          <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                                          <p className="text-[10px] text-gray-500 font-semibold leading-normal">
+                                            {billingConfig.acceptWeekendPayment ? (
+                                              <span className="text-amber-800">
+                                                🚨 <strong>Atenção:</strong> Vencimentos em finais de semana podem requerer que o banco aceite agendamento ou liquidação no sábado/domingo.
+                                              </span>
+                                            ) : (
+                                              <span className="text-emerald-800">
+                                                💡 <strong>Prorrogação Ativada:</strong> Se cair em final de semana ou feriado, o vencimento será prorrogado para o próximo dia útil subsequente.
+                                              </span>
+                                            )}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* FERIADOS CUSTOMIZADOS */}
+                                    <div className="space-y-3">
+                                      <label className="block text-xs font-black text-gray-700 uppercase tracking-wider">
+                                        Feriados Nacionais e Regionais
+                                      </label>
+                                      
+                                      <div className="flex gap-2">
+                                        <input
+                                          type="date"
+                                          value={newHolidayInput}
+                                          onChange={(e) => setNewHolidayInput(e.target.value)}
+                                          className="flex-1 px-4 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-900 bg-white"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (!newHolidayInput) return;
+                                            if (billingConfig.holidays.includes(newHolidayInput)) {
+                                              showNotification("error", "Este feriado já está cadastrado.");
+                                              return;
+                                            }
+                                            setBillingConfig(prev => ({
+                                              ...prev,
+                                              holidays: [...prev.holidays, newHolidayInput].sort()
+                                            }));
+                                            setNewHolidayInput("");
+                                            showNotification("success", "Feriado adicionado!");
+                                          }}
+                                          className="px-4 py-2 text-xs font-black bg-blue-900 text-white rounded-xl hover:bg-blue-800 transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                                        >
+                                          <Plus className="w-3.5 h-3.5" /> Adicionar
+                                        </button>
+                                      </div>
+
+                                      <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto border border-gray-100 p-2.5 rounded-2xl bg-gray-50/50">
+                                        {billingConfig.holidays.length === 0 ? (
+                                          <p className="text-[10px] text-gray-400 font-semibold italic">Nenhum feriado cadastrado.</p>
+                                        ) : (
+                                          billingConfig.holidays.map((holidayDate) => {
+                                            const parts = holidayDate.split("-");
+                                            const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : holidayDate;
+                                            return (
+                                              <span
+                                                key={holidayDate}
+                                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white border border-gray-200 text-[10px] font-bold text-gray-600 hover:border-rose-200 hover:text-rose-600 transition-all cursor-pointer group"
+                                                onClick={() => {
+                                                  setBillingConfig(prev => ({
+                                                    ...prev,
+                                                    holidays: prev.holidays.filter(h => h !== holidayDate)
+                                                  }));
+                                                  showNotification("info", "Feriado removido!");
+                                                }}
+                                                title="Clique para remover"
+                                              >
+                                                <span>{formatted}</span>
+                                                <X className="w-3 h-3 text-gray-400 group-hover:text-rose-500" />
+                                              </span>
+                                            );
+                                          })
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* SIMULADOR */}
+                                <div className="bg-blue-50/40 rounded-3xl p-6 border border-blue-100/60 space-y-4">
+                                  <div className="flex items-center justify-between border-b border-blue-100 pb-3">
+                                    <div className="flex items-center gap-2">
+                                      <Play className="w-4 h-4 text-blue-700 animate-pulse" />
+                                      <h5 className="font-black text-xs text-blue-950 uppercase tracking-wider">
+                                        Simulador de Vencimento de Guias em Tempo Real
+                                      </h5>
+                                    </div>
+                                    <span className="text-[9px] font-black text-blue-700 uppercase tracking-wider bg-blue-100 px-2 py-0.5 rounded-md">
+                                      Validador de Regras
+                                    </span>
+                                  </div>
+
+                                  <div className="grid md:grid-cols-3 gap-6">
+                                    <div className="space-y-2">
+                                      <label className="block text-[10px] font-black text-blue-900 uppercase tracking-wider">
+                                        Simular Data de Emissão:
+                                      </label>
+                                      <input
+                                        type="date"
+                                        value={simIssueDate}
+                                        onChange={(e) => setSimIssueDate(e.target.value)}
+                                        className="w-full px-4 py-2.5 text-xs bg-white border border-blue-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-900 font-semibold"
+                                      />
+                                    </div>
+
+                                    {(() => {
+                                      const simulation = calculateDueDateTrace(
+                                        simIssueDate,
+                                        billingConfig.defaultDaysToDue,
+                                        billingConfig.calculationMethod as "workdays" | "calendar",
+                                        billingConfig.acceptWeekendPayment,
+                                        billingConfig.workdays,
+                                        billingConfig.holidays
+                                      );
+
+                                      return (
+                                        <>
+                                          <div className="md:col-span-2 space-y-3">
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white/80 p-4 rounded-2xl border border-blue-100">
+                                              <div>
+                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Vencimento Calculado pelo Sistema</p>
+                                                <p className="text-base font-black text-blue-950 mt-1">
+                                                  {simulation.date
+                                                    ? simulation.date.toLocaleDateString("pt-BR", {
+                                                        weekday: "long",
+                                                        year: "numeric",
+                                                        month: "long",
+                                                        day: "numeric",
+                                                      })
+                                                    : "Data inválida"}
+                                                </p>
+                                              </div>
+                                              <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl px-4 py-2 text-center shrink-0">
+                                                <p className="text-[8px] font-black uppercase tracking-wider opacity-80">Dia Semana</p>
+                                                <p className="text-xs font-black capitalize">
+                                                  {simulation.date
+                                                    ? simulation.date.toLocaleDateString("pt-BR", { weekday: "long" })
+                                                    : "-"}
+                                                </p>
+                                              </div>
+                                            </div>
+
+                                            <div className="bg-white/40 border border-blue-100/50 p-4 rounded-2xl space-y-1.5 max-h-[140px] overflow-y-auto">
+                                              <p className="text-[10px] font-black text-blue-900 uppercase tracking-wider border-b border-blue-100 pb-1">Passos do Cálculo:</p>
+                                              <ul className="space-y-1">
+                                                {simulation.trace.map((step, idx) => (
+                                                  <li key={idx} className="text-[10px] font-semibold text-gray-600 leading-normal">
+                                                    {step}
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          </div>
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
+
+                                <div className="flex justify-end pt-4 border-t border-gray-100">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveBillingConfig(billingConfig)}
+                                    disabled={isSavingBillingConfig}
+                                    className="px-6 py-3.5 bg-blue-900 text-white rounded-2xl font-bold hover:bg-blue-800 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2 shadow-lg shadow-blue-900/15 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+                                  >
+                                    {isSavingBillingConfig ? (
+                                      <>
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                        Salvando Configurações...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Check className="w-4 h-4" /> Salvar Configurações de Vencimento
+                                      </>
+                                    )}
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -7705,6 +8620,163 @@ Para corrigir:
                                       </div>
                                     </div>
 
+                                    {/* QR Code Authenticity Customization */}
+                                    <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl space-y-6">
+                                      <h4 className="font-bold text-xs uppercase tracking-widest text-blue-900 flex items-center gap-2 border-b border-gray-50 pb-4">
+                                        <QrCode className="w-4 h-4 text-amber-500 animate-pulse" />{" "}
+                                        Personalização do QRCode de Autenticidade
+                                      </h4>
+
+                                      <div className="grid md:grid-cols-2 gap-8">
+                                        {/* Configuration controls */}
+                                        <div className="space-y-6">
+                                          <p className="text-xs text-gray-500 font-medium leading-relaxed">
+                                            Ajuste quais informações serão codificadas no QRCode das certidões e declarações oficiais para verificação de autenticidade.
+                                          </p>
+
+                                          <div className="space-y-4">
+                                            {/* Toggle 1: Include Union Name */}
+                                            <label className="flex items-center gap-3 cursor-pointer group">
+                                              <input
+                                                type="checkbox"
+                                                checked={siteConfig.qrIncludeName !== false}
+                                                onChange={(e) =>
+                                                  setSiteConfig((prev) => ({
+                                                    ...prev,
+                                                    qrIncludeName: e.target.checked,
+                                                  }))
+                                                }
+                                                className="w-5 h-5 rounded border-gray-300 text-blue-900 focus:ring-blue-900/10"
+                                              />
+                                              <span className="text-xs font-bold text-gray-700 group-hover:text-blue-900 transition-colors">
+                                                Incluir Nome Oficial do Sindicato
+                                              </span>
+                                            </label>
+
+                                            {/* Toggle 2: Include CNPJ */}
+                                            <label className="flex items-center gap-3 cursor-pointer group">
+                                              <input
+                                                type="checkbox"
+                                                checked={siteConfig.qrIncludeCnpj !== false}
+                                                onChange={(e) =>
+                                                  setSiteConfig((prev) => ({
+                                                    ...prev,
+                                                    qrIncludeCnpj: e.target.checked,
+                                                  }))
+                                                }
+                                                className="w-5 h-5 rounded border-gray-300 text-blue-900 focus:ring-blue-900/10"
+                                              />
+                                              <span className="text-xs font-bold text-gray-700 group-hover:text-blue-900 transition-colors">
+                                                Incluir CNPJ do Associado
+                                              </span>
+                                            </label>
+
+                                            {/* Toggle 3: Include Validity */}
+                                            <label className="flex items-center gap-3 cursor-pointer group">
+                                              <input
+                                                type="checkbox"
+                                                checked={siteConfig.qrIncludeValidity !== false}
+                                                onChange={(e) =>
+                                                  setSiteConfig((prev) => ({
+                                                    ...prev,
+                                                    qrIncludeValidity: e.target.checked,
+                                                  }))
+                                                }
+                                                className="w-5 h-5 rounded border-gray-300 text-blue-900 focus:ring-blue-900/10"
+                                              />
+                                              <span className="text-xs font-bold text-gray-700 group-hover:text-blue-900 transition-colors">
+                                                Incluir Prazo de Validade
+                                              </span>
+                                            </label>
+                                          </div>
+
+                                          {/* Custom verification URL */}
+                                          <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                                              URL de Verificação Personalizada
+                                            </label>
+                                            <input
+                                              type="text"
+                                              value={siteConfig.qrCustomVerificationUrl || ""}
+                                              onChange={(e) =>
+                                                setSiteConfig((prev) => ({
+                                                  ...prev,
+                                                  qrCustomVerificationUrl: e.target.value,
+                                                }))
+                                              }
+                                              placeholder="Ex: https://meusindicato.com.br/validacao"
+                                              className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-blue-900/10 focus:border-blue-900 transition-all font-bold text-sm text-blue-900 font-mono"
+                                            />
+                                            <p className="text-[10px] text-gray-400 ml-1">
+                                              Deixe em branco para usar o endereço padrão: <span className="font-mono">{window.location.origin}</span>
+                                            </p>
+                                          </div>
+
+                                          {/* Custom Fields */}
+                                          <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                                              Texto Adicional / Observações Extras
+                                            </label>
+                                            <textarea
+                                              rows={3}
+                                              value={siteConfig.qrCustomFields || ""}
+                                              onChange={(e) =>
+                                                setSiteConfig((prev) => ({
+                                                  ...prev,
+                                                  qrCustomFields: e.target.value,
+                                                }))
+                                              }
+                                              placeholder="Ex: Assinado Digitalmente; Registro em Cartório ICP-Brasil"
+                                              className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-blue-900/10 focus:border-blue-900 transition-all font-bold text-sm text-blue-900 resize-none"
+                                            />
+                                          </div>
+                                        </div>
+
+                                        {/* Dynamic real-time preview of the QR Code payload */}
+                                        <div className="bg-gray-50/70 border border-gray-100 rounded-3xl p-6 flex flex-col justify-between">
+                                          <div>
+                                            <h5 className="font-black text-[10px] uppercase tracking-widest text-blue-900 mb-4 flex items-center gap-2">
+                                              <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
+                                              Pré-visualização dos Dados Codificados
+                                            </h5>
+                                            <div className="bg-white border border-gray-200/60 rounded-2xl p-4 font-mono text-[11px] text-gray-600 space-y-1.5 shadow-inner overflow-x-auto min-h-[160px] whitespace-pre-wrap">
+                                              <p className="font-bold text-blue-900 font-sans">SINPA BA - Autenticação Digital</p>
+                                              {siteConfig.qrIncludeName !== false && (
+                                                <p><span className="text-gray-400">Sindicato:</span> {siteConfig.name}</p>
+                                              )}
+                                              <p><span className="text-gray-400">Controle:</span> SINPA-{new Date().getFullYear()}-123456</p>
+                                              <p><span className="text-gray-400">Autenticação:</span> ABC123XYZ9</p>
+                                              {siteConfig.qrIncludeCnpj !== false && (
+                                                <p><span className="text-gray-400">CNPJ:</span> 30.145.289/0001-44</p>
+                                              )}
+                                              {siteConfig.qrIncludeValidity !== false && (
+                                                <p><span className="text-gray-400">Validade:</span> 90 dias</p>
+                                              )}
+                                              <p><span className="text-gray-400">Verifique em:</span> {siteConfig.qrCustomVerificationUrl || window.location.origin}</p>
+                                              {siteConfig.qrCustomFields && (
+                                                <p className="text-emerald-700 font-bold mt-2 pt-2 border-t border-dashed border-gray-200">{siteConfig.qrCustomFields}</p>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          <div className="mt-6 pt-6 border-t border-gray-100 flex items-center gap-4">
+                                            <div className="bg-white p-2 rounded-2xl border border-gray-100 shadow-sm flex-shrink-0">
+                                              <QRCodeCanvas
+                                                value={`SINPA BA - Autenticação Digital\nSindicato: ${siteConfig.name}\nControle: SINPA-${new Date().getFullYear()}-123456\nAutenticação: ABC123XYZ9\nVerifique em: ${siteConfig.qrCustomVerificationUrl || window.location.origin}`}
+                                                size={80}
+                                              />
+                                            </div>
+                                            <div>
+                                              <p className="text-xs font-bold text-gray-700">Código Demonstrativo</p>
+                                              <p className="text-[10px] text-gray-400 leading-snug">
+                                                Escaneie este QRCode com a câmera para simular a leitura do conteúdo customizado em tempo real.
+                                              </p>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+
                                     <div className="bg-gradient-to-br from-blue-900 to-blue-950 rounded-[40px] p-8 shadow-2xl text-white relative overflow-hidden">
                                       <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 blur-3xl rounded-full -mr-32 -mt-32"></div>
                                       <div className="relative z-10">
@@ -7738,6 +8810,55 @@ Para corrigir:
                                           </div>
                                         </div>
                                       </div>
+                                    </div>
+
+                                    {/* Audit Logs Quick Card */}
+                                    <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl">
+                                      <div className="flex items-center justify-between mb-6 border-b border-gray-50 pb-4">
+                                        <h4 className="font-bold text-xs uppercase tracking-widest text-blue-900 flex items-center gap-2">
+                                          <Clock className="w-4 h-4 text-amber-500" />{" "}
+                                          Log de Auditoria
+                                        </h4>
+                                        <button
+                                          onClick={() => refetchAuditLogs()}
+                                          className="text-[10px] font-black text-blue-600 hover:underline uppercase tracking-widest cursor-pointer"
+                                        >
+                                          Atualizar
+                                        </button>
+                                      </div>
+
+                                      {!auditLogs || auditLogs.length === 0 ? (
+                                        <p className="text-xs text-gray-400 font-semibold text-center py-4">Nenhuma alteração registrada recentemente.</p>
+                                      ) : (
+                                        <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
+                                          {auditLogs.slice(0, 5).map((log: any, idx: number) => (
+                                            <div key={log.id || `audit-slice-${idx}`} className="text-xs p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-2">
+                                              <div className="flex items-center justify-between text-[10px] font-black text-gray-400">
+                                                <span className="text-gray-600 font-bold truncate max-w-[150px]">{log.adminEmail}</span>
+                                                <span>{new Date(log.timestamp).toLocaleDateString("pt-BR")}</span>
+                                              </div>
+                                              <ul className="space-y-1 pl-2 border-l border-amber-400 text-gray-600">
+                                                {log.changes && log.changes.map((change: string, idx: number) => (
+                                                  <li key={idx} className="leading-relaxed font-medium">
+                                                    {change}
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          ))}
+                                          {auditLogs.length > 5 && (
+                                            <button
+                                              onClick={() => {
+                                                setAdminSubTab("system");
+                                                setSystemTab("audit");
+                                              }}
+                                              className="w-full text-center text-[10px] font-black text-blue-900 hover:text-blue-700 uppercase tracking-widest pt-2 cursor-pointer"
+                                            >
+                                              Ver Histórico Completo ({auditLogs.length})
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -8021,8 +9142,8 @@ Para corrigir:
                                   </div>
                                 </div>
 
-                                <div className="grid lg:grid-cols-12 gap-8">
-                                  <div className="lg:col-span-8 bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl overflow-hidden relative">
+                                <div className="grid xl:grid-cols-12 gap-8">
+                                  <div className="xl:col-span-8 bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl overflow-hidden relative">
                                     <div className="absolute top-0 right-0 w-48 h-48 bg-rose-50/30 rounded-bl-[160px] pointer-events-none" />
                                     <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-10 relative z-10 gap-4">
                                       <div>
@@ -8044,7 +9165,7 @@ Para corrigir:
                                           ) : (
                                             <FileText className="w-4 h-4 group-hover:scale-110 transition-transform" />
                                           )}
-                                          Exportar Relatório (PDF)
+                                          Relatório de Inadimplência (PDF)
                                         </button>
                                         <div className="flex items-center gap-2 bg-rose-50 border border-rose-100 px-3 py-1.5 rounded-xl shrink-0">
                                           <div className="w-2 h-2 bg-rose-600 rounded-full animate-pulse" />
@@ -8134,7 +9255,7 @@ Para corrigir:
                                     </div>
                                   </div>
 
-                                  <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl">
+                                  <div className="xl:col-span-4 bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl">
                                     <h4 className="text-xl font-bold mb-8 text-blue-900 font-display uppercase tracking-widest text-xs">
                                       Acordos Recentes
                                     </h4>
@@ -8628,12 +9749,12 @@ Para corrigir:
                                 transition={{ duration: 0.3 }}
                                 className="space-y-8"
                               >
-                                <div className="grid lg:grid-cols-12 gap-8">
-                                  <div className="lg:col-span-4 space-y-8">
+                                <div className="grid xl:grid-cols-12 gap-8">
+                                  <div className="xl:col-span-4 space-y-8">
                                     <div className="bg-white border border-gray-100 rounded-[40px] p-6 lg:p-8 shadow-xl overflow-hidden relative">
                                       <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50/50 rounded-bl-[100px] pointer-events-none" />
                                       <div className="flex items-center gap-4 mb-10 relative z-10">
-                                        <div className="w-14 h-14 bg-blue-900 text-white rounded-2xl flex items-center justify-center shadow-xl shadow-blue-900/20">
+                                        <div className="w-14 h-14 bg-blue-900 text-white rounded-2xl flex items-center justify-center shadow-xl shadow-blue-900/20 shrink-0">
                                           <PiggyBank className="w-7 h-7" />
                                         </div>
                                         <div>
@@ -8722,7 +9843,7 @@ Para corrigir:
                                         >
                                           <div className="flex items-center gap-5">
                                             <div
-                                              className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg ${isBankConnected ? "bg-emerald-500 text-white shadow-emerald-200" : "bg-amber-500 text-white shadow-amber-200"}`}
+                                              className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg shrink-0 ${isBankConnected ? "bg-emerald-500 text-white shadow-emerald-200" : "bg-amber-500 text-white shadow-amber-200"}`}
                                             >
                                               {isBankConnected ? (
                                                 <ShieldCheck className="w-6 h-6" />
@@ -8730,12 +9851,12 @@ Para corrigir:
                                                 <RefreshCw className="w-6 h-6 animate-spin" />
                                               )}
                                             </div>
-                                            <div className="flex-1">
-                                              <p className="text-xs font-black text-gray-900 uppercase tracking-tighter italic">
+                                            <div className="flex-grow min-w-0">
+                                              <p className="text-xs font-black text-gray-900 uppercase tracking-tighter italic truncate">
                                                 Status da Integração
                                               </p>
                                               <p
-                                                className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${isBankConnected ? "text-emerald-600" : "text-amber-600"}`}
+                                                className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 truncate ${isBankConnected ? "text-emerald-600" : "text-amber-600"}`}
                                               >
                                                 {isBankConnected
                                                   ? "Conectado em Produção"
@@ -8765,7 +9886,7 @@ Para corrigir:
                                     </div>
                                   </div>
 
-                                  <div className="lg:col-span-8 space-y-8">
+                                  <div className="xl:col-span-8 space-y-8">
                                     <div className="bg-white border border-gray-100 rounded-[40px] p-6 lg:p-10 shadow-xl overflow-hidden relative">
                                       <div className="absolute top-0 right-0 w-48 h-48 bg-blue-50/30 rounded-bl-[160px] pointer-events-none" />
                                       <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 pb-8 border-b border-gray-200 relative z-10 gap-6">
@@ -8790,6 +9911,18 @@ Para corrigir:
                                               <FileText className="w-5 h-5 group-hover:scale-110 transition-transform" />
                                             )}
                                             Relatório Contábil (PDF)
+                                          </button>
+                                          <button
+                                            onClick={generateDelinquencyReport}
+                                            disabled={isGeneratingDelinquencyReport}
+                                            className="bg-rose-50 border border-rose-100 text-rose-600 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all flex items-center gap-3 group shadow-sm disabled:opacity-50"
+                                          >
+                                            {isGeneratingDelinquencyReport ? (
+                                              <RefreshCw className="w-4 h-4 animate-spin" />
+                                            ) : (
+                                              <FileText className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                                            )}
+                                            Relatório de Inadimplência (PDF)
                                           </button>
                                           <button
                                             onClick={generateRemittance}
@@ -9015,24 +10148,24 @@ Para corrigir:
                                         </table>
                                       </div>
 
-                                      <div className="mt-12 p-10 bg-blue-900 rounded-[48px] border border-blue-800 flex flex-col md:flex-row items-center justify-between gap-8 relative overflow-hidden group shadow-2xl shadow-blue-900/40">
+                                      <div className="mt-12 p-6 sm:p-10 bg-blue-900 rounded-[40px] sm:rounded-[48px] border border-blue-800 flex flex-col md:flex-row items-center justify-between gap-6 sm:gap-8 relative overflow-hidden group shadow-2xl shadow-blue-900/40">
                                         <div className="absolute top-0 right-0 w-80 h-80 bg-white/5 rounded-full -mr-40 -mt-40 blur-[100px]" />
                                         <div className="absolute bottom-0 left-0 w-40 h-40 bg-white/5 rounded-full -ml-20 -mb-20 blur-[60px]" />
-                                        <div className="flex items-center gap-8 relative z-10">
-                                          <div className="w-20 h-20 bg-white/10 backdrop-blur-2xl rounded-[32px] shadow-2xl flex items-center justify-center text-white border border-white/20 group-hover:rotate-6 transition-transform duration-500">
-                                            <ShieldCheck className="w-10 h-10 text-amber-400" />
+                                        <div className="flex items-center gap-4 sm:gap-8 relative z-10 w-full md:w-auto">
+                                          <div className="w-14 h-14 sm:w-20 sm:h-20 bg-white/10 backdrop-blur-2xl rounded-[24px] sm:rounded-[32px] shadow-2xl flex items-center justify-center text-white border border-white/20 group-hover:rotate-6 transition-transform duration-500 shrink-0">
+                                            <ShieldCheck className="w-8 h-8 sm:w-10 sm:h-10 text-amber-400" />
                                           </div>
                                           <div>
-                                            <p className="text-xl font-black text-white italic leading-none">
+                                            <p className="text-lg sm:text-xl font-black text-white italic leading-tight">
                                               Canais de Pagamento Criptografados
                                             </p>
-                                            <p className="text-[10px] text-blue-300 font-bold uppercase tracking-[0.4em] mt-2">
+                                            <p className="text-[9px] sm:text-[10px] text-blue-300 font-bold uppercase tracking-[0.3em] sm:tracking-[0.4em] mt-2 leading-relaxed">
                                               Segurança Bancária Nível
                                               Enterprise / LGPD Compliant
                                             </p>
                                           </div>
                                         </div>
-                                        <button className="relative z-10 px-12 py-5 bg-white text-blue-900 rounded-[28px] font-black text-[11px] uppercase tracking-[0.2em] hover:bg-blue-50 transition-all shadow-2xl hover:scale-105 active:scale-95 duration-300">
+                                        <button className="relative z-10 w-full md:w-auto px-8 py-4 sm:px-12 sm:py-5 bg-white text-blue-900 rounded-[20px] sm:rounded-[28px] font-black text-[10px] sm:text-[11px] uppercase tracking-[0.2em] hover:bg-blue-50 transition-all shadow-2xl hover:scale-105 active:scale-95 duration-300">
                                           Configurações Avançadas
                                         </button>
                                       </div>
@@ -9283,6 +10416,40 @@ Para corrigir:
                                                 {partner.discount} OFF
                                               </span>
                                             </div>
+                                            {partner.expiresAt ? (
+                                              (() => {
+                                                const expDate = new Date(partner.expiresAt + "T00:00:00");
+                                                const today = new Date();
+                                                today.setHours(0, 0, 0, 0);
+                                                expDate.setHours(0, 0, 0, 0);
+                                                const diffTime = expDate.getTime() - today.getTime();
+                                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                                                if (diffDays < 0) {
+                                                  return (
+                                                    <p className="text-xs text-rose-600 font-bold mt-3 flex items-center gap-1.5 bg-rose-50 border border-rose-100/50 px-3 py-1.5 rounded-xl w-fit">
+                                                      <AlertCircle className="w-3.5 h-3.5" /> Expirou em {expDate.toLocaleDateString("pt-BR")} (Ação Requerida)
+                                                    </p>
+                                                  );
+                                                } else if (diffDays <= 30) {
+                                                  return (
+                                                    <p className="text-xs text-amber-600 font-bold mt-3 flex items-center gap-1.5 bg-amber-50 border border-amber-100/50 px-3 py-1.5 rounded-xl w-fit">
+                                                      <Clock className="w-3.5 h-3.5" /> Expira em {diffDays} dias ({expDate.toLocaleDateString("pt-BR")})
+                                                    </p>
+                                                  );
+                                                } else {
+                                                  return (
+                                                    <p className="text-xs text-emerald-600 font-semibold mt-3 flex items-center gap-1.5 bg-emerald-50 border border-emerald-100/50 px-3 py-1.5 rounded-xl w-fit">
+                                                      <CheckCircle className="w-3.5 h-3.5" /> Válido até {expDate.toLocaleDateString("pt-BR")}
+                                                    </p>
+                                                  );
+                                                }
+                                              })()
+                                            ) : (
+                                              <p className="text-xs text-gray-400 italic mt-3 bg-gray-50 border border-gray-100 px-3 py-1.5 rounded-xl w-fit">
+                                                Sem data de validade definida
+                                              </p>
+                                            )}
                                           </div>
                                         </div>
                                         <div className="flex items-center gap-3 w-full md:w-auto">
@@ -9292,17 +10459,23 @@ Para corrigir:
                                                 "Alterar desconto para:",
                                                 partner.discount,
                                               );
-                                              if (newDiscount) {
+                                              const newDate = prompt(
+                                                "Alterar data de expiração (AAAA-MM-DD):",
+                                                partner.expiresAt || "",
+                                              );
+                                              if (newDiscount !== null || newDate !== null) {
                                                 setPartners(
-                                                  partners.map((p) =>
-                                                    p.id === partner.id
-                                                      ? {
-                                                          ...p,
-                                                          discount: newDiscount,
-                                                        }
-                                                      : p,
-                                                  ),
+                                                  partners.map((p) => {
+                                                    if (p.id === partner.id) {
+                                                      const updated = { ...p };
+                                                      if (newDiscount !== null) updated.discount = newDiscount;
+                                                      if (newDate !== null) updated.expiresAt = newDate;
+                                                      return updated;
+                                                    }
+                                                    return p;
+                                                  }),
                                                 );
+                                                showNotification("success", "Convênio atualizado com sucesso!");
                                               }
                                             }}
                                             className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-white border border-gray-100 text-gray-500 rounded-2xl font-bold text-xs hover:text-blue-600 hover:border-blue-200 transition-all font-display"
@@ -9356,10 +10529,10 @@ Para corrigir:
                                   </div>
 
                                   {/* Tab Switcher */}
-                                  <div className="flex bg-gray-50 p-1.5 rounded-2xl border border-gray-100 w-full max-w-xl mb-10 overflow-x-auto shrink-0">
+                                  <div className="flex bg-gray-50 p-1.5 rounded-2xl border border-gray-100 w-full max-w-2xl mb-10 overflow-x-auto shrink-0">
                                     <button
                                       onClick={() => setSystemTab("general")}
-                                      className={`flex-1 px-6 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                      className={`flex-1 px-5 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
                                         systemTab === "general"
                                           ? "bg-blue-900 text-white shadow-md shadow-blue-900/10"
                                           : "text-gray-400 hover:text-gray-700 hover:bg-gray-100/50"
@@ -9369,7 +10542,7 @@ Para corrigir:
                                     </button>
                                     <button
                                       onClick={() => setSystemTab("lgpd")}
-                                      className={`flex-1 px-6 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                      className={`flex-1 px-5 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
                                         systemTab === "lgpd"
                                           ? "bg-blue-900 text-white shadow-md shadow-blue-900/10"
                                           : "text-gray-400 hover:text-gray-700 hover:bg-gray-100/50"
@@ -9379,13 +10552,23 @@ Para corrigir:
                                     </button>
                                     <button
                                       onClick={() => setSystemTab("production")}
-                                      className={`flex-1 px-6 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                      className={`flex-1 px-5 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
                                         systemTab === "production"
                                           ? "bg-blue-900 text-white shadow-md shadow-blue-900/10"
                                           : "text-gray-400 hover:text-gray-700 hover:bg-gray-100/50"
                                       }`}
                                     >
                                       Modo Produção & Reset
+                                    </button>
+                                    <button
+                                      onClick={() => setSystemTab("audit")}
+                                      className={`flex-1 px-5 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                        systemTab === "audit"
+                                          ? "bg-blue-900 text-white shadow-md shadow-blue-900/10"
+                                          : "text-gray-400 hover:text-gray-700 hover:bg-gray-100/50"
+                                      }`}
+                                    >
+                                      Logs de Auditoria
                                     </button>
                                   </div>
 
@@ -9942,6 +11125,72 @@ Para corrigir:
                                   </div>
                                 </motion.div>
                               )}
+
+                               {systemTab === "audit" && (
+                                 <motion.div
+                                   initial={{ opacity: 0, y: 15 }}
+                                   animate={{ opacity: 1, y: 0 }}
+                                   className="space-y-8 animate-fadeIn"
+                                 >
+                                   <div className="bg-blue-50/50 border border-blue-100 rounded-[32px] p-6 flex items-start gap-4">
+                                     <div className="w-10 h-10 bg-blue-100 text-blue-800 rounded-xl flex items-center justify-center shrink-0">
+                                       <Sliders className="w-5 h-5 text-blue-700" />
+                                     </div>
+                                     <div>
+                                       <h5 className="font-black text-blue-950 text-sm">Logs de Auditoria de Configurações</h5>
+                                       <p className="text-xs text-blue-800/80 mt-1 leading-relaxed font-semibold">
+                                         Histórico em tempo real de todas as modificações de cores, logotipo e textos do portal realizadas por administradores logados.
+                                       </p>
+                                     </div>
+                                   </div>
+
+                                   <div className="bg-white border border-gray-100 rounded-[32px] p-6 shadow-sm space-y-6">
+                                     <div className="flex items-center justify-between">
+                                       <h6 className="font-black text-sm text-gray-900 uppercase tracking-wider">Histórico de Alterações</h6>
+                                       <button
+                                         onClick={() => refetchAuditLogs()}
+                                         className="px-4 py-2 text-xs font-bold bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100 rounded-xl transition-all cursor-pointer"
+                                       >
+                                         Atualizar Log
+                                       </button>
+                                     </div>
+
+                                     {!auditLogs || auditLogs.length === 0 ? (
+                                       <div className="text-center py-12 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                                         <p className="text-sm text-gray-400 font-bold">Nenhuma alteração registrada ainda.</p>
+                                         <p className="text-xs text-gray-400 mt-1">Altere o logotipo, cores ou textos do portal para registrar a primeira auditoria.</p>
+                                       </div>
+                                     ) : (
+                                       <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+                                         {auditLogs.map((log: any, index: number) => (
+                                           <div key={log.id || `audit-full-${index}`} className="p-5 bg-gray-50 rounded-2xl border border-gray-100 space-y-3 shadow-inner">
+                                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-200 pb-2.5">
+                                               <div className="flex items-center gap-2">
+                                                 <div className="w-7 h-7 bg-blue-900 text-white rounded-full flex items-center justify-center text-xs font-black">
+                                                   {log.adminEmail ? log.adminEmail[0].toUpperCase() : "A"}
+                                                 </div>
+                                                 <span className="text-xs font-black text-gray-700">
+                                                   {log.adminEmail}
+                                                 </span>
+                                               </div>
+                                               <span className="text-[10px] font-black text-gray-400 bg-white border border-gray-100 px-2 py-1 rounded-lg">
+                                                 {new Date(log.timestamp).toLocaleString("pt-BR")}
+                                               </span>
+                                             </div>
+                                             <ul className="space-y-1.5 pl-2.5 border-l-2 border-amber-400">
+                                               {log.changes && log.changes.map((change: string, idx: number) => (
+                                                 <li key={idx} className="text-xs font-semibold text-gray-600 leading-relaxed">
+                                                   {change}
+                                                 </li>
+                                               ))}
+                                             </ul>
+                                           </div>
+                                         ))}
+                                       </div>
+                                     )}
+                                   </div>
+                                 </motion.div>
+                               )}
 
                             {adminSubTab === "team" && (
                               <motion.div
@@ -10775,6 +12024,59 @@ Para corrigir:
                                       </div>
                                     </div>
                                   </div>
+
+                                  {/* Audit Log Panel */}
+                                  <div className="col-span-2 bg-white border border-gray-100 rounded-[44px] p-8 lg:p-12 shadow-xl space-y-6">
+                                    <div className="flex items-center justify-between mb-4 border-b border-gray-50 pb-4">
+                                      <h4 className="font-bold text-xs uppercase tracking-widest text-blue-900 flex items-center gap-2">
+                                        <Clock className="w-4 h-4 text-amber-500" />{" "}
+                                        Log de Auditoria (Alterações Realizadas)
+                                      </h4>
+                                      <button
+                                        onClick={() => refetchAuditLogs()}
+                                        className="text-xs font-black text-blue-600 hover:underline uppercase tracking-widest cursor-pointer"
+                                      >
+                                        Atualizar Log
+                                      </button>
+                                    </div>
+
+                                    {!auditLogs || auditLogs.length === 0 ? (
+                                      <div className="text-center py-8 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                                        <p className="text-sm text-gray-400 font-bold">Nenhuma alteração registrada recentemente.</p>
+                                        <p className="text-xs text-gray-400 mt-1">Modifique e salve as configurações para iniciar o registro.</p>
+                                      </div>
+                                    ) : (
+                                      <div className="grid md:grid-cols-2 gap-4 max-h-[360px] overflow-y-auto pr-2">
+                                        {auditLogs.slice(0, 6).map((log: any, idx: number) => (
+                                          <div key={log.id || `audit-portal-${idx}`} className="text-xs p-5 bg-gray-50 rounded-3xl border border-gray-100 space-y-3">
+                                            <div className="flex items-center justify-between text-[10px] font-black text-gray-400 border-b border-gray-200 pb-2">
+                                              <span className="text-gray-700 font-bold truncate max-w-[180px]">{log.adminEmail}</span>
+                                              <span>{new Date(log.timestamp).toLocaleString("pt-BR")}</span>
+                                            </div>
+                                            <ul className="space-y-1 pl-2 border-l-2 border-amber-400 text-gray-600">
+                                              {log.changes && log.changes.map((change: string, idx: number) => (
+                                                <li key={idx} className="leading-relaxed font-semibold">
+                                                  {change}
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {auditLogs && auditLogs.length > 6 && (
+                                      <button
+                                        onClick={() => {
+                                          setAdminSubTab("system");
+                                          setSystemTab("audit");
+                                        }}
+                                        className="w-full text-center text-[10px] font-black text-blue-900 hover:text-blue-700 uppercase tracking-widest pt-4 border-t border-gray-100 cursor-pointer"
+                                      >
+                                        Ver histórico completo ({auditLogs.length})
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               </motion.div>
                             )}
@@ -11447,76 +12749,78 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -30 }}
                                 transition={{ duration: 0.3 }}
-                                className="max-w-4xl mx-auto"
+                                className="max-w-[1600px] mx-auto w-full"
                               >
-                                <div className="bg-white border border-gray-100 rounded-[40px] p-12 shadow-2xl overflow-hidden">
-                                  <div className="flex items-center gap-6 mb-12 pb-6 border-b border-gray-50">
-                                    <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center shadow-inner">
-                                      <FileCheck className="w-8 h-8" />
+                                <div className="bg-white border border-gray-100 rounded-[40px] p-6 lg:p-10 shadow-2xl">
+                                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 pb-6 border-b border-gray-100">
+                                    <div className="flex items-center gap-6">
+                                      <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center shadow-inner shrink-0">
+                                        <FileCheck className="w-8 h-8" />
+                                      </div>
+                                      <div>
+                                        <h4 className="text-2xl font-black text-blue-950 font-display">
+                                          Emissor & Ajustador de Documentos
+                                        </h4>
+                                        <p className="text-sm font-bold text-gray-400">
+                                          Gerencie a identidade visual, dados do destinatário e posicione a assinatura digital em tempo real.
+                                        </p>
+                                      </div>
                                     </div>
-                                    <div>
-                                      <h4 className="text-2xl font-black text-blue-950 font-display">
-                                        Emissor de Documentos
-                                      </h4>
-                                      <p className="text-sm font-bold text-gray-400">
-                                        Fila de Pedidos e Geração de Documentos
-                                        Oficiais.
-                                      </p>
+                                    <div className="flex bg-gray-100 p-1.5 rounded-2xl gap-1.5 border border-gray-200/50 self-start md:self-auto shrink-0">
+                                      <button
+                                        onClick={() => setPreviewType("certidao")}
+                                        className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                                          previewType === "certidao"
+                                            ? "bg-white text-blue-900 shadow-md"
+                                            : "text-gray-500 hover:text-gray-950"
+                                        }`}
+                                      >
+                                        Modelo Certidão
+                                      </button>
+                                      <button
+                                        onClick={() => setPreviewType("regularidade")}
+                                        className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                                          previewType === "regularidade"
+                                            ? "bg-white text-emerald-600 shadow-md"
+                                            : "text-gray-500 hover:text-gray-950"
+                                        }`}
+                                      >
+                                        Modelo Regularidade
+                                      </button>
                                     </div>
                                   </div>
 
-                                  <div className="grid md:grid-cols-2 gap-12">
-                                    <div className="space-y-8">
-                                      <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-sm">
-                                        <label className="text-[10px] font-black text-blue-900 uppercase tracking-[0.2em] mb-6 block px-2">
-                                          1. Identidade Visual
-                                        </label>
+                                  <div className="grid lg:grid-cols-12 gap-10 items-start">
+                                    {/* Left Column: Controls (Form, Logo, Positioning Sliders) */}
+                                    <div className="lg:col-span-5 space-y-8">
+                                      {/* 1. Identidade Visual */}
+                                      <div className="bg-gray-50/50 border border-gray-100 p-6 rounded-[32px] space-y-6">
+                                        <div className="flex items-center justify-between">
+                                          <label className="text-[10px] font-black text-blue-900 uppercase tracking-[0.2em]">
+                                            1. Logotipo do Cabeçalho
+                                          </label>
+                                          <span className="text-[10px] font-bold text-gray-400">
+                                            PNG ou SVG
+                                          </span>
+                                        </div>
                                         <div className="relative group">
                                           {isUploading ? (
-                                            <div className="border-2 border-dashed border-blue-200 bg-blue-50/30 p-10 rounded-[32px] text-center min-h-[224px] flex flex-col items-center justify-center">
-                                              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-gray-100">
-                                                <motion.div
-                                                  animate={{ rotate: 360 }}
-                                                  transition={{
-                                                    repeat: Infinity,
-                                                    duration: 1.5,
-                                                    ease: "linear",
-                                                  }}
-                                                >
-                                                  <Loader2 className="w-8 h-8 text-blue-600" />
-                                                </motion.div>
-                                              </div>
-                                              <p className="text-sm font-black text-blue-900 mb-4 uppercase tracking-widest leading-none">
-                                                Enviando Logotipo...
-                                              </p>
-                                              <div className="w-full max-w-[160px] mx-auto h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                                <motion.div
-                                                  className="h-full bg-blue-600"
-                                                  initial={{ width: 0 }}
-                                                  animate={{
-                                                    width: `${uploadProgress}%`,
-                                                  }}
-                                                />
-                                              </div>
-                                              <p className="text-[10px] font-bold text-blue-400 mt-2 font-mono">
-                                                {Math.round(uploadProgress)}%
+                                            <div className="border border-dashed border-blue-200 bg-blue-50/20 p-8 rounded-[24px] text-center min-h-[160px] flex flex-col items-center justify-center">
+                                              <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-3" />
+                                              <p className="text-xs font-black text-blue-900 uppercase tracking-wider">
+                                                Enviando Logotipo... ({Math.round(uploadProgress)}%)
                                               </p>
                                             </div>
                                           ) : !adminLogo ? (
                                             <label className="block cursor-pointer">
-                                              <div className="border-2 border-dashed border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 p-10 rounded-[32px] text-center transition-all bg-gray-50/30 relative overflow-hidden group">
-                                                <div className="relative z-10">
-                                                  <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm border border-gray-100 group-hover:scale-110 transition-transform duration-500">
-                                                    <ImageIcon className="w-8 h-8 text-blue-600" />
-                                                  </div>
-                                                  <p className="text-sm font-black text-gray-900 mb-1">
-                                                    Subir Logotipo
-                                                  </p>
-                                                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mt-2">
-                                                    Escolha um arquivo PNG ou
-                                                    SVG
-                                                  </p>
-                                                </div>
+                                              <div className="border border-dashed border-gray-200 hover:border-blue-500 hover:bg-blue-50/30 p-8 rounded-[24px] text-center transition-all bg-white relative overflow-hidden group">
+                                                <ImageIcon className="w-8 h-8 text-blue-600 mx-auto mb-3 group-hover:scale-110 transition-transform" />
+                                                <p className="text-xs font-bold text-gray-900 mb-1">
+                                                  Clique para subir logotipo personalizado
+                                                </p>
+                                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">
+                                                  Recomendado: Fundo transparente
+                                                </p>
                                                 <input
                                                   type="file"
                                                   className="hidden"
@@ -11526,172 +12830,498 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                               </div>
                                             </label>
                                           ) : (
-                                            <motion.div
-                                              initial={{
-                                                opacity: 0,
-                                                scale: 0.95,
-                                              }}
-                                              animate={{ opacity: 1, scale: 1 }}
-                                              className="relative bg-white border border-gray-100 p-10 rounded-[32px] shadow-xl shadow-blue-900/5 flex flex-col items-center justify-center min-h-[220px] overflow-hidden"
-                                            >
-                                              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.05),transparent)] pointer-events-none" />
-                                              <div className="relative z-10">
-                                                <div className="relative group/logo p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                            <div className="bg-white border border-gray-100 p-6 rounded-[24px] shadow-sm relative flex items-center justify-between">
+                                              <div className="flex items-center gap-4">
+                                                <div className="p-2 bg-gray-50 rounded-xl border border-gray-100">
                                                   <img
                                                     src={adminLogo}
-                                                    className="max-h-24 w-auto object-contain drop-shadow-2xl"
-                                                    alt="Prévia do Logo"
+                                                    className="h-10 w-auto object-contain"
+                                                    alt="Logo do Documento"
                                                   />
-                                                  <button
-                                                    onClick={() =>
-                                                      setAdminLogo(null)
-                                                    }
-                                                    className="absolute -top-3 -right-3 bg-white text-rose-500 p-2 rounded-xl shadow-xl hover:bg-rose-500 hover:text-white transition-all transform hover:scale-110 border border-gray-100"
-                                                  >
-                                                    <X className="w-4 h-4" />
-                                                  </button>
                                                 </div>
-                                                <div className="mt-8 flex flex-col items-center">
-                                                  <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 rounded-full border border-emerald-100 mb-2">
-                                                    <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                                                    <span className="text-[9px] font-black text-emerald-600 uppercase tracking-[0.1em]">
-                                                      Logo Ativo e Pronto
-                                                    </span>
-                                                  </div>
-                                                  <p className="text-[10px] font-bold text-gray-300 italic">
-                                                    Este logo aparecerá no
-                                                    cabeçalho do PDF
+                                                <div>
+                                                  <p className="text-xs font-bold text-gray-900 leading-none mb-1">
+                                                    Logo Ativo
+                                                  </p>
+                                                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
+                                                    Pronto para Exportação
                                                   </p>
                                                 </div>
                                               </div>
-                                            </motion.div>
+                                              <button
+                                                onClick={() => setAdminLogo(null)}
+                                                className="bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white p-2 rounded-xl transition-all shadow-sm border border-rose-100"
+                                              >
+                                                <X className="w-4 h-4" />
+                                              </button>
+                                            </div>
                                           )}
-                                          {uploadStatus && (
-                                            <motion.div
-                                              initial={{ opacity: 0, y: 10 }}
-                                              animate={{ opacity: 1, y: 0 }}
-                                              className={`mt-4 p-4 rounded-2xl border flex items-center gap-3 ${
-                                                uploadStatus.type === "success"
-                                                  ? "bg-emerald-50 border-emerald-100 text-emerald-700"
-                                                  : "bg-rose-50 border-rose-100 text-rose-700"
-                                              }`}
-                                            >
-                                              {uploadStatus.type ===
-                                              "success" ? (
-                                                <CheckCircle2 className="w-5 h-5" />
-                                              ) : (
-                                                <AlertCircle className="w-5 h-5" />
-                                              )}
-                                              <span className="text-[10px] font-black uppercase tracking-wider">
-                                                {uploadStatus.message}
-                                              </span>
-                                            </motion.div>
-                                          )}
+                                        </div>
+
+                                        {/* Logo scale adjustment slider */}
+                                        <div className="space-y-2 pt-2 border-t border-gray-100">
+                                          <div className="flex justify-between items-center px-1">
+                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                                              Escala da Logomarca
+                                            </span>
+                                            <span className="text-xs font-mono font-black text-blue-900">
+                                              {logoScale.toFixed(1)}x
+                                            </span>
+                                          </div>
+                                          <input
+                                            type="range"
+                                            min="0.5"
+                                            max="1.8"
+                                            step="0.05"
+                                            value={logoScale}
+                                            onChange={(e) => setLogoScale(parseFloat(e.target.value))}
+                                            className="w-full accent-blue-900 cursor-pointer h-1.5 bg-gray-200 rounded-lg"
+                                          />
                                         </div>
                                       </div>
 
-                                      <div className="p-6 bg-blue-900 rounded-[32px] text-white shadow-xl shadow-blue-900/20">
-                                        <h5 className="font-bold text-sm mb-2">
-                                          Dica Pro
-                                        </h5>
-                                        <p className="text-blue-200 text-xs font-medium leading-relaxed">
-                                          Utilize logotipos em formato PNG com
-                                          fundo transparente para melhor
-                                          qualidade técnica no PDF final.
-                                        </p>
+                                      {/* 2. Ajustes de Assinatura */}
+                                      <div className="bg-gray-50/50 border border-gray-100 p-6 rounded-[32px] space-y-6">
+                                        <label className="text-[10px] font-black text-blue-900 uppercase tracking-[0.2em] block">
+                                          2. Ajustes da Assinatura Digital
+                                        </label>
+
+                                        <div className="space-y-4">
+                                          {/* Cargo da Assinatura */}
+                                          <div className="space-y-1">
+                                            <p className="text-[10px] font-bold text-gray-500 px-1">
+                                              Identificação / Cargo do Signatário
+                                            </p>
+                                            <input
+                                              type="text"
+                                              value={sigText}
+                                              onChange={(e) => setSigText(e.target.value)}
+                                              placeholder="Ex: DIRETORIA ADMINISTRATIVA"
+                                              className="w-full bg-white border border-gray-100 px-4 py-3 rounded-xl text-xs font-bold focus:border-blue-900 outline-none transition-all shadow-sm"
+                                            />
+                                          </div>
+
+                                          {/* Toggle Signature line */}
+                                          <label className="flex items-center gap-3 bg-white p-4 rounded-xl border border-gray-100 shadow-sm cursor-pointer hover:bg-gray-50 transition-all select-none">
+                                            <input
+                                              type="checkbox"
+                                              checked={showSigLine}
+                                              onChange={(e) => setShowSigLine(e.target.checked)}
+                                              className="w-4 h-4 text-blue-900 border-gray-300 rounded focus:ring-blue-900"
+                                            />
+                                            <div>
+                                              <p className="text-xs font-bold text-gray-900">
+                                                Exibir Linha de Assinatura
+                                              </p>
+                                              <p className="text-[10px] font-bold text-gray-400 mt-0.5">
+                                                Desenha uma linha fina horizontal acima do cargo.
+                                              </p>
+                                            </div>
+                                          </label>
+
+                                          {/* Signature Y Coordinate */}
+                                          <div className="space-y-2">
+                                            <div className="flex justify-between items-center px-1">
+                                              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                                                Posição Vertical (Y)
+                                              </span>
+                                              <span className="text-xs font-mono font-black text-blue-900">
+                                                {sigY} mm
+                                              </span>
+                                            </div>
+                                            <input
+                                              type="range"
+                                              min="170"
+                                              max="280"
+                                              step="1"
+                                              value={sigY}
+                                              onChange={(e) => setSigY(parseInt(e.target.value))}
+                                              className="w-full accent-blue-900 cursor-pointer h-1.5 bg-gray-200 rounded-lg"
+                                            />
+                                            <div className="flex justify-between text-[9px] font-bold text-gray-400 px-1">
+                                              <span>Meio da folha</span>
+                                              <span>Rodapé (Padrão: 250)</span>
+                                            </div>
+                                          </div>
+
+                                          {/* Signature X Coordinate */}
+                                          <div className="space-y-2">
+                                            <div className="flex justify-between items-center px-1">
+                                              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                                                Posição Horizontal (X)
+                                              </span>
+                                              <span className="text-xs font-mono font-black text-blue-900">
+                                                {sigX === 105 ? "105 mm (Centro)" : `${sigX} mm`}
+                                              </span>
+                                            </div>
+                                            <input
+                                              type="range"
+                                              min="40"
+                                              max="170"
+                                              step="1"
+                                              value={sigX}
+                                              onChange={(e) => setSigX(parseInt(e.target.value))}
+                                              className="w-full accent-blue-900 cursor-pointer h-1.5 bg-gray-200 rounded-lg"
+                                            />
+                                            <div className="flex justify-between text-[9px] font-bold text-gray-400 px-1">
+                                              <span>Esquerda</span>
+                                              <span>Centro (Padrão)</span>
+                                              <span>Direita</span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* 3. Dados do Destinatário */}
+                                      <div className="bg-gray-50/50 border border-gray-100 p-6 rounded-[32px] space-y-4">
+                                        <label className="text-[10px] font-black text-blue-900 uppercase tracking-[0.2em] block px-1">
+                                          3. Dados do Destinatário
+                                        </label>
+                                        <div className="space-y-3">
+                                          <div className="space-y-1">
+                                            <p className="text-[10px] font-bold text-gray-500 px-1">
+                                              Nome da Empresa
+                                            </p>
+                                            <input
+                                              type="text"
+                                              placeholder="Ex: Indústrias Metalúrgicas"
+                                              value={certForm.companyName}
+                                              onChange={(e) =>
+                                                setCertForm({
+                                                  ...certForm,
+                                                  companyName: e.target.value,
+                                                })
+                                              }
+                                              className="w-full bg-white border border-gray-100 px-4 py-3 rounded-xl text-xs font-bold focus:border-blue-900 outline-none transition-all shadow-sm"
+                                            />
+                                          </div>
+                                          <div className="space-y-1">
+                                            <p className="text-[10px] font-bold text-gray-500 px-1">
+                                              CNPJ
+                                            </p>
+                                            <input
+                                              type="text"
+                                              placeholder="00.000.000/0001-00"
+                                              value={certForm.cnpj}
+                                              onChange={(e) =>
+                                                setCertForm({
+                                                  ...certForm,
+                                                  cnpj: e.target.value,
+                                                })
+                                              }
+                                              className="w-full bg-white border border-gray-100 px-4 py-3 rounded-xl text-xs font-bold focus:border-blue-900 outline-none transition-all shadow-sm"
+                                            />
+                                          </div>
+                                          <div className="space-y-1">
+                                            <p className="text-[10px] font-bold text-gray-500 px-1">
+                                              Validade do Documento
+                                            </p>
+                                            <select
+                                              value={certForm.validity}
+                                              onChange={(e) =>
+                                                setCertForm({
+                                                  ...certForm,
+                                                  validity: e.target.value,
+                                                })
+                                              }
+                                              className="w-full bg-white border border-gray-100 px-4 py-3 rounded-xl text-xs font-bold focus:border-blue-900 outline-none transition-all shadow-sm cursor-pointer"
+                                            >
+                                              <option value="30 dias">30 dias corridos</option>
+                                              <option value="60 dias">60 dias corridos</option>
+                                              <option value="90 dias">90 dias corridos</option>
+                                              <option value="180 dias">180 dias corridos</option>
+                                            </select>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Final Export Buttons */}
+                                      <div className="grid grid-cols-2 gap-4 pt-4">
+                                        <button
+                                          onClick={() => generatePDF("certidao")}
+                                          disabled={isGeneratingCert}
+                                          className="bg-blue-900 text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex flex-col items-center justify-center gap-2 shadow-xl shadow-blue-900/10 active:scale-95 disabled:opacity-50"
+                                        >
+                                          <Printer className="w-5 h-5" />
+                                          <span>Gerar Certidão (PDF)</span>
+                                        </button>
+                                        <button
+                                          onClick={() => generatePDF("regularidade")}
+                                          disabled={isGeneratingCert}
+                                          className="bg-emerald-500 text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-600 transition-all flex flex-col items-center justify-center gap-2 shadow-xl shadow-emerald-500/10 active:scale-95 disabled:opacity-50"
+                                        >
+                                          <CheckCircle className="w-5 h-5" />
+                                          <span>Regularidade (PDF)</span>
+                                        </button>
                                       </div>
                                     </div>
 
-                                    <div className="space-y-6">
-                                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 block">
-                                        2. Dados do Destinatário
-                                      </label>
-                                      <div className="space-y-4">
-                                        <div className="space-y-1">
-                                          <p className="text-[10px] font-bold text-gray-400 px-4">
-                                            Nome da Empresa
-                                          </p>
-                                          <input
-                                            type="text"
-                                            placeholder="Ex: Indústrias Metalúrgicas"
-                                            value={certForm.companyName}
-                                            onChange={(e) =>
-                                              setCertForm({
-                                                ...certForm,
-                                                companyName: e.target.value,
-                                              })
-                                            }
-                                            className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl text-sm font-bold focus:bg-white focus:border-blue-900 outline-none transition-all shadow-sm"
-                                          />
+                                    {/* Right Column: Interactive Live PDF Sheet Preview */}
+                                    <div className="lg:col-span-7 bg-gray-50 rounded-[36px] p-6 sm:p-10 border border-gray-100/80 flex flex-col items-center justify-start min-h-[700px] relative">
+                                      <div className="w-full flex items-center justify-between mb-6 px-2">
+                                        <div className="flex items-center gap-2">
+                                          <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse" />
+                                          <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                                            Prévia Dinâmica Interativa (A4)
+                                          </span>
                                         </div>
-                                        <div className="space-y-1">
-                                          <p className="text-[10px] font-bold text-gray-400 px-4">
-                                            CNPJ
+                                        <span className="text-[9px] font-bold text-gray-400 bg-white border border-gray-100 px-3 py-1.5 rounded-full shadow-sm animate-pulse">
+                                          Ajuste Visual Direto Ativado
+                                        </span>
+                                      </div>
+
+                                      {/* Visual Adjustment Hint */}
+                                      <div className="w-full bg-blue-50/60 border border-blue-100/60 rounded-2xl p-4 mb-6 flex items-start gap-3">
+                                        <Info className="w-4.5 h-4.5 text-blue-600 shrink-0 mt-0.5" />
+                                        <div className="text-[11px] text-blue-900 font-semibold leading-relaxed">
+                                          <p className="font-bold">✨ Designer Visual Interativo Ativo!</p>
+                                          <p className="opacity-95 mt-0.5">
+                                            Arrastar elementos na folha atualiza as coordenadas do PDF final:
                                           </p>
-                                          <input
-                                            type="text"
-                                            placeholder="00.000.000/0001-00"
-                                            value={certForm.cnpj}
-                                            onChange={(e) =>
-                                              setCertForm({
-                                                ...certForm,
-                                                cnpj: e.target.value,
-                                              })
-                                            }
-                                            className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl text-sm font-bold focus:bg-white focus:border-blue-900 outline-none transition-all shadow-sm"
-                                          />
-                                        </div>
-                                        <div className="space-y-1">
-                                          <p className="text-[10px] font-bold text-gray-400 px-4">
-                                            Validade
-                                          </p>
-                                          <select
-                                            value={certForm.validity}
-                                            onChange={(e) =>
-                                              setCertForm({
-                                                ...certForm,
-                                                validity: e.target.value,
-                                              })
-                                            }
-                                            className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-2xl text-sm font-bold focus:bg-white focus:border-blue-900 outline-none transition-all shadow-sm cursor-pointer"
-                                          >
-                                            <option value="30 dias">
-                                              30 dias corridos
-                                            </option>
-                                            <option value="60 dias">
-                                              60 dias corridos
-                                            </option>
-                                            <option value="90 dias">
-                                              90 dias corridos
-                                            </option>
-                                            <option value="180 dias">
-                                              180 dias corridos
-                                            </option>
-                                          </select>
+                                          <ul className="list-disc pl-4 mt-1 space-y-0.5 opacity-90">
+                                            <li><strong className="font-bold">Assinatura:</strong> Clique e arraste o bloco de assinatura para mudar a posição (X, Y).</li>
+                                            <li><strong className="font-bold">Logotipo:</strong> Passe o mouse e use os botões <strong className="font-bold">[-] / [+]</strong> ou arraste a alça azul no canto do logotipo.</li>
+                                          </ul>
                                         </div>
                                       </div>
 
-                                      <div className="grid grid-cols-2 gap-4 pt-6">
-                                        <button
-                                          onClick={() =>
-                                            generatePDF("certidao")
-                                          }
-                                          disabled={isGeneratingCert}
-                                          className="bg-blue-900 text-white py-5 rounded-[24px] font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex flex-col items-center justify-center gap-2 shadow-2xl shadow-blue-900/10 active:scale-95 disabled:opacity-50"
+                                      {/* Paper Container representation */}
+                                      <div 
+                                        ref={paperRef}
+                                        className={`w-full max-w-[500px] xl:max-w-[540px] aspect-[1/1.414] bg-white rounded-md shadow-2xl relative border p-[5%] select-none overflow-hidden text-gray-900 font-sans transition-all ${
+                                          isDraggingSig || isResizingLogo 
+                                            ? "border-blue-400 ring-4 ring-blue-900/5 shadow-blue-900/10" 
+                                            : "border-gray-200/50"
+                                        }`}
+                                      >
+                                        {/* Background Watermark (mimics positive check) */}
+                                        <div className="absolute inset-0 pointer-events-none flex items-center justify-center overflow-hidden">
+                                          <span className="text-[6.5vw] lg:text-[2.2rem] font-bold text-blue-50/40 uppercase tracking-widest -rotate-45 font-mono select-none">
+                                            DOCUMENTO OFICIAL SINPA
+                                          </span>
+                                        </div>
+
+                                        {/* 1. Header Box */}
+                                        <div className="absolute left-[4.76%] top-[3.37%] width-[90.48%] height-[11.78%] border border-blue-900/80 rounded flex items-center p-3 select-none"
+                                             style={{ width: "90.48%", height: "11.78%" }}>
+                                          
+                                          {/* Logo inside header with Visual Interactive Scale handle & hover overlay */}
+                                          <div className="absolute left-[3.5%] group/logo border border-transparent hover:border-blue-400 hover:bg-blue-50/10 rounded transition-all cursor-pointer"
+                                               style={{
+                                                 top: `${((35 - 18 * logoScale) / 2 / 35) * 100}%`,
+                                                 width: `${(54 * logoScale / 190) * 100}%`,
+                                                 height: `${(18 * logoScale / 35) * 100}%`
+                                               }}>
+                                            {adminLogo ? (
+                                              <img
+                                                src={adminLogo}
+                                                className="w-full h-full object-contain"
+                                                alt="Sindicato Logo"
+                                              />
+                                            ) : (
+                                              <div className="w-full h-full bg-blue-50/70 text-blue-900 flex items-center justify-center font-black text-[9px] border border-blue-100 rounded tracking-widest p-1 uppercase text-center leading-none">
+                                                Sindicato Logo
+                                              </div>
+                                            )}
+
+                                            {/* Visual Resize Alça Handle (Bottom-Right corner of logo) */}
+                                            <div 
+                                              onMouseDown={(e) => {
+                                                e.stopPropagation();
+                                                e.preventDefault();
+                                                setIsResizingLogo(true);
+                                              }}
+                                              onTouchStart={(e) => {
+                                                e.stopPropagation();
+                                                setIsResizingLogo(true);
+                                              }}
+                                              className="absolute -bottom-1.5 -right-1.5 w-4 h-4 bg-blue-600 hover:bg-blue-800 rounded-full border-2 border-white shadow-md cursor-se-resize flex items-center justify-center group-hover/logo:scale-110 transition-all z-10"
+                                              title="Arraste para ajustar a escala da logomarca"
+                                            >
+                                              <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
+                                            </div>
+
+                                            {/* Scaling Toolbar overlay (Visible on logo hover) */}
+                                            <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-slate-900 text-white rounded-lg py-1 px-2 flex items-center gap-1.5 opacity-0 group-hover/logo:opacity-100 transition-opacity shadow-lg pointer-events-auto text-[9px] font-black z-20 whitespace-nowrap">
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setLogoScale(prev => Math.max(0.5, parseFloat((prev - 0.05).toFixed(2))));
+                                                }}
+                                                className="hover:bg-slate-700 px-1.5 py-0.5 rounded transition-all cursor-pointer text-xs"
+                                                title="Reduzir Logomarca"
+                                              >
+                                                -
+                                              </button>
+                                              <span className="font-mono text-gray-300 select-none text-[8.5px]">
+                                                {logoScale.toFixed(2)}x
+                                              </span>
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setLogoScale(prev => Math.min(1.8, parseFloat((prev + 0.05).toFixed(2))));
+                                                }}
+                                                className="hover:bg-slate-700 px-1.5 py-0.5 rounded transition-all cursor-pointer text-xs"
+                                                title="Aumentar Logomarca"
+                                              >
+                                                +
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          {/* Authenticity Box Next to Logo */}
+                                          <div className="absolute left-[36%] flex flex-col justify-center text-left" style={{ top: "10%" }}>
+                                            <p className="text-[8px] font-black text-gray-800 tracking-tight leading-none mb-1">
+                                              CONTROLE DE AUTENTICIDADE
+                                            </p>
+                                            <p className="text-[11px] font-black text-blue-900 leading-none mb-1">
+                                              SINPA-2026-894720
+                                            </p>
+                                            <p className="text-[7px] font-bold text-gray-400 tracking-tight leading-tight">
+                                              Autenticação: AQZ92KSJ0A
+                                            </p>
+                                            <p className="text-[6.5px] font-medium text-gray-400 mt-1">
+                                              Valide lendo o QR Code ao lado
+                                            </p>
+                                          </div>
+
+                                          {/* QR Code Graphic Placeholder */}
+                                          <div className="absolute right-[2.5%] top-[8%] h-[84%] aspect-square bg-gray-50 rounded border border-gray-200/60 p-1 flex items-center justify-center">
+                                            {/* Beautiful CSS vector QR code grid replica */}
+                                            <div className="w-full h-full bg-slate-950 p-1 flex flex-col justify-between rounded-sm relative">
+                                              {/* 3 anchor squares for realistic QR look */}
+                                              <div className="absolute top-1 left-1 w-3.5 h-3.5 bg-white p-0.5"><div className="w-full h-full bg-black border-2 border-white"></div></div>
+                                              <div className="absolute top-1 right-1 w-3.5 h-3.5 bg-white p-0.5"><div className="w-full h-full bg-black border-2 border-white"></div></div>
+                                              <div className="absolute bottom-1 left-1 w-3.5 h-3.5 bg-white p-0.5"><div className="w-full h-full bg-black border-2 border-white"></div></div>
+                                              {/* Random noise grid dots block */}
+                                              <div className="absolute bottom-1 right-1 w-3 h-3 bg-white"></div>
+                                              <div className="absolute inset-2 border-t border-dashed border-white/20"></div>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* 2. Title */}
+                                        <div className="absolute left-1/2 -translate-x-1/2 text-center text-blue-900 font-bold"
+                                             style={{ top: "21.89%", width: "80%" }}>
+                                          <h5 className="text-[11.5px] lg:text-[13px] tracking-tight uppercase leading-none font-black font-display text-blue-950">
+                                            {previewType === "certidao"
+                                              ? "CERTIDÃO SINDICAL DE REGULARIDADE"
+                                              : "DECLARAÇÃO DE REGULARIDADE SINDICAL"}
+                                          </h5>
+                                        </div>
+
+                                        {/* 3. Intro text */}
+                                        <div className="absolute text-gray-700 font-medium"
+                                             style={{ left: "9.52%", width: "80.95%", top: "28.62%", fontSize: "8.5px" }}>
+                                          O SINDICATO PATRONAL - SINPA BA, no uso de suas atribuições legais, certifica que a empresa:
+                                        </div>
+
+                                        {/* 4. Company Name and CNPJ */}
+                                        <div className="absolute text-center"
+                                             style={{ left: "5%", width: "90%", top: "33.67%" }}>
+                                          <p className="text-[11px] font-black text-gray-900 tracking-tight uppercase">
+                                            {certForm.companyName || "NOME DA EMPRESA DESTINATÁRIA LTDA"}
+                                          </p>
+                                          <p className="text-[9.5px] font-bold text-blue-900 mt-1">
+                                            CNPJ: {certForm.cnpj || "00.000.000/0001-00"}
+                                          </p>
+                                        </div>
+
+                                        {/* 5. Main Paragraph Content */}
+                                        <div className="absolute text-gray-700 leading-relaxed text-justify"
+                                             style={{ left: "9.52%", width: "80.95%", top: "42.5%", fontSize: "8px" }}>
+                                          {previewType === "certidao"
+                                            ? "Encontra-se devidamente registrada e em dia com suas obrigações sindicais perante esta entidade, estando plenamente apta a exercer suas atividades e participar de processos licitatórios que exijam prova de regularidade sindical."
+                                            : "Declaramos para os devidos fins que a referida empresa encontra-se em situação REGULAR perante este Sindicato, tendo quitado todas as contribuições assistenciais, confederativas e taxas previstas na CCT vigente."}
+                                        </div>
+
+                                        {/* 6. Validity details */}
+                                        <div className="absolute text-gray-600 font-bold space-y-1 text-left"
+                                             style={{ left: "9.52%", width: "80.95%", top: "57.24%", fontSize: "8px" }}>
+                                          <p>
+                                            Este documento eletrônico tem validade de{" "}
+                                            <span className="text-blue-900 font-black">{certForm.validity}</span>, a
+                                            contar de sua emissão.
+                                          </p>
+                                          <p className="text-gray-400 font-medium">
+                                            Data de Emissão: {new Date().toLocaleDateString("pt-BR")}
+                                          </p>
+                                        </div>
+
+                                        {/* 7. Draggable Signature Block */}
+                                        <div 
+                                          onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            setIsDraggingSig(true);
+                                          }}
+                                          onTouchStart={() => {
+                                            setIsDraggingSig(true);
+                                          }}
+                                          className={`absolute -translate-x-1/2 group/sig select-none cursor-move rounded-2xl transition-all ${
+                                            isDraggingSig 
+                                              ? "ring-2 ring-blue-500 bg-blue-500/5 px-6 py-4 -my-4 -mx-6 shadow-xl" 
+                                              : "hover:bg-blue-50/20 hover:ring-1 hover:ring-blue-300/40 hover:shadow-md px-4 py-3 -my-3 -mx-4"
+                                          }`}
+                                          style={{
+                                            left: `${(sigX / 210) * 100}%`,
+                                            top: `${(sigY / 297) * 100}%`,
+                                            width: "80%",
+                                            zIndex: 30
+                                          }}
                                         >
-                                          <Printer className="w-5 h-5" />
-                                          <span>Gerar Certidão</span>
-                                        </button>
-                                        <button
-                                          onClick={() =>
-                                            generatePDF("regularidade")
-                                          }
-                                          disabled={isGeneratingCert}
-                                          className="bg-emerald-500 text-white py-5 rounded-[24px] font-black text-[10px] uppercase tracking-widest hover:bg-emerald-600 transition-all flex flex-col items-center justify-center gap-2 shadow-2xl shadow-emerald-500/10 active:scale-95 disabled:opacity-50"
-                                        >
-                                          <CheckCircle className="w-5 h-5" />
-                                          <span>Regularidade</span>
-                                        </button>
+                                          {/* Visual alignment hint box overlay */}
+                                          <div className="absolute inset-0 border border-dashed border-transparent group-hover/sig:border-blue-400/60 rounded-xl pointer-events-none" />
+
+                                          {/* Signature Line inside signature group */}
+                                          {showSigLine && (
+                                            <div className="mx-auto h-px bg-gray-300 w-[53.5%] mb-2 pointer-events-none" />
+                                          )}
+
+                                          {/* Signature Label/Title */}
+                                          <div className="text-center font-black text-gray-800 leading-none whitespace-nowrap text-[7.5px] pointer-events-none uppercase">
+                                            {sigText.toUpperCase() || "DIRETORIA ADMINISTRATIVA"}
+                                          </div>
+
+                                          {/* Electronic Signature Disclaimers */}
+                                          <div className="text-center text-gray-400 font-medium whitespace-nowrap text-[5.5px] mt-1 pointer-events-none leading-[1.4]">
+                                            <p>Este documento foi gerado e assinado eletronicamente por SINPA BA. A sua autenticidade jurídica e validade</p>
+                                            <p className="mt-0.5">podem ser validadas lendo o QR Code acima ou acessando o portal oficial com os códigos de controle.</p>
+                                          </div>
+
+                                          {/* Coordinate Badge Tooltip */}
+                                          <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-blue-900 text-white text-[8px] font-black uppercase tracking-wider py-1 px-2.5 rounded-full shadow-lg opacity-0 group-hover/sig:opacity-100 transition-opacity flex items-center gap-1.5 whitespace-nowrap pointer-events-none z-40">
+                                            <Move className="w-2.5 h-2.5 animate-pulse" />
+                                            <span>Arraste para Ajustar (X: {sigX}mm, Y: {sigY}mm)</span>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Help tips below the preview */}
+                                      <div className="w-full mt-8 grid grid-cols-2 gap-4">
+                                        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-start gap-3">
+                                          <Sliders className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                                          <div>
+                                            <p className="text-[10px] font-black text-gray-900 uppercase">
+                                              Ajuste Dinâmico
+                                            </p>
+                                            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">
+                                              Os valores Y e X correspondem à posição exata em milímetros no PDF final.
+                                            </p>
+                                          </div>
+                                        </div>
+                                        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-start gap-3">
+                                          <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+                                          <div>
+                                            <p className="text-[10px] font-black text-gray-900 uppercase">
+                                              Homologação LGPD
+                                            </p>
+                                            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">
+                                              As coordenadas de assinatura e códigos de autenticação são criptografados.
+                                              </p>
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
