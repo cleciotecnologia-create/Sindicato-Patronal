@@ -64,6 +64,28 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["category", "question", "answer", "updatedAt"]
+    },
+    "LegalQuery": {
+      "title": "LegalQuery",
+      "description": "Legal query submitted by accountant",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "companyCNPJ": { "type": "string" },
+        "companyName": { "type": "string" },
+        "subject": { "type": "string" },
+        "question": { "type": "string" },
+        "category": { "type": "string" },
+        "urgency": { "type": "string" },
+        "assignedLawyer": { "type": "string" },
+        "assignedLawyerEmail": { "type": "string" },
+        "aiAnalysis": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "replied"] },
+        "replyText": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "companyCNPJ", "companyName", "subject", "question", "category", "urgency", "assignedLawyer", "assignedLawyerEmail", "aiAnalysis", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -86,6 +108,10 @@
     "/faq/{faqId}": {
       "schema": "FAQ",
       "description": "Collection of frequently asked questions"
+    },
+    "/plantao_juridico/{queryId}": {
+      "schema": "LegalQuery",
+      "description": "Collection of legal queries submitted to the Plantão Jurídico"
     }
   }
 }

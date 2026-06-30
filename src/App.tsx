@@ -71,6 +71,9 @@ import {
   Copy,
   RefreshCw,
   Database,
+  Scale,
+  Gavel,
+  AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { GoogleGenAI } from "@google/genai";
@@ -143,6 +146,97 @@ interface AIChatMessage {
 }
 
 const queryClient = new QueryClient();
+
+const getLogoPngBase64 = (logoUrl?: string): Promise<string> => {
+  return new Promise((resolve) => {
+    let svgString = "";
+    if (logoUrl && logoUrl.startsWith("data:image/svg+xml")) {
+      try {
+        if (logoUrl.includes(";base64,")) {
+          svgString = atob(logoUrl.split(";base64,")[1]);
+        } else {
+          svgString = decodeURIComponent(logoUrl.split("data:image/svg+xml,")[1] || "");
+        }
+      } catch (e) {
+        console.error("Error parsing SVG from logoUrl for reports", e);
+      }
+    }
+
+    if (!svgString) {
+      svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 550 180" width="550" height="180">
+        <defs>
+          <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#f1a80a" />
+            <stop offset="50%" stop-color="#df9d0c" />
+            <stop offset="100%" stop-color="#b57a00" />
+          </linearGradient>
+          <linearGradient id="blueGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#0059b3" />
+            <stop offset="100%" stop-color="#003366" />
+          </linearGradient>
+        </defs>
+        <g>
+          <g transform="translate(320, 10)">
+            <path d="M 0,90 C 20,70 60,30 140,28 C 120,42 90,55 70,72 C 100,65 140,68 160,40 C 120,70 70,78 0,110 Z" fill="url(#goldGradient)" />
+            <path d="M 0,90 C 35,78 80,68 130,62 C 90,70 50,90 10,102 Z" fill="url(#blueGradient)" />
+          </g>
+          <g transform="translate(20, 115)">
+            <text x="0" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="94" fill="#004899" letter-spacing="-4">Sinpa</text>
+            <text x="272" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="94" fill="#df9d0c" letter-spacing="-1">BA</text>
+          </g>
+          <text x="24" y="155" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="28" fill="#df9d0c" letter-spacing="1.2">Paulo Afonso e região</text>
+        </g>
+      </svg>`;
+    }
+
+    const img = new Image();
+    const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+    
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 550;
+      canvas.height = 180;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.clearRect(0, 0, 550, 180);
+        ctx.drawImage(img, 0, 0);
+      }
+      const dataUrl = canvas.toDataURL("image/png");
+      URL.revokeObjectURL(url);
+      resolve(dataUrl);
+    };
+    
+    img.onerror = () => {
+      resolve("");
+    };
+    
+    img.src = url;
+  });
+};
+
+const loadQrCodeAsBase64 = (payload: string): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width || 250;
+      canvas.height = img.height || 250;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      } else {
+        resolve("");
+      }
+    };
+    img.onerror = () => {
+      resolve("");
+    };
+    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(payload)}`;
+  });
+};
 
 interface CertificateRequest {
   id: string;
@@ -298,23 +392,25 @@ function LandingPage() {
     address: "",
   });
   const [isSubmittingMembership, setIsSubmittingMembership] = useState(false);
+  const sinpaSvgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 550 180" width="100%" height="100%"><defs><linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f1a80a" /><stop offset="50%" stop-color="#df9d0c" /><stop offset="100%" stop-color="#b57a00" /></linearGradient><linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#0059b3" /><stop offset="100%" stop-color="#003366" /></linearGradient><filter id="subtle-shadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.1"/></filter></defs><g filter="url(#subtle-shadow)"><g transform="translate(320, 10)"><path d="M 0,90 C 20,70 60,30 140,28 C 120,42 90,55 70,72 C 100,65 140,68 160,40 C 120,70 70,78 0,110 Z" fill="url(#goldGrad)" /><path d="M 0,90 C 35,78 80,68 130,62 C 90,70 50,90 10,102 Z" fill="url(#blueGrad)" /></g><g transform="translate(20, 115)"><text x="0" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="94" fill="#004899" letter-spacing="-4">Sinpa</text><text x="272" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="94" fill="#df9d0c" letter-spacing="-1">BA</text></g><text x="24" y="155" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="28" fill="#df9d0c" letter-spacing="1.2">Paulo Afonso e região</text></g></svg>`;
+  const defaultSinpaLogo = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(sinpaSvgString)));
+
   const [siteConfig, setSiteConfig] = useState({
-    primaryColor: "#1e3a8a", // blue-900
-    accentColor: "#fbbf24", // amber-400
+    primaryColor: "#004899", // Adjusted to the exact royal blue of the logo
+    accentColor: "#df9d0c", // Adjusted to the exact gold of the logo
     heroTitle: "O Futuro do Setor Patronal é Digital",
     heroSubtitle:
       "Soluções inteligentes, representatividade forte e benefícios exclusivos para empresas que transformam o amanhã.",
-    logoUrl:
-      "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=300&auto=format&fit=crop",
-    headerLogoWidth: 120,
-    footerLogoWidth: 100,
-    name: "Sindicato Patronal das Indústrias",
-    cnpj: "00.000.000/0001-00",
-    address: "Av. Industrial, 1000 - Centro, Salvador - BA",
-    phone: "(71) 3333-0000",
-    email: "contato@sindicato.org.br",
+    logoUrl: defaultSinpaLogo,
+    headerLogoWidth: 160,
+    footerLogoWidth: 140,
+    name: "SINPA BA - Sindicato Patronal de Paulo Afonso e Região",
+    cnpj: "30.145.289/0001-44",
+    address: "Rua das Indústrias, 450 - Centro, Paulo Afonso - BA",
+    phone: "(75) 3281-9988",
+    email: "contato@sinpaba.com.br",
     mission:
-      "Fortalecer o setor industrial através da representatividade e excelência em serviços.",
+      "Promover a integração, fortalecimento e desenvolvimento sustentável das empresas e indústrias da nossa região.",
   });
   const [jucebProcesses, setJucebProcesses] = useState([
     {
@@ -510,6 +606,15 @@ function LandingPage() {
 
   const [allBillings, setAllBillings] = useState<any[]>([]);
   const [isFetchingBillings, setIsFetchingBillings] = useState(false);
+  const [selectedBillingIds, setSelectedBillingIds] = useState<string[]>([]);
+  const [isBulkExporting, setIsBulkExporting] = useState(false);
+  const [showBulkEmailModal, setShowBulkEmailModal] = useState(false);
+  const [bulkEmailSubject, setBulkEmailSubject] = useState("SINPA BA - Envio de Mensalidade / Boleto de Contribuição");
+  const [bulkEmailBody, setBulkEmailBody] = useState(
+    "Prezado Associado,\n\nAnexo enviamos a guia de faturamento (Boleto / PIX) referente à sua mensalidade associativa do Sindicato Patronal SINPA BA.\n\nAgradecemos sua valiosa parceria para continuarmos fortalecendo e defendendo os interesses do setor.\n\nQualquer dúvida, responda a este e-mail ou entre em contato com nosso financeiro.\n\nAtenciosamente,\nSetor Financeiro - Sindicato Patronal SINPA BA"
+  );
+  const [isSendingBulkEmails, setIsSendingBulkEmails] = useState(false);
+  const [bulkEmailStep, setBulkEmailStep] = useState<string>("");
 
   const fetchBillings = async () => {
     setIsFetchingBillings(true);
@@ -662,6 +767,63 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       setIsSavingLgpd(false);
     }
   };
+
+  // --- SITE CONFIG PORTAL & LOGO QUERY ---
+  const { data: dbSiteConfig, refetch: refetchSiteConfig } = useQuery<any>({
+    queryKey: ["siteConfig"],
+    queryFn: async () => {
+      try {
+        const docRef = doc(db, "settings", "site_config");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          return docSnap.data();
+        }
+      } catch (err) {
+        console.error("Erro ao buscar configurações do portal (siteConfig):", err);
+      }
+      return null;
+    }
+  });
+
+  React.useEffect(() => {
+    if (dbSiteConfig) {
+      setSiteConfig((prev) => ({
+        ...prev,
+        ...dbSiteConfig,
+      }));
+    }
+  }, [dbSiteConfig]);
+
+  const [isSavingSiteConfig, setIsSavingSiteConfig] = useState(false);
+  const handleSaveSiteConfig = async () => {
+    setIsSavingSiteConfig(true);
+    try {
+      await setDoc(doc(db, "settings", "site_config"), {
+        primaryColor: siteConfig.primaryColor,
+        accentColor: siteConfig.accentColor,
+        heroTitle: siteConfig.heroTitle,
+        heroSubtitle: siteConfig.heroSubtitle,
+        logoUrl: siteConfig.logoUrl,
+        headerLogoWidth: siteConfig.headerLogoWidth,
+        footerLogoWidth: siteConfig.footerLogoWidth,
+        name: siteConfig.name,
+        cnpj: siteConfig.cnpj,
+        address: siteConfig.address,
+        phone: siteConfig.phone,
+        email: siteConfig.email,
+        mission: siteConfig.mission,
+        updatedAt: new Date().toISOString(),
+      });
+      showNotification("success", "Configurações visuais e logomarca do sindicato salvas com sucesso!");
+      refetchSiteConfig();
+    } catch (err) {
+      console.error("Erro ao salvar configurações do site:", err);
+      showNotification("error", "Erro ao salvar as configurações visuais no banco de dados.");
+    } finally {
+      setIsSavingSiteConfig(false);
+    }
+  };
+
   const [systemTime, setSystemTime] = useState(new Date());
   const [userRole, setUserRole] = useState<
     | "admin"
@@ -855,6 +1017,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       }
       if (adminSubTab === "billing") {
         fetchBillings();
+        fetchMembers();
       }
     }
   }, [activeDashboardTab, adminSubTab]);
@@ -1033,6 +1196,25 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
   const [faqs, setFaqs] = useState<any[]>([]);
   const [isGeneratingFAQ, setIsGeneratingFAQ] = useState(false);
 
+  // States for Plantão Jurídico
+  const [accountantTab, setAccountantTab] = useState<"services" | "legal">("services");
+  const [legalQueries, setLegalQueries] = useState<any[]>([]);
+  const [legalQueriesLoading, setLegalQueriesLoading] = useState(true);
+  const [isSubmittingQuery, setIsSubmittingQuery] = useState(false);
+  const [submittingQuerySuccess, setSubmittingQuerySuccess] = useState<string | null>(null);
+  const [selectedQueryForModal, setSelectedQueryForModal] = useState<any | null>(null);
+  const [submittingReplyId, setSubmittingReplyId] = useState<string | null>(null);
+  const [replyInputText, setReplyInputText] = useState("");
+  const [isSimulatingReplyId, setIsSimulatingReplyId] = useState<string | null>(null);
+
+  // New query form state
+  const [newQueryForm, setNewQueryForm] = useState({
+    companyCNPJ: "12.345.678/0001-99",
+    companyName: "Ind. Metalurgica Ltda",
+    subject: "",
+    question: "",
+  });
+
   const [globalMessage, setGlobalMessage] = useState<{
     type: "success" | "error" | "info";
     text: string;
@@ -1040,12 +1222,13 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
 
   const [showNotificationConfigModal, setShowNotificationConfigModal] =
     useState(false);
-  const [notifConfig, setNotifConfig] = useState({
+  const [notifConfig, setNotifConfig] = useState<any>({
     pushEnabled: true,
     emailEnabled: true,
     whatsappEnabled: true,
     leadTimeDays: 5,
     mobileNumber: "(71) 98765-4321",
+    preferredNotificationTime: "matutino",
   });
   const [simulatedPushNotification, setSimulatedPushNotification] =
     useState<any>(null);
@@ -1372,36 +1555,51 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
         isPositive = true;
       }
 
-      // Header
-      if (isPositive) {
-        doc.setFillColor(190, 24, 74); // Red/Rose for Positive Cert (Consta débitos)
-      } else {
-        doc.setFillColor(30, 58, 138); // Blue 900 for Negative/Regular Cert
-      }
-      doc.rect(0, 0, 210, 40, "F");
-
-      if (siteConfig.logoUrl) {
+      // Convert SVG to PNG if needed for jsPDF compatibility
+      let pdfLogo = siteConfig.logoUrl;
+      if (pdfLogo && pdfLogo.startsWith("data:image/svg+xml")) {
         try {
-          doc.addImage(siteConfig.logoUrl, "PNG", 15, 5, 30, 30);
+          const pngBase64 = await getLogoPngBase64(siteConfig.logoUrl);
+          if (pngBase64) {
+            pdfLogo = pngBase64;
+          }
+        } catch (error) {
+          console.warn("Error converting SVG to PNG for certificate PDF", error);
+        }
+      }
+
+      // Header layout
+      if (isPositive) {
+        doc.setDrawColor(190, 24, 74); // Red/Rose for Positive Cert
+      } else {
+        doc.setDrawColor(11, 67, 140); // Sinpa Blue
+      }
+      doc.setLineWidth(1);
+      doc.rect(10, 10, 190, 35);
+
+      if (pdfLogo) {
+        try {
+          doc.addImage(pdfLogo, "PNG", 15, 15, 54, 18);
         } catch (e) {
           console.warn("Could not add logo to PDF", e);
         }
       }
 
-      doc.setTextColor(255, 255, 255);
+      // Sindicato Text Header
+      doc.setTextColor(11, 67, 140); // Deep Blue
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(22);
-      doc.text("SINDICATO ID", siteConfig.logoUrl ? 120 : 105, 20, {
-        align: "center",
-      });
+      doc.setFontSize(20);
+      doc.text("SINPA BA", 135, 23, { align: "center" });
+
+      doc.setTextColor(230, 145, 0); // Gold
       doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.text("SINDICATO PATRONAL", 135, 29, { align: "center" });
+
+      doc.setTextColor(71, 85, 105); // Slate 600
+      doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
-      doc.text(
-        "SINDICATO DOS EMPREGADOS E TRABALHADORES - OFICIAL",
-        siteConfig.logoUrl ? 120 : 105,
-        30,
-        { align: "center" },
-      );
+      doc.text("Paulo Afonso e Região", 135, 35, { align: "center" });
 
       // Watermark content
       if (isPositive) {
@@ -1433,7 +1631,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       doc.setTextColor(40, 40, 40);
       doc.setFontSize(12);
       doc.text(
-        "O SINDICATO ID, no uso de suas atribuições legais, certifica que a empresa:",
+        "O SINDICATO PATRONAL - SINPA BA, no uso de suas atribuições legais, certifica que a empresa:",
         20,
         85,
       );
@@ -1504,6 +1702,184 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
   };
 
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [isGeneratingDelinquencyReport, setIsGeneratingDelinquencyReport] = useState(false);
+
+  const generateDelinquencyReport = async () => {
+    if (delinquentCompanies.length === 0) {
+      alert("Não há empresas inadimplentes registradas para gerar o relatório.");
+      return;
+    }
+
+    setIsGeneratingDelinquencyReport(true);
+    try {
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF();
+
+      // Convert SVG to PNG if needed for jsPDF compatibility
+      let pdfLogo = siteConfig.logoUrl;
+      if (pdfLogo && pdfLogo.startsWith("data:image/svg+xml")) {
+        try {
+          const pngBase64 = await getLogoPngBase64(siteConfig.logoUrl);
+          if (pngBase64) {
+            pdfLogo = pngBase64;
+          }
+        } catch (error) {
+          console.warn("Error converting SVG to PNG for delinquency report", error);
+        }
+      }
+
+      // Executive Header Layout
+      if (pdfLogo) {
+        try {
+          doc.addImage(pdfLogo, "PNG", 15, 10, 45, 15);
+        } catch (e) {
+          console.warn("Could not add logo to PDF", e);
+        }
+      }
+
+      doc.setTextColor(100, 116, 139); // Slate 500
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("SINPA BA - SINDICATO PATRONAL", 195, 14, { align: "right" });
+
+      doc.setTextColor(159, 18, 57); // Rose 700
+      doc.setFontSize(14);
+      doc.text("RELATÓRIO DE INADIMPLÊNCIA", 195, 20, { align: "right" });
+
+      doc.setTextColor(148, 163, 184); // Slate 400
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.text(
+        `Emitido em: ${new Date().toLocaleString("pt-BR")} | Responsável: ${currentUser?.email || "Administrador"}`,
+        195,
+        26,
+        { align: "right" }
+      );
+
+      // Divider Line
+      doc.setDrawColor(226, 232, 240); // Slate 200
+      doc.setLineWidth(0.5);
+      doc.line(15, 30, 195, 30);
+
+      // Summary Box
+      const totalCompanies = delinquentCompanies.length;
+      const totalDebt = delinquentCompanies.reduce((sum, c) => sum + (c.debt || 0), 0);
+      const avgDebt = totalDebt / totalCompanies;
+
+      doc.setFillColor(254, 242, 242); // Rose 50
+      doc.rect(15, 38, 180, 28, "F");
+      doc.setDrawColor(254, 205, 211); // Rose 200
+      doc.rect(15, 38, 180, 28);
+
+      doc.setTextColor(159, 18, 57); // Rose 700
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.text("TOTAL DE EMPRESAS INADIMPLENTES", 25, 46);
+      doc.text("MÉDIA DE DÉBITO POR ASSOCIADO", 85, 46);
+      doc.text("VALOR TOTAL EM ATRASO", 185, 46, { align: "right" });
+
+      doc.setTextColor(15, 23, 42); // Slate 900
+      doc.setFontSize(11);
+      doc.text(`${totalCompanies} Associados`, 25, 56);
+      doc.text(`R$ ${avgDebt.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, 85, 56);
+      doc.setTextColor(225, 29, 72); // Rose 600
+      doc.setFontSize(12);
+      doc.text(`R$ ${totalDebt.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, 185, 56, { align: "right" });
+
+      // Watermark Text
+      doc.setTextColor(254, 242, 242);
+      doc.setFontSize(45);
+      doc.text("RELATÓRIO DE DEVEDORES", 105, 160, { align: "center", angle: 45 });
+
+      // Table Header
+      let y = 80;
+      
+      const drawTableHeader = (pDoc: any, startY: number) => {
+        pDoc.setFillColor(254, 226, 226); // Rose 100
+        pDoc.rect(15, startY, 180, 8, "F");
+        pDoc.setTextColor(136, 19, 55); // Rose 800
+        pDoc.setFontSize(8);
+        pDoc.setFont("helvetica", "bold");
+        pDoc.text("RAZÃO SOCIAL / CNPJ DO ASSOCIADO", 20, startY + 5.5);
+        pDoc.text("MESES EM ATRASO", 120, startY + 5.5, { align: "center" });
+        pDoc.text("VALOR TOTAL EM ATRASO", 190, startY + 5.5, { align: "right" });
+      };
+
+      drawTableHeader(doc, y);
+      y += 8;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42); // Slate 900
+
+      delinquentCompanies.forEach((company, idx) => {
+        // Page overflow check
+        if (y > 265) {
+          doc.addPage();
+          y = 20;
+          drawTableHeader(doc, y);
+          y += 12;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.setTextColor(15, 23, 42);
+        }
+
+        const nameText = company.name || "Empresa sem Razão Social";
+        const truncatedName = nameText.length > 55 ? nameText.substring(0, 52) + "..." : nameText;
+        const subText = `CNPJ: ${company.cnpj || "N/A"}`;
+
+        doc.setFont("helvetica", "bold");
+        doc.text(truncatedName.toUpperCase(), 20, y + 4.5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(100, 116, 139); // Slate 500
+        doc.text(subText, 20, y + 8.5);
+        doc.setTextColor(15, 23, 42);
+
+        doc.text(`${company.months} meses`, 120, y + 6, { align: "center" });
+        
+        doc.setTextColor(225, 29, 72); // Rose 600
+        doc.setFont("helvetica", "bold");
+        doc.text(`R$ ${company.debt?.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) || "0,00"}`, 190, y + 6, { align: "right" });
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(15, 23, 42);
+
+        // Light bottom divider
+        doc.setDrawColor(241, 245, 249);
+        doc.line(15, y + 11, 195, y + 11);
+        y += 11;
+      });
+
+      // Signature section (page check first)
+      if (y > 240) {
+        doc.addPage();
+        y = 30;
+      } else {
+        y += 15;
+      }
+
+      doc.setDrawColor(203, 213, 225); // Slate 300
+      doc.line(25, y + 20, 95, y + 20);
+      doc.line(115, y + 20, 185, y + 20);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text("DIRETORIA FINANCEIRA / SINPA", 60, y + 25, { align: "center" });
+      doc.text("AUDITORIA INTERNA SINDICAL", 150, y + 25, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text("Este documento é de uso exclusivo da contabilidade e diretoria para controle de inadimplência.", 105, y + 35, { align: "center" });
+
+      doc.save(`relatorio_associados_inadimplentes_${Date.now()}.pdf`);
+      showNotification("success", "Relatório de associados inadimplentes exportado com sucesso!");
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao exportar o relatório de inadimplentes.");
+    } finally {
+      setIsGeneratingDelinquencyReport(false);
+    }
+  };
 
   const generateAccountingReport = async () => {
     if (allBillings.length === 0) {
@@ -1516,27 +1892,51 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       const { jsPDF } = await import("jspdf");
       const doc = new jsPDF();
 
-      // Report Header
-      doc.setFillColor(15, 23, 42); // Slate 900
-      doc.rect(0, 0, 210, 45, "F");
+      // Convert SVG to PNG if needed for jsPDF compatibility
+      let pdfLogo = siteConfig.logoUrl;
+      if (pdfLogo && pdfLogo.startsWith("data:image/svg+xml")) {
+        try {
+          const pngBase64 = await getLogoPngBase64(siteConfig.logoUrl);
+          if (pngBase64) {
+            pdfLogo = pngBase64;
+          }
+        } catch (error) {
+          console.warn("Error converting SVG to PNG for accounting report", error);
+        }
+      }
 
-      doc.setTextColor(255, 255, 255);
+      // Executive Header Layout
+      if (pdfLogo) {
+        try {
+          doc.addImage(pdfLogo, "PNG", 15, 10, 45, 15);
+        } catch (e) {
+          console.warn("Could not add logo to PDF", e);
+        }
+      }
+
+      doc.setTextColor(100, 116, 139); // Slate 500
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(18);
-      doc.text("SINDICATO ID - RELATÓRIO CONTÁBIL", 105, 18, { align: "center" });
-      
+      doc.setFontSize(10);
+      doc.text("SINPA BA - SINDICATO PATRONAL", 195, 14, { align: "right" });
+
+      doc.setTextColor(11, 67, 140); // Sinpa Blue 700
+      doc.setFontSize(14);
+      doc.text("RELATÓRIO FINANCEIRO CONTÁBIL", 195, 20, { align: "right" });
+
+      doc.setTextColor(148, 163, 184); // Slate 400
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.text("DEMONSTRATIVO DE MENSALIDADES E COBRANÇAS SOCIAIS", 105, 26, { align: "center" });
-      
-      doc.setTextColor(226, 232, 240); // Slate 200
-      doc.setFontSize(8);
+      doc.setFontSize(7.5);
       doc.text(
         `Emitido em: ${new Date().toLocaleString("pt-BR")} | Responsável: ${currentUser?.email || "Administrador"}`,
-        105,
-        36,
-        { align: "center" }
+        195,
+        26,
+        { align: "right" }
       );
+
+      // Divider Line
+      doc.setDrawColor(226, 232, 240); // Slate 200
+      doc.setLineWidth(0.5);
+      doc.line(15, 30, 195, 30);
 
       // Financial Summary Box
       const totalCount = allBillings.length;
@@ -1549,30 +1949,30 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       const totalAmount = totalPaid + totalPending;
 
       doc.setFillColor(248, 250, 252); // Gray 50
-      doc.rect(15, 55, 180, 28, "F");
+      doc.rect(15, 38, 180, 28, "F");
       doc.setDrawColor(226, 232, 240); // Slate 200
-      doc.rect(15, 55, 180, 28);
+      doc.rect(15, 38, 180, 28);
 
       doc.setTextColor(71, 85, 105); // Slate 600
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
-      doc.text("TOTAL DE LANÇAMENTOS", 25, 63);
-      doc.text("MENSALIDADES LIQUIDADAS", 75, 63);
-      doc.text("MENSALIDADES EM ABERTO", 128, 63);
-      doc.text("VALOR TOTAL ACUMULADO", 178, 63, { align: "right" });
+      doc.text("TOTAL DE LANÇAMENTOS", 25, 46);
+      doc.text("MENSALIDADES LIQUIDADAS", 75, 46);
+      doc.text("MENSALIDADES EM ABERTO", 128, 46);
+      doc.text("VALOR TOTAL ACUMULADO", 178, 46, { align: "right" });
 
       doc.setTextColor(15, 23, 42); // Slate 900
       doc.setFontSize(12);
-      doc.text(`${totalCount}`, 25, 73);
+      doc.text(`${totalCount}`, 25, 56);
       doc.setTextColor(16, 185, 129); // Emerald 500
-      doc.text(`R$ ${totalPaid.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, 75, 73);
+      doc.text(`R$ ${totalPaid.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, 75, 56);
       doc.setTextColor(245, 158, 11); // Amber 500
-      doc.text(`R$ ${totalPending.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, 128, 73);
+      doc.text(`R$ ${totalPending.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, 128, 56);
       doc.setTextColor(30, 58, 138); // Blue 900
-      doc.text(`R$ ${totalAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, 178, 73, { align: "right" });
+      doc.text(`R$ ${totalAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, 178, 56, { align: "right" });
 
       // Table Header
-      let y = 98;
+      let y = 80;
       
       const drawTableHeader = (pDoc: any, startY: number) => {
         pDoc.setFillColor(241, 245, 249); // Slate 100
@@ -1664,6 +2064,351 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       alert("Erro ao exportar o relatório contábil.");
     } finally {
       setIsGeneratingReport(false);
+    }
+  };
+
+  const generateBoletosPDF = async (billsToExport: any[]) => {
+    if (billsToExport.length === 0) {
+      showNotification("info", "Selecione pelo menos um boleto para exportar.");
+      return;
+    }
+
+    setIsBulkExporting(true);
+    try {
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+      });
+
+      let pdfLogo = siteConfig.logoUrl;
+      if (pdfLogo && pdfLogo.startsWith("data:image/svg+xml")) {
+        try {
+          const pngBase64 = await getLogoPngBase64(siteConfig.logoUrl);
+          if (pngBase64) {
+            pdfLogo = pngBase64;
+          }
+        } catch (error) {
+          console.warn("Error converting SVG to PNG for boletos", error);
+        }
+      }
+
+      // We'll iterate through each bill and render it as a full-page invoice/slip
+      for (let i = 0; i < billsToExport.length; i++) {
+        if (i > 0) {
+          doc.addPage();
+        }
+
+        const bill = billsToExport[i];
+        
+        // Setup values
+        const idStr = String(bill.id || "000000").substring(0, 8).toUpperCase();
+        const memberName = (bill.memberName || "Associado Sindicato").toUpperCase();
+        const amountNum = bill.amount || 150.00;
+        const amountStr = `R$ ${amountNum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        
+        let dueDateStr = "";
+        if (bill.dueDate) {
+          dueDateStr = bill.dueDate instanceof Timestamp
+            ? bill.dueDate.toDate().toLocaleDateString("pt-BR")
+            : bill.dueDate;
+        } else if (bill.venc) {
+          dueDateStr = bill.venc;
+        } else {
+          const nextMonth = new Date();
+          nextMonth.setMonth(nextMonth.getMonth() + 1);
+          nextMonth.setDate(15);
+          dueDateStr = nextMonth.toLocaleDateString("pt-BR");
+        }
+
+        const emissionDateStr = new Date().toLocaleDateString("pt-BR");
+
+        // Top Margins
+        const startY = 15;
+
+        // 1. Draw Header
+        // Add logo
+        if (pdfLogo) {
+          try {
+            doc.addImage(pdfLogo, "PNG", 15, startY, 35, 12);
+          } catch (e) {
+            console.warn("Could not add logo", e);
+          }
+        }
+
+        // Bank Divider & Information
+        doc.setDrawColor(15, 23, 42); // Navy/Slate 900
+        doc.setLineWidth(0.8);
+        doc.line(55, startY, 55, startY + 12); // Vertical bank line
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.setTextColor(15, 23, 42);
+        doc.text("Banco do Brasil", 58, startY + 8);
+        
+        // Bank Code (001-9)
+        doc.setLineWidth(0.5);
+        doc.rect(100, startY + 2, 18, 8);
+        doc.setFontSize(11);
+        doc.text("001-9", 109, startY + 7.5, { align: "center" });
+
+        // Line code (linha digitavel)
+        doc.setFont("courier", "bold");
+        doc.setFontSize(8.5);
+        const digitableLine = `00190.00009  01234.567890  01234.567890  1  97530000150000`;
+        doc.text(digitableLine, 122, startY + 7);
+
+        // 2. Draw Table Fields
+        let tableY = startY + 18;
+        
+        // Main Box Outer Border
+        doc.setDrawColor(148, 163, 184); // Slate 400
+        doc.setLineWidth(0.3);
+        doc.rect(15, tableY, 180, 105);
+
+        // Grid lines (Horizontal)
+        doc.line(15, tableY + 10, 195, tableY + 10);
+        doc.line(15, tableY + 20, 195, tableY + 20);
+        doc.line(15, tableY + 30, 195, tableY + 30);
+        doc.line(15, tableY + 40, 195, tableY + 40);
+        doc.line(15, tableY + 85, 195, tableY + 85);
+
+        // Grid lines (Verticals)
+        doc.line(145, tableY, 145, tableY + 40); // Vertical right sidebar for values
+        doc.line(145, tableY + 40, 145, tableY + 85); // Vertical right sidebar for money fields
+
+        // Sub verticals
+        doc.line(45, tableY + 20, 45, tableY + 30);  // Data Doc
+        doc.line(80, tableY + 20, 80, tableY + 30);  // Num Doc
+        doc.line(100, tableY + 20, 100, tableY + 30); // Especie Doc
+        doc.line(115, tableY + 20, 115, tableY + 30); // Aceite
+        doc.line(15, tableY + 30, 195, tableY + 30);
+        
+        doc.line(45, tableY + 30, 45, tableY + 40);  // Uso do banco / carteira / moeda
+        doc.line(80, tableY + 30, 80, tableY + 40);
+        doc.line(115, tableY + 30, 115, tableY + 40);
+
+        // Fill Texts & Field Titles
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(6);
+        doc.setTextColor(100, 116, 139); // Slate 500
+
+        // Field labels
+        doc.text("LOCAL DE PAGAMENTO", 17, tableY + 3);
+        doc.text("BENEFICIÁRIO", 17, tableY + 13);
+        doc.text("DATA DO DOCUMENTO", 17, tableY + 23);
+        doc.text("Nº DO DOCUMENTO", 47, tableY + 23);
+        doc.text("ESPÉCIE DOC.", 82, tableY + 23);
+        doc.text("ACEITE", 102, tableY + 23);
+        doc.text("DATA PROCESSAMENTO", 117, tableY + 23);
+        
+        doc.text("USO DO BANCO", 17, tableY + 33);
+        doc.text("CARTEIRA", 47, tableY + 33);
+        doc.text("MOEDA", 82, tableY + 33);
+        doc.text("VALOR MOEDA", 117, tableY + 33);
+
+        doc.text("INSTRUÇÕES (Mensagens de responsabilidade do Beneficiário)", 17, tableY + 43);
+
+        doc.text("PAGADOR", 17, tableY + 88);
+
+        // Sidebar Labels (Right col)
+        doc.text("VENCIMENTO", 147, tableY + 3);
+        doc.text("AGÊNCIA / CÓDIGO BENEFICIÁRIO", 147, tableY + 13);
+        doc.text("NOSSO NÚMERO", 147, tableY + 23);
+        doc.text("(=) VALOR DO DOCUMENTO", 147, tableY + 33);
+        
+        doc.text("(-) DESCONTO / ABATIMENTO", 147, tableY + 43);
+        doc.text("(+) MULTA / JUROS", 147, tableY + 53);
+        doc.text("(=) VALOR COBRADO", 147, tableY + 78);
+
+        // Fill Values (Content)
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(15, 23, 42); // Dark Navy 900
+
+        doc.text("Pagável em qualquer banco até o vencimento.", 17, tableY + 7);
+        doc.setFont("helvetica", "bold");
+        doc.text("SINPA BA - SINDICATO PATRONAL (CNPJ: 12.345.678/0001-90)", 17, tableY + 17);
+        doc.text(dueDateStr, 147, tableY + 7);
+        doc.text("1234-5 / 123456-7", 147, tableY + 17);
+        
+        doc.setFont("helvetica", "normal");
+        doc.text(emissionDateStr, 17, tableY + 27);
+        doc.text(`FT-${idStr}`, 47, tableY + 27);
+        doc.text("DM", 82, tableY + 27);
+        doc.text("N", 102, tableY + 27);
+        doc.text(emissionDateStr, 117, tableY + 27);
+        doc.text(`17/99283-${idStr}`, 147, tableY + 27);
+
+        doc.text("BB-COB", 17, tableY + 37);
+        doc.text("17 (Sem Registro)", 47, tableY + 37);
+        doc.text("R$", 82, tableY + 37);
+        doc.text("REAL", 117, tableY + 37);
+        
+        doc.setFont("helvetica", "bold");
+        doc.text(amountStr, 147, tableY + 37);
+        doc.setFont("helvetica", "normal");
+
+        doc.text("-", 147, tableY + 47);
+        doc.text("-", 147, tableY + 57);
+        doc.setFont("helvetica", "bold");
+        doc.text(amountStr, 147, tableY + 82);
+        doc.setFont("helvetica", "normal");
+
+        // Instructions
+        let instrY = tableY + 48;
+        doc.setFontSize(8);
+        doc.text("• CONTRIBUIÇÃO MENSAL ASSOCIATIVA SINDICAL - EXERCÍCIO 2026.", 17, instrY);
+        doc.text("• NÃO RECEBER APÓS 30 DIAS DO VENCIMENTO.", 17, instrY + 5);
+        doc.text("• APÓS VENCIMENTO COBRAR MULTA DE 2% E JUROS DE MORA DE 1% AO MÊS.", 17, instrY + 10);
+        doc.text("• ATENÇÃO ASSOCIADO: MANTENHA SUAS CONTRIBUIÇÕES EM DIA PARA USUFRUIR DOS BENEFÍCIOS.", 17, instrY + 15);
+        doc.setFont("helvetica", "bold");
+        doc.text("• PAGUE COM PIX ESCANEANDO O QR CODE ABAIXO PARA LIQUIDAÇÃO IMEDIATA.", 17, instrY + 22);
+        doc.setFont("helvetica", "normal");
+
+        // Pagador details
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        doc.text(memberName, 17, tableY + 93);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.text("Endereço: CADASTRO GERAL DE ASSOCIADOS - SALVADOR / BA", 17, tableY + 98);
+        doc.text("Sacador/Avalista: SINPA BA - SINDICATO PATRONAL DE PANIFICAÇÃO DA BAHIA", 17, tableY + 103);
+
+        // 3. Dashed Cut Line
+        const cutY = tableY + 115;
+        doc.setDrawColor(100, 116, 139);
+        doc.setLineDashPattern([2, 2], 0);
+        doc.line(15, cutY, 195, cutY);
+        doc.setLineDashPattern([], 0); // Reset dash
+
+        doc.setFont("helvetica", "oblique");
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text("Recibo do Pagador - Destaque na linha pontilhada acima para arquivo ou pagamento", 105, cutY + 4, { align: "center" });
+
+        // 4. Bottom Section - PIX QR Code & Barcode
+        const bottomY = cutY + 10;
+        
+        // PIX Box
+        doc.setDrawColor(226, 232, 240); // Light gray border
+        doc.setFillColor(248, 250, 252); // extremely light slate 50
+        doc.roundedRect(15, bottomY, 80, 48, 4, 4, "FD");
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(11, 67, 140); // SINPA blue
+        doc.text("PAGAMENTO VIA PIX (LIQUIDAÇÃO RÁPIDA)", 20, bottomY + 6);
+        
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text("Utilize o QR Code ao lado para pagar", 20, bottomY + 12);
+        doc.text("usando seu aplicativo bancário preferido.", 20, bottomY + 15);
+        doc.text("Vantagens do PIX:", 20, bottomY + 20);
+        doc.text("- Homologação automática e rápida", 20, bottomY + 24);
+        doc.text("- Sem tarifas de emissão de boletos", 20, bottomY + 28);
+        doc.text("- Baixa instantânea no sistema SINPA", 20, bottomY + 32);
+
+        // Dynamically generated QR Code from api.qrserver.com via our base64 loader
+        const pixPayload = generatePixPayload(amountStr, String(bill.id || bill.doc));
+        try {
+          const qrBase64 = await loadQrCodeAsBase64(pixPayload);
+          if (qrBase64) {
+            doc.addImage(qrBase64, "PNG", 58, bottomY + 10, 32, 32);
+          } else {
+            // Draw a mock QR Code placeholder if load fails
+            doc.setDrawColor(203, 213, 225);
+            doc.setFillColor(255, 255, 255);
+            doc.rect(58, bottomY + 10, 32, 32, "FD");
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(6);
+            doc.setTextColor(148, 163, 184);
+            doc.text("[QR CODE]", 74, bottomY + 24, { align: "center" });
+            doc.text("PIX ATIVO", 74, bottomY + 28, { align: "center" });
+          }
+        } catch (qrErr) {
+          console.warn("Could not load QR code image for PDF", qrErr);
+        }
+
+        // Barcode Simulation Box (Right side of bottom area)
+        // Draw a neat barcode representational section
+        const barcodeX = 105;
+        const barcodeY = bottomY + 5;
+        
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(71, 85, 105);
+        doc.text("CÓDIGO DE BARRAS FEBRABAN", barcodeX, bottomY + 3);
+
+        doc.setFont("courier", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(15, 23, 42);
+        const codeNum = `00199.75301 00001.500002 99283.000004 1 97530000015000`;
+        doc.text(codeNum, barcodeX, bottomY + 42);
+
+        // Draw individual vertical lines of random widths to simulate a real, high-quality barcode!
+        doc.setFillColor(15, 23, 42); // Pure black lines
+        let currentBarX = barcodeX;
+        const barcodeWidths = [1, 2.5, 0.5, 1.5, 0.5, 2, 1, 0.5, 2.5, 1.5, 0.5, 1, 2, 0.5, 1.5, 2.5, 0.5, 1, 0.5, 2, 1, 1.5, 0.5, 2.5, 0.5, 1.5, 2, 1, 0.5, 2.5, 1.5, 0.5, 1, 2, 0.5, 1.5, 2.5, 0.5, 1, 0.5, 2, 1, 1.5, 0.5, 2.5, 0.5, 1.5, 2];
+        
+        for (let bIdx = 0; bIdx < barcodeWidths.length; bIdx++) {
+          const w = barcodeWidths[bIdx] * 0.45; // scale width down a bit
+          doc.rect(currentBarX, barcodeY, w, 30, "F");
+          currentBarX += w + (bIdx % 3 === 0 ? 0.8 : 0.4); // spacer
+        }
+      }
+
+      // Save PDF
+      const pdfFileName = billsToExport.length === 1 
+        ? `boleto_${billsToExport[0].memberName?.replace(/\s+/g, "_").toLowerCase() || "faturamento"}_${Date.now()}.pdf`
+        : `lote_boletos_${Date.now()}.pdf`;
+      
+      doc.save(pdfFileName);
+      showNotification("success", `${billsToExport.length} boleto(s) exportado(s) em PDF com sucesso!`);
+    } catch (err) {
+      console.error("Error exporting boletos PDF:", err);
+      showNotification("error", "Erro ao exportar boletos em PDF.");
+    } finally {
+      setIsBulkExporting(false);
+    }
+  };
+
+  const getMemberEmail = (bill: any) => {
+    if (bill.email) return bill.email;
+    const member = members.find((m) => m.id === bill.memberId);
+    return member?.email || "financeiro@associado.org.br";
+  };
+
+  const sendBulkEmailsSimulation = async (billsToSend: any[]) => {
+    setIsSendingBulkEmails(true);
+    try {
+      setBulkEmailStep("Gerando e preparando as guias de faturamento em formato PDF...");
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      
+      setBulkEmailStep("Configurando conexões de e-mail seguras...");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      for (let i = 0; i < billsToSend.length; i++) {
+        const b = billsToSend[i];
+        const email = getMemberEmail(b);
+        setBulkEmailStep(`Enviando e-mail com guia anexa para ${b.memberName || "Associado"} (${email})...`);
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+      }
+
+      setBulkEmailStep("Registrando logs de envio de mensalidades em lote...");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      showNotification("success", `Lote de ${billsToSend.length} e-mail(s) com cobranças anexas enviado com sucesso!`);
+      setShowBulkEmailModal(false);
+      setSelectedBillingIds([]);
+    } catch (error) {
+      console.error(error);
+      showNotification("error", "Erro ao realizar o envio em lote por e-mail.");
+    } finally {
+      setIsSendingBulkEmails(false);
+      setBulkEmailStep("");
     }
   };
   const { data: adminList, refetch: refetchAdmins } = useQuery({
@@ -1831,6 +2576,21 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
     },
     enabled: !!currentUser,
   });
+
+  // Synchronize notification config with member profile preferences from Firestore
+  React.useEffect(() => {
+    if (memberProfile) {
+      setNotifConfig((prev: any) => ({
+        ...prev,
+        pushEnabled: memberProfile.pushEnabled !== undefined ? memberProfile.pushEnabled : true,
+        emailEnabled: memberProfile.emailEnabled !== undefined ? memberProfile.emailEnabled : true,
+        whatsappEnabled: memberProfile.whatsappEnabled !== undefined ? memberProfile.whatsappEnabled : true,
+        leadTimeDays: memberProfile.leadTimeDays || 5,
+        mobileNumber: memberProfile.mobileNumber || memberProfile.phone || "(71) 98765-4321",
+        preferredNotificationTime: memberProfile.preferredNotificationTime || "matutino",
+      }));
+    }
+  }, [memberProfile]);
 
   // Load bank settings from Firestore
   const { data: dbBankDetails, refetch: refetchBankDetails } = useQuery({
@@ -2307,6 +3067,191 @@ Para corrigir:
 
     return () => unsubscribe();
   }, []);
+
+  // Subscription effect for Plantão Jurídico legal queries
+  React.useEffect(() => {
+    if (!currentUser) {
+      setLegalQueries([]);
+      setLegalQueriesLoading(false);
+      return;
+    }
+
+    setLegalQueriesLoading(true);
+    let q;
+    if (isAdmin) {
+      q = query(collection(db, "plantao_juridico"));
+    } else {
+      q = query(
+        collection(db, "plantao_juridico"),
+        where("userId", "==", currentUser.uid)
+      );
+    }
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const docs = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          const createdAtDate = data.createdAt?.toDate() || new Date();
+          return {
+            id: doc.id,
+            ...data,
+            dateObject: createdAtDate,
+            dateStr: data.createdAt?.toDate()
+              ? data.createdAt.toDate().toLocaleString("pt-BR")
+              : new Date().toLocaleString("pt-BR"),
+          };
+        });
+        // Sort client-side to avoid Firestore composite index requirement
+        docs.sort((a, b) => b.dateObject.getTime() - a.dateObject.getTime());
+        setLegalQueries(docs);
+        setLegalQueriesLoading(false);
+      },
+      (error) => {
+        console.warn("Error loading legal queries:", error);
+        setLegalQueriesLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentUser, isAdmin]);
+
+  // Methods for Plantão Jurídico
+  const submitLegalQuery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newQueryForm.subject.trim() || !newQueryForm.question.trim()) {
+      showNotification("error", "Por favor, preencha o assunto e a descrição da sua dúvida.");
+      return;
+    }
+
+    setIsSubmittingQuery(true);
+    setSubmittingQuerySuccess(null);
+
+    try {
+      // 1. Call custom Express API to classify, route, and analyze question using Gemini 3.5-flash
+      const res = await fetch("/api/plantao/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: newQueryForm.question }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Erro na comunicação com o servidor de Inteligência Artificial.");
+      }
+
+      const aiData = await res.json();
+      if (aiData.error) throw new Error(aiData.error);
+
+      // 2. Add document to Firestore using collection() and addDoc()
+      const newDoc = {
+        userId: currentUser?.uid || "anonymous",
+        userName: currentUser?.displayName || currentUser?.email || "Contador Parceiro",
+        companyCNPJ: newQueryForm.companyCNPJ,
+        companyName: newQueryForm.companyName,
+        subject: newQueryForm.subject,
+        question: newQueryForm.question,
+        category: aiData.category || "Geral",
+        urgency: aiData.urgency || "Baixa",
+        assignedLawyer: aiData.assignedLawyer || "Dr. Roberto Santos",
+        assignedLawyerEmail: aiData.assignedLawyerEmail || "roberto.santos@sinpa.org.br",
+        aiAnalysis: aiData.aiAnalysis || "Sem análise prévia disponível.",
+        status: "pending",
+        createdAt: serverTimestamp(),
+      };
+
+      try {
+        await addDoc(collection(db, "plantao_juridico"), newDoc);
+      } catch (fsErr: any) {
+        handleFirestoreError(fsErr, OperationType.CREATE, "plantao_juridico");
+      }
+
+      setSubmittingQuerySuccess(aiData.assignedLawyer);
+      setNewQueryForm((prev) => ({
+        ...prev,
+        subject: "",
+        question: "",
+      }));
+      showNotification("success", `Dúvida enviada com sucesso! Roteada para ${aiData.assignedLawyer}.`);
+    } catch (err: any) {
+      console.error("Error submitting legal query:", err);
+      showNotification("error", `Falha ao enviar dúvida jurídica: ${err.message}`);
+    } finally {
+      setIsSubmittingQuery(false);
+    }
+  };
+
+  const simulateLawyerReply = async (queryId: string, question: string, lawyerName: string) => {
+    setIsSimulatingReplyId(queryId);
+    try {
+      const res = await fetch("/api/plantao/simulate-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question, lawyerName }),
+      });
+
+      if (!res.ok) throw new Error("Erro de comunicação com o servidor de IA.");
+
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      // Update in Firestore
+      const queryRef = doc(db, "plantao_juridico", queryId);
+      try {
+        await updateDoc(queryRef, {
+          status: "replied",
+          replyText: data.replyText,
+        });
+        showNotification("success", `Parecer formal emitido por ${lawyerName} com sucesso!`);
+        if (selectedQueryForModal?.id === queryId) {
+          setSelectedQueryForModal((prev: any) => ({
+            ...prev,
+            status: "replied",
+            replyText: data.replyText,
+          }));
+        }
+      } catch (fsErr: any) {
+        handleFirestoreError(fsErr, OperationType.UPDATE, `plantao_juridico/${queryId}`);
+      }
+    } catch (err: any) {
+      console.error("Error simulating reply:", err);
+      showNotification("error", `Falha ao emitir parecer: ${err.message}`);
+    } finally {
+      setIsSimulatingReplyId(null);
+    }
+  };
+
+  const submitAdminReply = async (queryId: string) => {
+    if (!replyInputText.trim()) {
+      showNotification("error", "Por favor, digite a resposta para emitir o parecer.");
+      return;
+    }
+    setSubmittingReplyId(queryId);
+    try {
+      const queryRef = doc(db, "plantao_juridico", queryId);
+      try {
+        await updateDoc(queryRef, {
+          status: "replied",
+          replyText: replyInputText,
+        });
+        showNotification("success", "Parecer jurídico emitido com sucesso!");
+        setReplyInputText("");
+        if (selectedQueryForModal?.id === queryId) {
+          setSelectedQueryForModal((prev: any) => ({
+            ...prev,
+            status: "replied",
+            replyText: replyInputText,
+          }));
+        }
+      } catch (fsErr: any) {
+        handleFirestoreError(fsErr, OperationType.UPDATE, `plantao_juridico/${queryId}`);
+      }
+    } catch (err: any) {
+      console.error("Error sending admin reply:", err);
+      showNotification("error", "Erro ao gravar parecer: " + err.message);
+    } finally {
+      setSubmittingReplyId(null);
+    }
+  };
 
   const markAsRead = (id: string) => {
     if (id.startsWith("dynamic-boleto-")) {
@@ -2997,7 +3942,7 @@ Para corrigir:
                   const userInitials = (u.displayName || "U").substring(0, 2).toUpperCase();
                   return (
                     <motion.div
-                      key={u.id || i}
+                      key={u.id ? `pending-user-${u.id}-${i}` : `pending-user-idx-${i}`}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       className="bg-white border border-amber-100/50 rounded-2xl p-5 shadow-sm space-y-4 hover:shadow-md transition-all relative overflow-hidden"
@@ -3090,7 +4035,7 @@ Para corrigir:
                     const registrationDate = user.createdAt ? new Date(user.createdAt).toLocaleDateString("pt-BR") : "Não Informado";
                     
                     return (
-                      <tr key={user.id || index} className="hover:bg-gray-50/50 transition-colors group">
+                      <tr key={user.id ? `user-row-${user.id}-${index}` : `user-row-idx-${index}`} className="hover:bg-gray-50/50 transition-colors group">
                         <td className="px-8 py-6">
                           <div className="flex items-center gap-4">
                             <div className="w-11 h-11 bg-blue-900 text-amber-400 rounded-xl flex items-center justify-center font-black text-sm shadow-sm ring-2 ring-blue-500/10">
@@ -3267,23 +4212,25 @@ Para corrigir:
               </div>
 
               {/* Interactive Virtual Card */}
-              <div className="relative rounded-3xl bg-gradient-to-br from-blue-950 via-blue-900 to-amber-950 text-white p-8 shadow-2xl overflow-hidden border border-white/10">
+              <div className="relative rounded-3xl bg-gradient-to-br from-[#003366] to-[#001f3f] text-white p-8 shadow-2xl overflow-hidden border border-[#df9d0c]/30">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-amber-400/5 rounded-full blur-3xl -translate-y-20 translate-x-20" />
                 <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl translate-y-20 -translate-x-20" />
 
-                <div className="flex justify-between items-start mb-10">
-                  <div>
+                <div className="flex justify-between items-center mb-10 pb-6 border-b border-white/10">
+                  <div className="bg-white py-1.5 px-4 h-12 rounded-xl inline-flex items-center justify-center shadow-md border border-[#df9d0c]/20">
+                    <img
+                      src={siteConfig.logoUrl || defaultSinpaLogo}
+                      className="h-8 object-contain"
+                      alt="Logo SINPA"
+                    />
+                  </div>
+                  <div className="text-right">
                     <span className="bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase inline-flex items-center gap-1.5 shadow-sm">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                       Associado Ativo
                     </span>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[9px] font-bold text-blue-200 tracking-widest uppercase">
-                      Categoria Sindical
-                    </p>
-                    <p className="text-base font-black text-amber-400 uppercase tracking-wider font-display">
-                      {memberProfile.level || "Bronze"}
+                    <p className="text-[9px] font-bold text-blue-200 tracking-widest uppercase mt-2">
+                      Categoria: <span className="text-amber-400 font-black uppercase font-display">{memberProfile.level || "Bronze"}</span>
                     </p>
                   </div>
                 </div>
@@ -4559,7 +5506,7 @@ Para corrigir:
                         <div className="grid lg:grid-cols-3 gap-6">
                           <div className="lg:col-span-2 space-y-6">
                             <div className="grid md:grid-cols-2 gap-6">
-                              <div className="bg-gradient-to-br from-[#1a3673] via-[#0f2a5a] to-[#0a1b3a] text-white rounded-[40px] p-8 shadow-2xl flex flex-col justify-between border border-white/10 relative overflow-hidden h-[480px] group transition-all hover:shadow-[#1a3673]/30">
+                              <div className="bg-gradient-to-br from-[#003366] to-[#001f3f] text-white rounded-[40px] p-8 shadow-2xl flex flex-col justify-between border border-[#df9d0c]/30 relative overflow-hidden h-[480px] group transition-all hover:shadow-[#004899]/30">
                                 {/* Decorative Animated Gradients */}
                                 <div className="absolute top-0 right-0 w-80 h-80 bg-blue-500/10 rounded-full blur-[100px] -mr-40 -mt-40 animate-pulse"></div>
                                 <div className="absolute bottom-0 left-0 w-64 h-64 bg-amber-400/5 rounded-full blur-[80px] -ml-32 -mb-32"></div>
@@ -4575,15 +5522,15 @@ Para corrigir:
                                   {/* Card Header */}
                                   <div className="flex justify-between items-start mb-8">
                                     <div className="flex items-center gap-4">
-                                      <div className="p-2.5 bg-white rounded-2xl shadow-inner transform group-hover:scale-110 transition-transform duration-500">
+                                      <div className="py-1 px-3 bg-white rounded-2xl shadow-inner border border-[#df9d0c]/20 transform group-hover:scale-110 transition-transform duration-500">
                                         {siteConfig.logoUrl ? (
                                           <img
                                             src={siteConfig.logoUrl}
-                                            className="h-7 w-auto"
+                                            className="h-6 w-auto object-contain"
                                             alt="Sindicato Logo"
                                           />
                                         ) : (
-                                          <Building2 className="w-7 h-7 text-[#1a3673]" />
+                                          <Building2 className="w-7 h-7 text-[#004899]" />
                                         )}
                                       </div>
                                       <div>
@@ -5821,135 +6768,433 @@ Para corrigir:
                         key="accountant"
                         initial={{ opacity: 0, scale: 0.98 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="grid lg:grid-cols-3 gap-8"
+                        exit={{ opacity: 0 }}
+                        className="space-y-8"
                       >
-                        <div className="lg:col-span-2 space-y-6">
-                          <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl">
-                            <div className="flex items-center gap-6 mb-12">
-                              <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center shadow-sm">
-                                <UserCheck className="w-8 h-8" />
-                              </div>
-                              <div>
-                                <h3 className="text-3xl font-bold font-display">
-                                  Portal Contábil
-                                </h3>
-                                <p className="text-gray-500">
-                                  Gestão centralizada de múltiplas empresas
-                                  parceiras.
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="grid sm:grid-cols-2 gap-4">
-                              {[
-                                {
-                                  label: "Exportar Layout Folha",
-                                  desc: "Layouts Prosoft, Alterdata, Dominio.",
-                                  icon: DownloadCloud,
-                                  color: "blue",
-                                },
-                                {
-                                  label: "Relatórios Agrupados",
-                                  desc: "Sintético total por escritório.",
-                                  icon: FileText,
-                                  color: "indigo",
-                                },
-                                {
-                                  label: "Certificados em Lote",
-                                  desc: "Emissão massiva de regularidade.",
-                                  icon: Printer,
-                                  color: "amber",
-                                },
-                                {
-                                  label: "Suporte VIP Escritórios",
-                                  desc: "Fila prioritária de atendimento.",
-                                  icon: MessageCircle,
-                                  color: "emerald",
-                                },
-                              ].map((tool, i) => (
-                                <button
-                                  key={i}
-                                  className="flex items-start gap-4 p-6 rounded-3xl bg-gray-50/50 border border-gray-100 hover:border-blue-900 hover:bg-white transition-all text-left group"
-                                >
-                                  <div
-                                    className={`w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-${tool.color}-600 group-hover:scale-110 transition-transform`}
-                                  >
-                                    <tool.icon className="w-5 h-5" />
-                                  </div>
-                                  <div className="flex-1">
-                                    <p className="font-bold text-gray-900 text-sm mb-1">
-                                      {tool.label}
-                                    </p>
-                                    <p className="text-[11px] text-gray-500 font-medium leading-relaxed">
-                                      {tool.desc}
-                                    </p>
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
+                        {/* Sub-tab Navigation */}
+                        <div className="flex bg-gray-100/80 p-1.5 rounded-2xl max-w-md border border-gray-200/50">
+                          <button
+                            onClick={() => setAccountantTab("services")}
+                            className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold font-display tracking-wider uppercase transition-all flex items-center justify-center gap-2 ${
+                              accountantTab === "services"
+                                ? "bg-white text-blue-900 shadow-md"
+                                : "text-gray-500 hover:text-gray-800"
+                            }`}
+                          >
+                            <UserCheck className="w-4 h-4" />
+                            Serviços & Carteira
+                          </button>
+                          <button
+                            onClick={() => setAccountantTab("legal")}
+                            className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold font-display tracking-wider uppercase transition-all flex items-center justify-center gap-2 relative ${
+                              accountantTab === "legal"
+                                ? "bg-white text-blue-900 shadow-md"
+                                : "text-gray-500 hover:text-gray-800"
+                            }`}
+                          >
+                            <Scale className="w-4 h-4 text-amber-500" />
+                            Plantão Jurídico IA
+                            <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                            </span>
+                          </button>
                         </div>
 
-                        <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl">
-                          <div className="flex items-center justify-between mb-8">
-                            <h4 className="font-bold text-sm uppercase tracking-widest text-blue-950 font-display">
-                              Carteira de Clientes
-                            </h4>
-                            <span className="bg-blue-50 text-blue-600 text-[10px] font-bold px-2 py-1 rounded-lg border border-blue-100">
-                              3 ATIVOS
-                            </span>
-                          </div>
-                          <div className="space-y-4 mb-8">
-                            {[
-                              "Ind. Metalurgica Ltda",
-                              "Posto Alvorada GNV",
-                              "Tecnologia Avançada S/A",
-                            ].map((brand, i) => (
-                              <div
-                                key={i}
-                                className="flex flex-col gap-4 p-4 bg-white border border-gray-100 rounded-2xl group hover:border-blue-200 transition-all cursor-pointer"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-900 font-bold text-xs">
-                                      {brand.charAt(0)}
-                                    </div>
-                                    <div>
-                                      <p className="text-xs font-bold text-gray-700">
-                                        {brand}
-                                      </p>
-                                      <div className="flex items-center gap-2">
-                                        <div
-                                          className={`w-1.5 h-1.5 rounded-full ${i === 2 ? "bg-amber-400" : "bg-emerald-400"}`}
-                                        ></div>
-                                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">
-                                          {i === 2 ? "Pendente" : "Ativo"}
-                                        </span>
+                        {accountantTab === "services" ? (
+                          <motion.div
+                            key="accountant-services"
+                            initial={{ opacity: 0, scale: 0.98 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="grid lg:grid-cols-3 gap-8"
+                          >
+                            <div className="lg:col-span-2 space-y-6">
+                              <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl">
+                                <div className="flex items-center gap-6 mb-12">
+                                  <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center shadow-sm">
+                                    <UserCheck className="w-8 h-8" />
+                                  </div>
+                                  <div>
+                                    <h3 className="text-3xl font-bold font-display">
+                                      Portal Contábil
+                                    </h3>
+                                    <p className="text-gray-500">
+                                      Gestão centralizada de múltiplas empresas
+                                      parceiras.
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="grid sm:grid-cols-2 gap-4">
+                                  {[
+                                    {
+                                      label: "Exportar Layout Folha",
+                                      desc: "Layouts Prosoft, Alterdata, Dominio.",
+                                      icon: DownloadCloud,
+                                      color: "blue",
+                                    },
+                                    {
+                                      label: "Relatórios Agrupados",
+                                      desc: "Sintético total por escritório.",
+                                      icon: FileText,
+                                      color: "indigo",
+                                    },
+                                    {
+                                      label: "Certificados em Lote",
+                                      desc: "Emissão massiva de regularidade.",
+                                      icon: Printer,
+                                      color: "amber",
+                                    },
+                                    {
+                                      label: "Suporte VIP Escritórios",
+                                      desc: "Fila prioritária de atendimento.",
+                                      icon: MessageCircle,
+                                      color: "emerald",
+                                    },
+                                  ].map((tool, i) => (
+                                    <button
+                                      key={i}
+                                      className="flex items-start gap-4 p-6 rounded-3xl bg-gray-50/50 border border-gray-100 hover:border-blue-900 hover:bg-white transition-all text-left group"
+                                    >
+                                      <div
+                                        className={`w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-${tool.color}-600 group-hover:scale-110 transition-transform`}
+                                      >
+                                        <tool.icon className="w-5 h-5" />
+                                      </div>
+                                      <div className="flex-1">
+                                        <p className="font-bold text-gray-900 text-sm mb-1">
+                                          {tool.label}
+                                        </p>
+                                        <p className="text-[11px] text-gray-500 font-medium leading-relaxed">
+                                          {tool.desc}
+                                        </p>
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl">
+                              <div className="flex items-center justify-between mb-8">
+                                <h4 className="font-bold text-sm uppercase tracking-widest text-blue-950 font-display">
+                                  Carteira de Clientes
+                                </h4>
+                                <span className="bg-blue-50 text-blue-600 text-[10px] font-bold px-2 py-1 rounded-lg border border-blue-100">
+                                  3 ATIVOS
+                                </span>
+                              </div>
+                              <div className="space-y-4 mb-8">
+                                {[
+                                  "Ind. Metalurgica Ltda",
+                                  "Posto Alvorada GNV",
+                                  "Tecnologia Avançada S/A",
+                                ].map((brand, i) => (
+                                  <div
+                                    key={i}
+                                    className="flex flex-col gap-4 p-4 bg-white border border-gray-100 rounded-2xl group hover:border-blue-200 transition-all cursor-pointer"
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-900 font-bold text-xs">
+                                          {brand.charAt(0)}
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-bold text-gray-700">
+                                            {brand}
+                                          </p>
+                                          <div className="flex items-center gap-2">
+                                            <div
+                                              className={`w-1.5 h-1.5 rounded-full ${i === 2 ? "bg-amber-400" : "bg-emerald-400"}`}
+                                            ></div>
+                                            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">
+                                              {i === 2 ? "Pendente" : "Ativo"}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 opacity-60 group-hover:opacity-100 transition-all">
+                                        <button
+                                          className="p-2.5 bg-blue-50 text-blue-900 hover:bg-blue-100 rounded-xl transition-all shadow-sm"
+                                          title="Visualizar Detalhes"
+                                        >
+                                          <Eye className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          className="p-2.5 bg-amber-50 text-amber-600 hover:bg-amber-100 rounded-xl transition-all shadow-sm"
+                                          title="Editar Perfil"
+                                        >
+                                          <Settings className="w-4 h-4" />
+                                        </button>
                                       </div>
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-2 opacity-60 group-hover:opacity-100 transition-all">
-                                    <button
-                                      className="p-2.5 bg-blue-50 text-blue-900 hover:bg-blue-100 rounded-xl transition-all shadow-sm"
-                                      title="Visualizar Detalhes"
-                                    >
-                                      <Eye className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                      className="p-2.5 bg-amber-50 text-amber-600 hover:bg-amber-100 rounded-xl transition-all shadow-sm"
-                                      title="Editar Perfil"
-                                    >
-                                      <Settings className="w-4 h-4" />
-                                    </button>
+                                ))}
+                              </div>
+                              <button className="w-full py-4 bg-blue-900 text-white rounded-2xl font-bold shadow-xl shadow-blue-900/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
+                                <Plus className="w-5 h-5" /> Vincular Empresa
+                              </button>
+                            </div>
+                          </motion.div>
+                        ) : (
+                          <motion.div
+                            key="accountant-legal"
+                            initial={{ opacity: 0, scale: 0.98 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="grid lg:grid-cols-3 gap-8"
+                          >
+                            {/* NEW LEGAL CONSULTATION FORM */}
+                            <div className="lg:col-span-1 space-y-6">
+                              <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl">
+                                <div className="flex items-center gap-4 mb-8">
+                                  <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-sm">
+                                    <Gavel className="w-6 h-6" />
+                                  </div>
+                                  <div>
+                                    <h4 className="text-xl font-bold font-display text-blue-950">
+                                      Novo Chamado
+                                    </h4>
+                                    <p className="text-xs text-gray-500">
+                                      Classificação & Roteamento via IA
+                                    </p>
                                   </div>
                                 </div>
+
+                                {submittingQuerySuccess ? (
+                                  <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-3xl text-center space-y-4">
+                                    <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                                      <Check className="w-6 h-6" />
+                                    </div>
+                                    <h5 className="font-bold text-emerald-950 text-sm">
+                                      Consulta Enviada com Sucesso!
+                                    </h5>
+                                    <p className="text-xs text-emerald-800 leading-relaxed">
+                                      Sua dúvida foi classificada com sucesso pela nossa inteligência artificial e encaminhada diretamente ao e-mail corporativo de <strong>{submittingQuerySuccess}</strong>.
+                                    </p>
+                                    <button
+                                      onClick={() => setSubmittingQuerySuccess(null)}
+                                      className="w-full py-3 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-700 transition-all"
+                                    >
+                                      Nova Consulta
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <form onSubmit={submitLegalQuery} className="space-y-6">
+                                    <div>
+                                      <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                                        Empresa Associada
+                                      </label>
+                                      <select
+                                        value={newQueryForm.companyName}
+                                        onChange={(e) => {
+                                          const selectedName = e.target.value;
+                                          const mapping: Record<string, string> = {
+                                            "Ind. Metalurgica Ltda": "12.345.678/0001-99",
+                                            "Posto Alvorada GNV": "98.765.432/0001-00",
+                                            "Tecnologia Avançada S/A": "45.678.901/0001-22"
+                                          };
+                                          setNewQueryForm(prev => ({
+                                            ...prev,
+                                            companyName: selectedName,
+                                            companyCNPJ: mapping[selectedName] || "12.345.678/0001-99"
+                                          }));
+                                        }}
+                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:border-blue-900 focus:bg-white focus:outline-none text-sm font-medium text-gray-700"
+                                      >
+                                        <option value="Ind. Metalurgica Ltda">Ind. Metalurgica Ltda</option>
+                                        <option value="Posto Alvorada GNV">Posto Alvorada GNV</option>
+                                        <option value="Tecnologia Avançada S/A">Tecnologia Avançada S/A</option>
+                                      </select>
+                                    </div>
+
+                                    <div>
+                                      <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                                        Assunto / Tópico
+                                      </label>
+                                      <input
+                                        type="text"
+                                        placeholder="Ex: Reajuste salarial retroativo"
+                                        value={newQueryForm.subject}
+                                        onChange={(e) => setNewQueryForm(prev => ({ ...prev, subject: e.target.value }))}
+                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:border-blue-900 focus:bg-white focus:outline-none text-sm font-medium"
+                                      />
+                                    </div>
+
+                                    <div>
+                                      <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                                        Dúvida Detalhada
+                                      </label>
+                                      <textarea
+                                        placeholder="Descreva a dúvida de forma completa para que o robô faça a triagem adequada..."
+                                        value={newQueryForm.question}
+                                        onChange={(e) => setNewQueryForm(prev => ({ ...prev, question: e.target.value }))}
+                                        className="w-full h-40 px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:border-blue-900 focus:bg-white focus:outline-none text-sm font-medium leading-relaxed"
+                                      />
+                                    </div>
+
+                                    <button
+                                      type="submit"
+                                      disabled={isSubmittingQuery}
+                                      className="w-full py-4 bg-blue-900 text-white rounded-2xl font-bold shadow-xl shadow-blue-900/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
+                                    >
+                                      {isSubmittingQuery ? (
+                                        <>
+                                          <Loader2 className="w-5 h-5 animate-spin" />
+                                          Roteando Chamado...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Send className="w-4 h-4" /> Enviar ao Jurídico
+                                        </>
+                                      )}
+                                    </button>
+                                  </form>
+                                )}
                               </div>
-                            ))}
-                          </div>
-                          <button className="w-full py-4 bg-blue-900 text-white rounded-2xl font-bold shadow-xl shadow-blue-900/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
-                            <Plus className="w-5 h-5" /> Vincular Empresa
-                          </button>
-                        </div>
+                            </div>
+
+                            {/* RECENT INQUIRIES LIST */}
+                            <div className="lg:col-span-2 space-y-6">
+                              <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl">
+                                <div className="flex items-center justify-between mb-8">
+                                  <div>
+                                    <h4 className="font-bold text-lg text-blue-950 font-display">
+                                      Chamados Recentes
+                                    </h4>
+                                    <p className="text-xs text-gray-500">
+                                      Acompanhe o status e os pareceres emitidos
+                                    </p>
+                                  </div>
+                                  <span className="bg-blue-50 text-blue-600 text-xs font-bold px-3 py-1 rounded-full border border-blue-100">
+                                    {legalQueries.length} TOTAL
+                                  </span>
+                                </div>
+
+                                {legalQueriesLoading ? (
+                                  <div className="space-y-4">
+                                    {[1, 2].map(i => (
+                                      <div key={i} className="animate-pulse border border-gray-100 p-6 rounded-2xl space-y-3">
+                                        <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+                                        <div className="h-3 bg-gray-100 rounded w-1/2"></div>
+                                        <div className="h-10 bg-gray-50 rounded"></div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : legalQueries.length === 0 ? (
+                                  <div className="text-center py-16 bg-gray-50 rounded-[32px] border-2 border-dashed border-gray-100">
+                                    <Scale className="w-12 h-12 text-gray-200 mx-auto mb-4 animate-bounce" />
+                                    <p className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mb-1">
+                                      Sem chamados registrados.
+                                    </p>
+                                    <p className="text-gray-400 text-xs">
+                                      Preencha o formulário para enviar sua primeira dúvida.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-6">
+                                    {legalQueries.map((query, idx) => (
+                                      <div
+                                        key={`query-tab-${query.id || idx}-${idx}`}
+                                        className="border border-gray-100 rounded-3xl p-6 hover:border-blue-200 hover:shadow-lg transition-all space-y-4 relative overflow-hidden"
+                                      >
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                          <div>
+                                            <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1">
+                                              {query.companyName} ({query.dateStr})
+                                            </span>
+                                            <h5 className="font-bold text-blue-950 text-base">
+                                              {query.subject}
+                                            </h5>
+                                          </div>
+
+                                          <div className="flex items-center gap-1.5">
+                                            <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                              query.category === "Trabalhista"
+                                                ? "bg-emerald-50 text-emerald-700 border border-emerald-100/50"
+                                                : query.category === "Tributário"
+                                                ? "bg-purple-50 text-purple-700 border border-purple-100/50"
+                                                : query.category === "Previdenciário"
+                                                ? "bg-blue-50 text-blue-700 border border-blue-100/50"
+                                                : "bg-amber-50 text-amber-700 border border-amber-100/50"
+                                            }`}>
+                                              {query.category}
+                                            </span>
+
+                                            <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                              query.urgency === "Alta"
+                                                ? "bg-rose-50 text-rose-700"
+                                                : "bg-gray-100 text-gray-600"
+                                            }`}>
+                                              {query.urgency}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        <p className="text-gray-600 text-xs leading-relaxed whitespace-pre-line bg-gray-50 p-4 rounded-xl">
+                                          {query.question}
+                                        </p>
+
+                                        {/* AI guidance box */}
+                                        <div className="bg-amber-50/40 border border-amber-100/40 p-4 rounded-xl space-y-1">
+                                          <p className="text-[9px] font-black uppercase text-amber-800 tracking-widest flex items-center gap-1">
+                                            <span>🤖</span> Análise de Orientação Prévia (IA)
+                                          </p>
+                                          <p className="text-gray-600 text-[11px] leading-relaxed italic">
+                                            "{query.aiAnalysis}"
+                                          </p>
+                                        </div>
+
+                                        <div className="bg-blue-50/20 border border-blue-100/30 p-3.5 rounded-xl flex items-center justify-between text-[11px]">
+                                          <span className="text-blue-950 font-bold">
+                                            Roteado para: <strong className="text-blue-900">{query.assignedLawyer}</strong> ({query.assignedLawyerEmail})
+                                          </span>
+                                          <span className="bg-emerald-500/10 text-emerald-600 font-bold px-2 py-0.5 rounded uppercase text-[8px] flex items-center gap-1">
+                                            <span className="w-1 h-1 rounded-full bg-emerald-500"></span> Notificado
+                                          </span>
+                                        </div>
+
+                                        {/* Reply section */}
+                                        <div className="pt-2 border-t border-gray-50">
+                                          {query.status === "pending" ? (
+                                            <div className="flex items-center justify-between">
+                                              <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest flex items-center gap-1.5">
+                                                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span> Aguardando Parecer Jurídico
+                                              </span>
+                                              <button
+                                                onClick={() => simulateLawyerReply(query.id, query.question, query.assignedLawyer)}
+                                                disabled={isSimulatingReplyId !== null}
+                                                className="px-3 py-1.5 bg-blue-900/5 text-blue-900 hover:bg-blue-900/10 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                              >
+                                                {isSimulatingReplyId === query.id ? (
+                                                  <>
+                                                    <Loader2 className="w-3 h-3 animate-spin" /> Redigindo...
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <span>🪄</span> Simular Parecer
+                                                  </>
+                                                )}
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <div className="bg-emerald-50/20 border border-emerald-100/30 p-4 rounded-xl space-y-2">
+                                              <p className="text-[10px] font-black text-emerald-800 uppercase tracking-widest flex items-center gap-1">
+                                                <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> Parecer Oficial Emitido
+                                              </p>
+                                              <p className="text-gray-700 text-xs leading-relaxed font-serif whitespace-pre-line pl-2.5 border-l-2 border-emerald-400/40">
+                                                {query.replyText}
+                                              </p>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
                       </motion.div>
                     ) : activeDashboardTab === "gestao_usuarios" ? (
                       <motion.div
@@ -6052,6 +7297,12 @@ Para corrigir:
                                       label: "Assistente (IA)",
                                       icon: Bot,
                                       color: "text-fuchsia-500",
+                                    },
+                                    {
+                                      id: "legal_queries",
+                                      label: "Plantão Jurídico (IA)",
+                                      icon: Scale,
+                                      color: "text-amber-500",
                                     },
                                   ],
                                 },
@@ -6166,15 +7417,16 @@ Para corrigir:
                                     </p>
                                   </div>
                                   <button
-                                    onClick={() => {
-                                      alert(
-                                        "Configurações salvas com sucesso!",
-                                      );
-                                    }}
-                                    className="px-6 py-3 bg-blue-900 text-white rounded-2xl font-bold text-sm shadow-xl shadow-blue-900/20 hover:scale-105 transition-all flex items-center gap-2"
+                                    onClick={() => handleSaveSiteConfig()}
+                                    disabled={isSavingSiteConfig}
+                                    className="px-6 py-3 bg-blue-900 text-white rounded-2xl font-bold text-sm shadow-xl shadow-blue-900/20 hover:scale-105 transition-all flex items-center gap-2 disabled:opacity-50"
                                   >
-                                    <Save className="w-4 h-4" /> Salvar
-                                    Alterações
+                                    {isSavingSiteConfig ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Save className="w-4 h-4" />
+                                    )}
+                                    {isSavingSiteConfig ? "Salvando..." : "Salvar Alterações"}
                                   </button>
                                 </div>
 
@@ -6208,16 +7460,19 @@ Para corrigir:
                                             <input
                                               type="file"
                                               className="hidden"
+                                              accept="image/*"
                                               onChange={(e) => {
                                                 const file =
                                                   e.target.files?.[0];
                                                 if (file) {
-                                                  const localUrl =
-                                                    URL.createObjectURL(file);
-                                                  setSiteConfig((prev) => ({
-                                                    ...prev,
-                                                    logoUrl: localUrl,
-                                                  }));
+                                                  const reader = new FileReader();
+                                                  reader.onloadend = () => {
+                                                    setSiteConfig((prev) => ({
+                                                      ...prev,
+                                                      logoUrl: reader.result as string,
+                                                    }));
+                                                  };
+                                                  reader.readAsDataURL(file);
                                                 }
                                               }}
                                             />
@@ -6553,6 +7808,7 @@ Para corrigir:
                                       <ResponsiveContainer
                                         width="100%"
                                         height="100%"
+                                        minHeight={250}
                                       >
                                         <AreaChart
                                           data={[
@@ -6768,7 +8024,7 @@ Para corrigir:
                                 <div className="grid lg:grid-cols-12 gap-8">
                                   <div className="lg:col-span-8 bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl overflow-hidden relative">
                                     <div className="absolute top-0 right-0 w-48 h-48 bg-rose-50/30 rounded-bl-[160px] pointer-events-none" />
-                                    <div className="flex items-center justify-between mb-10 relative z-10">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-10 relative z-10 gap-4">
                                       <div>
                                         <h4 className="text-2xl font-black text-blue-950 font-display uppercase tracking-tight italic">
                                           Controle de Inadimplência
@@ -6777,11 +8033,25 @@ Para corrigir:
                                           Monitoramento Crítico de Recebíveis
                                         </p>
                                       </div>
-                                      <div className="flex items-center gap-2">
-                                        <div className="w-2 h-2 bg-rose-600 rounded-full animate-pulse" />
-                                        <span className="text-rose-600 text-[10px] font-black uppercase tracking-widest">
-                                          Ação Necessária
-                                        </span>
+                                      <div className="flex flex-wrap items-center gap-3">
+                                        <button
+                                          onClick={generateDelinquencyReport}
+                                          disabled={isGeneratingDelinquencyReport}
+                                          className="bg-rose-50 border border-rose-100 text-rose-600 px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all flex items-center gap-2 group shadow-sm cursor-pointer disabled:opacity-50"
+                                        >
+                                          {isGeneratingDelinquencyReport ? (
+                                            <RefreshCw className="w-4 h-4 animate-spin" />
+                                          ) : (
+                                            <FileText className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                                          )}
+                                          Exportar Relatório (PDF)
+                                        </button>
+                                        <div className="flex items-center gap-2 bg-rose-50 border border-rose-100 px-3 py-1.5 rounded-xl shrink-0">
+                                          <div className="w-2 h-2 bg-rose-600 rounded-full animate-pulse" />
+                                          <span className="text-rose-600 text-[10px] font-black uppercase tracking-widest">
+                                            Ação Necessária
+                                          </span>
+                                        </div>
                                       </div>
                                     </div>
 
@@ -7220,9 +8490,9 @@ Para corrigir:
 
                                   {mediaViewMode === "grid" ? (
                                     <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                      {mediaItems.map((item) => (
+                                      {mediaItems.map((item, i) => (
                                         <div
-                                          key={`media-grid-${item.id}`}
+                                          key={`media-grid-${item.id || i}-${i}`}
                                           className="bg-white border border-gray-100 rounded-[32px] overflow-hidden shadow-sm hover:shadow-xl transition-all group flex flex-col"
                                         >
                                           <div className="aspect-[16/10] relative overflow-hidden bg-gray-50 flex items-center justify-center">
@@ -7285,9 +8555,9 @@ Para corrigir:
                                     </div>
                                   ) : (
                                     <div className="space-y-3">
-                                      {mediaItems.map((item) => (
+                                      {mediaItems.map((item, i) => (
                                         <div
-                                          key={`media-list-${item.id}`}
+                                          key={`media-list-${item.id || i}-${i}`}
                                           className="bg-white border border-gray-100 rounded-2xl p-4 flex items-center justify-between hover:bg-gray-50 transition-all group"
                                         >
                                           <div className="flex items-center gap-4">
@@ -7539,10 +8809,83 @@ Para corrigir:
                                         </div>
                                       </div>
 
+                                      {/* Bulk actions banner */}
+                                      {selectedBillingIds.length > 0 && (
+                                        <div className="bg-blue-50/80 border border-blue-100 rounded-2xl p-6 mb-8 flex flex-wrap items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                                          <div className="flex items-center gap-4">
+                                            <div className="bg-blue-600 text-white w-9 h-9 rounded-2xl flex items-center justify-center text-sm font-black shadow-lg">
+                                              {selectedBillingIds.length}
+                                            </div>
+                                            <div>
+                                              <p className="text-xs font-black text-blue-900 uppercase tracking-wider">
+                                                {selectedBillingIds.length === 1 ? "Boleto selecionado" : "Boletos selecionados"}
+                                              </p>
+                                              <p className="text-[10px] text-blue-600 font-bold mt-0.5">
+                                                Ações em lote para os boletos de cobrança pendentes
+                                              </p>
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center gap-3">
+                                            <button
+                                              onClick={() => {
+                                                const selectedBills = allBillings.filter(b => selectedBillingIds.includes(b.id));
+                                                generateBoletosPDF(selectedBills);
+                                              }}
+                                              disabled={isBulkExporting}
+                                              className="bg-blue-600 text-white hover:bg-blue-700 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2.5 transition-all shadow-md active:scale-95 disabled:opacity-50"
+                                            >
+                                              {isBulkExporting ? (
+                                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                              ) : (
+                                                <Printer className="w-3.5 h-3.5" />
+                                              )}
+                                              Imprimir / Exportar Lote (PDF)
+                                            </button>
+                                            <button
+                                              onClick={() => {
+                                                setShowBulkEmailModal(true);
+                                              }}
+                                              className="bg-white border border-blue-200 text-blue-600 hover:bg-blue-50 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2.5 transition-all shadow-sm active:scale-95"
+                                            >
+                                              <Mail className="w-3.5 h-3.5" />
+                                              Enviar por E-mail
+                                            </button>
+                                            <button
+                                              onClick={() => setSelectedBillingIds([])}
+                                              className="text-xs font-bold text-gray-400 hover:text-gray-600 px-4 py-2"
+                                            >
+                                              Cancelar
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+
                                       <div className="overflow-x-auto custom-scrollbar relative z-10">
                                         <table className="w-full min-w-[800px]">
                                           <thead>
                                             <tr className="border-b border-gray-100">
+                                              <th className="text-left py-5 text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] px-4 w-12">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={
+                                                    allBillings.filter((b) => b.status === "pending").length > 0 &&
+                                                    allBillings
+                                                      .filter((b) => b.status === "pending")
+                                                      .every((b) => selectedBillingIds.includes(b.id))
+                                                  }
+                                                  onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                      const pendingIds = allBillings
+                                                        .filter((b) => b.status === "pending")
+                                                        .map((b) => b.id);
+                                                      setSelectedBillingIds(pendingIds);
+                                                    } else {
+                                                      setSelectedBillingIds([]);
+                                                    }
+                                                  }}
+                                                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+                                                />
+                                              </th>
                                               <th className="text-left py-5 text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] px-4">
                                                 Beneficiário Final
                                               </th>
@@ -7564,7 +8907,7 @@ Para corrigir:
                                             {allBillings.length === 0 ? (
                                                <tr>
                                                  <td
-                                                   colSpan={5}
+                                                   colSpan={6}
                                                    className="py-12 text-center text-gray-400 font-bold text-sm"
                                                  >
                                                    Nenhum faturamento registrado neste mês.
@@ -7576,6 +8919,26 @@ Para corrigir:
                                                 key={`bill-${bill.id || index}-${index}`}
                                                 className="group hover:bg-gray-50/70 transition-all"
                                               >
+                                                <td className="py-7 px-4 w-12">
+                                                  {bill.status === "pending" ? (
+                                                    <input
+                                                      type="checkbox"
+                                                      checked={selectedBillingIds.includes(bill.id)}
+                                                      onChange={() => {
+                                                        setSelectedBillingIds((prev) =>
+                                                          prev.includes(bill.id)
+                                                            ? prev.filter((id) => id !== bill.id)
+                                                            : [...prev, bill.id]
+                                                        );
+                                                      }}
+                                                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+                                                    />
+                                                  ) : (
+                                                    <div className="w-4 h-4 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center" title="Boleto Liquidado">
+                                                      <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                                    </div>
+                                                  )}
+                                                </td>
                                                 <td className="py-7 px-4">
                                                   <p className="font-black text-gray-900 text-[14px] italic uppercase tracking-tighter leading-none">
                                                     {bill.memberName}
@@ -7639,6 +9002,7 @@ Para corrigir:
                                                     </button>
                                                     <button
                                                       className="p-3 bg-gray-50 text-gray-600 rounded-2xl hover:bg-gray-900 hover:text-white transition-all shadow-md border border-gray-100 group/item hover:-translate-y-1"
+                                                       onClick={() => generateBoletosPDF([bill])}
                                                       title="Visualizar Boleto PDF"
                                                     >
                                                       <FileText className="w-5 h-5" />
@@ -9134,16 +10498,16 @@ Para corrigir:
                                     </p>
                                   </div>
                                   <button
-                                    onClick={() =>
-                                      showNotification(
-                                        "success",
-                                        "Alterações do site publicadas com sucesso!",
-                                      )
-                                    }
-                                    className="bg-emerald-500 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl shadow-emerald-500/20 hover:scale-105 transition-all active:scale-95 flex items-center gap-2"
+                                    onClick={() => handleSaveSiteConfig()}
+                                    disabled={isSavingSiteConfig}
+                                    className="bg-emerald-500 text-white px-8 py-4 rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl shadow-emerald-500/20 hover:scale-105 transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50"
                                   >
-                                    <CheckCircle2 className="w-5 h-5" />{" "}
-                                    Publicar Site
+                                    {isSavingSiteConfig ? (
+                                      <Loader2 className="w-5 h-5 animate-spin" />
+                                    ) : (
+                                      <CheckCircle2 className="w-5 h-5" />
+                                    )}{" "}
+                                    {isSavingSiteConfig ? "Publicando..." : "Publicar Site"}
                                   </button>
                                 </div>
 
@@ -9307,7 +10671,7 @@ Para corrigir:
                                           )}
                                         </div>
                                         <div className="text-center">
-                                          <p className="text-[#1a3673] font-black text-xs uppercase tracking-tight">
+                                          <p className="text-[#004899] font-black text-xs uppercase tracking-tight">
                                             Cabeçalho Institucional
                                           </p>
                                           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
@@ -9648,6 +11012,219 @@ Para corrigir:
                                         </div>
                                       )}
                                     </div>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+
+                            {adminSubTab === "legal_queries" && (
+                              <motion.div
+                                key="legal_queries"
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="space-y-8"
+                              >
+                                {/* ADMIN LEGAL QUERIES PANEL */}
+                                <div className="bg-white border border-gray-100 rounded-[44px] p-10 lg:p-12 shadow-xl">
+                                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-12">
+                                    <div className="flex items-center gap-6">
+                                      <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-3xl flex items-center justify-center shadow-inner">
+                                        <Scale className="w-8 h-8" />
+                                      </div>
+                                      <div>
+                                        <h4 className="text-3xl font-black text-blue-950 font-display">
+                                          Plantão Jurídico SINDICAL
+                                        </h4>
+                                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest leading-none mt-2">
+                                          Atendimento e Pareceres Jurídicos
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-4 bg-gray-50 border border-gray-100 px-6 py-4 rounded-3xl">
+                                      <div className="text-right">
+                                        <span className="text-xs text-gray-400 font-bold uppercase tracking-wider block">
+                                          Fila Ativa
+                                        </span>
+                                        <span className="text-xl font-black text-blue-950">
+                                          {legalQueries.filter(q => q.status === "pending").length} Pendentes
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* BENTO STATS */}
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+                                    <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 border border-blue-100/30 p-6 rounded-[28px]">
+                                      <span className="text-[10px] font-black uppercase text-blue-800 tracking-wider block mb-2">Total de Chamados</span>
+                                      <span className="text-3xl font-black text-blue-950">{legalQueries.length}</span>
+                                    </div>
+                                    <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 border border-amber-100/30 p-6 rounded-[28px]">
+                                      <span className="text-[10px] font-black uppercase text-amber-800 tracking-wider block mb-2">Aguardando Advogado</span>
+                                      <span className="text-3xl font-black text-amber-950">{legalQueries.filter(q => q.status === "pending").length}</span>
+                                    </div>
+                                    <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-100/30 p-6 rounded-[28px]">
+                                      <span className="text-[10px] font-black uppercase text-emerald-800 tracking-wider block mb-2">Pareceres Concluídos</span>
+                                      <span className="text-3xl font-black text-emerald-950">{legalQueries.filter(q => q.status === "replied").length}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* QUERY LIST */}
+                                  <div className="space-y-6">
+                                    <h5 className="text-sm font-black text-blue-950 uppercase tracking-widest mb-4">
+                                      Lista Geral de Atendimentos
+                                    </h5>
+
+                                    {legalQueries.length === 0 ? (
+                                      <div className="text-center py-20 bg-gray-50 rounded-[32px] border-2 border-dashed border-gray-100">
+                                        <Gavel className="w-12 h-12 text-gray-200 mx-auto mb-4" />
+                                        <p className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">
+                                          Nenhuma consulta registrada até o momento.
+                                        </p>
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-6">
+                                        {legalQueries.map((query, idx) => (
+                                          <div 
+                                            key={`query-admin-${query.id || idx}-${idx}`} 
+                                            className="border border-gray-100 bg-gray-50/50 p-8 rounded-[32px] hover:bg-white hover:border-blue-100 transition-all shadow-sm"
+                                          >
+                                            {/* Meta */}
+                                            <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+                                              <div>
+                                                <span className="text-xs font-bold text-gray-400 block mb-1">
+                                                  Enviado por: <strong className="text-gray-700">{query.userName}</strong> ({query.dateStr})
+                                                </span>
+                                                <h6 className="text-lg font-bold text-blue-950">
+                                                  {query.subject}
+                                                </h6>
+                                                <span className="text-xs text-blue-900 bg-blue-50 px-3 py-1 rounded-full font-bold inline-block mt-2">
+                                                  Empresa: {query.companyName} ({query.companyCNPJ})
+                                                </span>
+                                              </div>
+
+                                              <div className="flex items-center gap-2">
+                                                {/* Category */}
+                                                <span className={`px-4 py-2 border rounded-full text-xs font-black uppercase tracking-wider ${
+                                                  query.category === "Trabalhista"
+                                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200/50"
+                                                    : query.category === "Tributário"
+                                                    ? "bg-purple-50 text-purple-700 border-purple-200/50"
+                                                    : query.category === "Previdenciário"
+                                                    ? "bg-blue-50 text-blue-700 border-blue-200/50"
+                                                    : query.category === "CCT & Negociação Coletiva"
+                                                    ? "bg-amber-50 text-amber-700 border-amber-200/50"
+                                                    : "bg-gray-50 text-gray-700 border-gray-200/50"
+                                                }`}>
+                                                  {query.category}
+                                                </span>
+
+                                                {/* Urgency */}
+                                                <span className={`px-4 py-2 border rounded-full text-xs font-black uppercase tracking-wider ${
+                                                  query.urgency === "Alta"
+                                                    ? "bg-rose-50 text-rose-700 border-rose-200/50"
+                                                    : query.urgency === "Média"
+                                                    ? "bg-orange-50 text-orange-700 border-orange-200/50"
+                                                    : "bg-gray-50 text-gray-700 border-gray-200/50"
+                                                }`}>
+                                                  {query.urgency}
+                                                </span>
+                                              </div>
+                                            </div>
+
+                                            {/* Question */}
+                                            <div className="bg-white border border-gray-100 p-6 rounded-2xl mb-6">
+                                              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Consulta original</p>
+                                              <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-line">{query.question}</p>
+                                            </div>
+
+                                            {/* AI Guidance */}
+                                            <div className="bg-amber-50/50 border border-amber-100/50 p-6 rounded-2xl mb-6">
+                                              <p className="text-xs font-black text-amber-800 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                                <span>🤖</span> Análise de Orientação Prévia (IA Gemini)
+                                              </p>
+                                              <p className="text-gray-700 text-xs leading-relaxed whitespace-pre-line italic">
+                                                "{query.aiAnalysis}"
+                                              </p>
+                                            </div>
+
+                                            {/* Assigned Lawyer */}
+                                            <div className="bg-blue-50/30 border border-blue-100/50 p-4 rounded-xl mb-6 flex items-center justify-between">
+                                              <span className="text-xs text-blue-950 font-bold">
+                                                Advogado Responsável: <strong className="text-blue-900">{query.assignedLawyer}</strong> ({query.assignedLawyerEmail})
+                                              </span>
+                                              <span className="bg-emerald-500/10 text-emerald-600 text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center gap-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Notificado via E-mail
+                                              </span>
+                                            </div>
+
+                                            {/* Response Block */}
+                                            <div className="mt-8 border-t border-gray-100 pt-6">
+                                              {query.status === "pending" ? (
+                                                <div className="space-y-4">
+                                                  <div className="flex items-center justify-between">
+                                                    <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block">
+                                                      Emitir Parecer Oficial
+                                                    </label>
+                                                    <button 
+                                                      onClick={() => simulateLawyerReply(query.id, query.question, query.assignedLawyer)}
+                                                      disabled={isSimulatingReplyId !== null}
+                                                      className="text-xs font-black text-blue-900 hover:text-blue-700 uppercase tracking-wider flex items-center gap-1.5"
+                                                    >
+                                                      {isSimulatingReplyId === query.id ? (
+                                                        <>
+                                                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                          Redigindo Parecer...
+                                                        </>
+                                                      ) : (
+                                                        <>
+                                                          <span>🪄</span> Redigir com IA ({query.assignedLawyer})
+                                                        </>
+                                                      )}
+                                                    </button>
+                                                  </div>
+                                                  <textarea
+                                                    placeholder={`Prezado(a), analisamos a dúvida em questão e concluímos que...
+
+Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
+                                                    value={submittingReplyId === query.id ? replyInputText : ""}
+                                                    onChange={(e) => {
+                                                      setReplyInputText(e.target.value);
+                                                      setSubmittingReplyId(query.id);
+                                                    }}
+                                                    className="w-full h-32 px-4 py-3 bg-white border border-gray-200 rounded-xl focus:border-blue-900 focus:outline-none text-sm leading-relaxed"
+                                                  />
+                                                  <button 
+                                                    onClick={() => submitAdminReply(query.id)}
+                                                    disabled={submittingReplyId !== query.id || isSimulatingReplyId !== null}
+                                                    className="px-6 py-3 bg-blue-900 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-blue-800 transition-all flex items-center gap-2"
+                                                  >
+                                                    {submittingReplyId === query.id && isSimulatingReplyId === null && submittingReplyId !== null ? (
+                                                      <>
+                                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                        Gravando...
+                                                      </>
+                                                    ) : (
+                                                      <>
+                                                        <Gavel className="w-3.5 h-3.5" /> Enviar Parecer
+                                                      </>
+                                                    )}
+                                                  </button>
+                                                </div>
+                                              ) : (
+                                                <div className="bg-emerald-50/20 border border-emerald-100/30 p-6 rounded-2xl">
+                                                  <p className="text-xs font-black text-emerald-800 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                                                    <CheckCircle className="w-4 h-4 text-emerald-600" /> Parecer Emitido Oficialmente
+                                                  </p>
+                                                  <p className="text-gray-800 text-sm leading-relaxed whitespace-pre-line font-serif pl-2 border-l-2 border-emerald-500/30">
+                                                    {query.replyText}
+                                                  </p>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </motion.div>
@@ -10213,19 +11790,35 @@ Para corrigir:
                                   <div className="absolute top-1 right-1 w-4 h-4 bg-white rounded-full transition-all"></div>
                                 </div>
                               </div>
-                              <div className="flex items-center justify-between">
+                              <div className="flex items-center justify-between pb-6 border-b border-gray-200 mt-6">
                                 <div>
                                   <p className="font-bold text-gray-900">
                                     Autenticação SindicalID
                                   </p>
                                   <p className="text-xs text-gray-500">
-                                    Login seguro e assinatura digital de
-                                    documentos.
+                                    Login seguro e assinatura digital de documentos.
                                   </p>
                                 </div>
                                 <div className="w-12 h-6 bg-gray-300 rounded-full relative cursor-pointer">
                                   <div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-all"></div>
                                 </div>
+                              </div>
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-gray-200 mt-6 gap-4">
+                                <div>
+                                  <p className="font-bold text-gray-900">
+                                    Configurar Lembretes de Vencimento
+                                  </p>
+                                  <p className="text-xs text-gray-500">
+                                    Ajuste os dias de antecedência, canais de alertas e horário preferencial de recebimento.
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowNotificationConfigModal(true)}
+                                  className="px-5 py-3 bg-blue-900 text-white hover:bg-black rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md shrink-0 cursor-pointer"
+                                >
+                                  Configurar
+                                </button>
                               </div>
                             </div>
                             <button
@@ -10350,30 +11943,35 @@ Para corrigir:
             className="min-h-screen bg-gray-50 flex flex-col"
           >
             {/* Header */}
-            <header className="bg-[#1a3673] text-white sticky top-0 z-50 shadow-md">
+            <header className="bg-[#004899] text-white sticky top-0 z-50 shadow-md">
               <div className="max-w-[1440px] mx-auto px-4 py-2.5 flex items-center justify-between gap-4">
                 <div className="flex items-center shrink-0">
                   <div
-                    className="flex items-center group cursor-pointer"
+                    className="flex items-center gap-3 group cursor-pointer"
                     onClick={() =>
                       window.scrollTo({ top: 0, behavior: "smooth" })
                     }
                   >
-                    <div className="bg-white p-1 rounded-xl shadow-2xl transition-transform group-hover:scale-105">
+                    <div className="bg-white py-1.5 px-4 rounded-xl shadow-xl border border-[#df9d0c]/30 transition-transform group-hover:scale-105 flex items-center justify-center">
                       {siteConfig.logoUrl ? (
                         <img
                           src={siteConfig.logoUrl}
                           style={{
-                            width: `${siteConfig.headerLogoWidth * 0.9}px`,
+                            width: `${siteConfig.headerLogoWidth * 0.85}px`,
                           }}
-                          className="h-auto max-w-[180px]"
+                          className="h-7 w-auto object-contain max-w-[180px]"
                           alt="Sinpa Logo"
                           referrerPolicy="no-referrer"
                         />
                       ) : (
-                        <Building2 className="text-[#1a3673] w-7 h-7" />
+                        <Building2 className="text-[#004899] w-7 h-7" />
                       )}
                     </div>
+                    {!siteConfig.logoUrl && (
+                      <span className="text-xl font-black tracking-tight text-white uppercase">
+                        Sinpa <span className="text-amber-400">BA</span>
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -10524,7 +12122,7 @@ Para corrigir:
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="xl:hidden bg-[#1a3673] border-t border-white/5 overflow-hidden sticky top-[68px] z-40"
+                  className="xl:hidden bg-[#004899] border-t border-white/5 overflow-hidden sticky top-[68px] z-40"
                 >
                   <nav className="flex flex-col p-6 gap-4 text-xs font-black uppercase tracking-widest">
                     <a
@@ -11062,7 +12660,7 @@ Para corrigir:
                   <span className="text-blue-600 font-black tracking-[0.2em] text-[10px] uppercase mb-2 block">
                     Inteligência de Mercado
                   </span>
-                  <h2 className="text-3xl lg:text-5xl font-black text-[#1a3673] mb-4 tracking-tighter">
+                  <h2 className="text-3xl lg:text-5xl font-black text-[#004899] mb-4 tracking-tighter">
                     Painel de Indicadores
                   </h2>
                   <p className="text-gray-500 max-w-2xl mx-auto text-base lg:text-lg font-medium italic">
@@ -11084,7 +12682,7 @@ Para corrigir:
                       </div>
                     </div>
                     <div className="h-[300px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                         <AreaChart data={sectorData}>
                           <defs>
                             <linearGradient
@@ -12640,7 +14238,7 @@ Para corrigir:
             <section id="faq" className="py-20 bg-white">
               <div className="max-w-7xl mx-auto px-6">
                 <div className="text-center mb-16">
-                  <h2 className="text-4xl md:text-5xl font-black text-[#1a3673] tracking-tighter mb-4">
+                  <h2 className="text-4xl md:text-5xl font-black text-[#004899] tracking-tighter mb-4">
                     Perguntas Frequentes
                   </h2>
                   <p className="text-gray-500 font-bold uppercase tracking-[0.2em] text-sm">
@@ -12663,7 +14261,7 @@ Para corrigir:
                             {faq.category}
                           </span>
                         </div>
-                        <h4 className="text-xl font-bold text-[#1a3673] mb-4 group-hover:text-amber-500 transition-colors uppercase tracking-tight italic leading-tight">
+                        <h4 className="text-xl font-bold text-[#004899] mb-4 group-hover:text-amber-500 transition-colors uppercase tracking-tight italic leading-tight">
                           {faq.question}
                         </h4>
                         <p className="text-gray-600 leading-relaxed text-sm font-medium">
@@ -12687,12 +14285,12 @@ Para corrigir:
                 <div className="grid lg:grid-cols-4 gap-12 mb-16">
                   <div className="lg:col-span-2">
                     <div className="flex items-center gap-6 mb-8">
-                      <div className="bg-white p-2 rounded-2xl shadow-xl shadow-white/5">
+                      <div className="bg-white py-1.5 px-4 rounded-xl shadow-xl border border-[#df9d0c]/30 flex items-center justify-center">
                         {siteConfig.logoUrl ? (
                           <img
                             src={siteConfig.logoUrl}
-                            style={{ width: `${siteConfig.footerLogoWidth}px` }}
-                            className="h-auto"
+                            style={{ width: `${siteConfig.footerLogoWidth * 0.85}px` }}
+                            className="h-7 w-auto object-contain"
                             alt="Sinpa Logo"
                             referrerPolicy="no-referrer"
                           />
@@ -13598,6 +15196,163 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
           )}
         </AnimatePresence>
 
+        {/* Bulk Email Dispatch Modal */}
+        <AnimatePresence>
+          {showBulkEmailModal && (
+            <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl overflow-hidden text-gray-900 flex flex-col max-h-[90vh]"
+              >
+                {/* Header */}
+                <div className="p-8 pb-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shrink-0">
+                      <Mail className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-blue-950 uppercase tracking-tight">
+                        Envio de Guias em Lote
+                      </h3>
+                      <p className="text-xs text-gray-400 font-bold mt-0.5">
+                        Envie cobranças personalizadas para {selectedBillingIds.length} associado(s)
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!isSendingBulkEmails) setShowBulkEmailModal(false);
+                    }}
+                    disabled={isSendingBulkEmails}
+                    className="p-3 hover:bg-gray-50 rounded-2xl transition-all disabled:opacity-30"
+                  >
+                    <X className="w-6 h-6 text-gray-400" />
+                  </button>
+                </div>
+
+                {/* Content */}
+                <div className="p-8 overflow-y-auto custom-scrollbar flex-1 space-y-6">
+                  {isSendingBulkEmails ? (
+                    <div className="py-12 flex flex-col items-center justify-center text-center space-y-6">
+                      <div className="relative flex items-center justify-center">
+                        <div className="w-16 h-16 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin" />
+                        <Mail className="w-6 h-6 text-blue-600 absolute animate-pulse" />
+                      </div>
+                      <div className="space-y-2 max-w-sm">
+                        <p className="font-black text-blue-950 text-base uppercase tracking-tight leading-none animate-pulse">
+                          Enviando Mensagens...
+                        </p>
+                        <p className="text-xs font-semibold text-gray-500">
+                          {bulkEmailStep}
+                        </p>
+                      </div>
+                      
+                      {/* Interactive Progress Indicators */}
+                      <div className="w-full max-w-xs bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                        <div 
+                          className="bg-blue-600 h-full rounded-full transition-all duration-500" 
+                          style={{
+                            width: bulkEmailStep.includes("preparando") 
+                              ? "25%" 
+                              : bulkEmailStep.includes("Configurando") 
+                              ? "50%" 
+                              : bulkEmailStep.includes("Enviando") 
+                              ? "80%" 
+                              : "95%"
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Recipient list preview */}
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">
+                          Destinatários Selecionados
+                        </label>
+                        <div className="border border-gray-100 rounded-2xl p-4 bg-gray-50/50 max-h-36 overflow-y-auto custom-scrollbar space-y-2.5">
+                          {allBillings
+                            .filter((b) => selectedBillingIds.includes(b.id))
+                            .map((b, i) => (
+                              <div key={`mail-preview-${b.id || i}-${i}`} className="flex items-center justify-between text-xs">
+                                <span className="font-black text-gray-800 tracking-tight max-w-[200px] truncate">
+                                  {b.memberName || "Associado Sem Nome"}
+                                </span>
+                                <span className="font-mono text-blue-600 font-bold bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-100 text-[10px]">
+                                  {getMemberEmail(b)}
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+
+                      {/* Subject input */}
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">
+                          Assunto do E-mail
+                        </label>
+                        <input
+                          type="text"
+                          value={bulkEmailSubject}
+                          onChange={(e) => setBulkEmailSubject(e.target.value)}
+                          placeholder="Digite o assunto"
+                          className="w-full bg-gray-50/50 border border-gray-200 rounded-2xl px-5 py-4 text-xs font-bold text-gray-950 focus:outline-none focus:border-blue-600 transition-all placeholder:text-gray-400"
+                        />
+                      </div>
+
+                      {/* Custom Body Textarea */}
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">
+                          Mensagem do E-mail
+                        </label>
+                        <textarea
+                          rows={6}
+                          value={bulkEmailBody}
+                          onChange={(e) => setBulkEmailBody(e.target.value)}
+                          placeholder="Escreva a mensagem..."
+                          className="w-full bg-gray-50/50 border border-gray-200 rounded-3xl px-5 py-4 text-xs font-bold text-gray-900 focus:outline-none focus:border-blue-600 transition-all placeholder:text-gray-400 resize-none leading-relaxed font-sans"
+                        />
+                      </div>
+
+                      {/* Notice */}
+                      <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl flex items-start gap-3">
+                        <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                        <p className="text-[10px] text-amber-800 leading-relaxed font-bold">
+                          Cada e-mail conterá em anexo exclusivo o respectivo boleto bancário faturado do membro associado, personalizado com o QR Code de pagamento PIX e código de barras.
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Footer */}
+                {!isSendingBulkEmails && (
+                  <div className="p-8 border-t border-gray-100 flex items-center justify-end gap-4 shrink-0">
+                    <button
+                      onClick={() => setShowBulkEmailModal(false)}
+                      className="px-6 py-3.5 hover:bg-gray-50 text-gray-500 rounded-2xl font-black text-[10px] uppercase tracking-wider transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={() => {
+                        const selectedBills = allBillings.filter(b => selectedBillingIds.includes(b.id));
+                        sendBulkEmailsSimulation(selectedBills);
+                      }}
+                      className="px-8 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md shadow-blue-600/10 active:scale-95 flex items-center gap-2"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      Enviar Lote de Cobranças
+                    </button>
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
         {showNotificationConfigModal && (
           <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[110] flex items-center justify-center p-4">
             <motion.div
@@ -13781,6 +15536,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
                       { val: 10, label: "10 dias" },
                     ].map((opt) => (
                       <button
+                        type="button"
                         key={opt.val}
                         onClick={() =>
                           setNotifConfig({
@@ -13795,6 +15551,41 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
                         }`}
                       >
                         {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Preferred time selection */}
+                <div className="p-5 bg-gray-50 rounded-3xl border border-gray-100">
+                  <p className="font-bold text-gray-900 text-sm mb-3">
+                    Horário Preferencial de Envio
+                  </p>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Defina o período do dia em que prefere receber os lembretes automáticos.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { val: "matutino", label: "☀ Matutino", desc: "Das 08:00 às 12:00" },
+                      { val: "vespertino", label: "⛅ Vespertino", desc: "Das 13:00 às 18:00" },
+                    ].map((opt) => (
+                      <button
+                        type="button"
+                        key={opt.val}
+                        onClick={() =>
+                          setNotifConfig({
+                            ...notifConfig,
+                            preferredNotificationTime: opt.val,
+                          })
+                        }
+                        className={`p-4 rounded-2xl font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all cursor-pointer border ${
+                          notifConfig.preferredNotificationTime === opt.val
+                            ? "bg-blue-900 text-white border-blue-900 shadow-md"
+                            : "bg-white border-gray-100 text-gray-500 hover:bg-gray-100"
+                        }`}
+                      >
+                        <span className="font-extrabold uppercase tracking-wider text-[11px]">{opt.label}</span>
+                        <span className="text-[9px] opacity-60 font-medium normal-case">{opt.desc}</span>
                       </button>
                     ))}
                   </div>
@@ -13844,12 +15635,31 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
               {/* Footer - Fixo */}
               <div className="p-8 pt-5 border-t border-gray-100 flex gap-4 shrink-0">
                 <button
-                  onClick={() => {
-                    setShowNotificationConfigModal(false);
-                    showNotification(
-                      "success",
-                      "Preferências de lembretes salvas com sucesso!",
-                    );
+                  onClick={async () => {
+                    try {
+                      if (memberProfile?.id) {
+                        await updateDoc(doc(db, "members", memberProfile.id), {
+                          pushEnabled: notifConfig.pushEnabled,
+                          emailEnabled: notifConfig.emailEnabled,
+                          whatsappEnabled: notifConfig.whatsappEnabled,
+                          leadTimeDays: notifConfig.leadTimeDays,
+                          mobileNumber: notifConfig.mobileNumber,
+                          preferredNotificationTime: notifConfig.preferredNotificationTime || "matutino",
+                        });
+                        refetchMemberProfile();
+                      }
+                      setShowNotificationConfigModal(false);
+                      showNotification(
+                        "success",
+                        "Preferências de lembretes salvas com sucesso no seu perfil!",
+                      );
+                    } catch (e) {
+                      console.error("Erro ao salvar preferências no Firestore", e);
+                      showNotification(
+                        "error",
+                        "Erro ao salvar suas preferências de alertas.",
+                      );
+                    }
                   }}
                   className="flex-grow py-4 bg-gray-950 text-white hover:bg-blue-900 rounded-3xl font-bold uppercase text-xs tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-xl cursor-pointer text-center"
                 >

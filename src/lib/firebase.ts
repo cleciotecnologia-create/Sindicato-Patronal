@@ -1,28 +1,40 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export { firebaseConfig };
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Initialize database with defensive fallback
+let dbInstance;
+try {
+  if (firebaseConfig.firestoreDatabaseId) {
+    dbInstance = initializeFirestore(app, {}, firebaseConfig.firestoreDatabaseId);
+  } else {
+    dbInstance = getFirestore(app);
+  }
+} catch (error) {
+  console.warn("Failed to initialize Firestore with custom database ID, falling back to default:", error);
+  dbInstance = getFirestore(app);
+}
+
+export const db = dbInstance;
 export const auth = getAuth();
 auth.languageCode = 'pt-br';
 export const storage = getStorage(app);
 
-// Validate connection
-async function testConnection() {
+// Validate connection on demand instead of auto-running on module load
+export async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Por favor, verifique sua configuração do Firebase ou conexão com a internet.");
+      console.warn("Por favor, verifique sua configuração do Firebase ou conexão com a internet.");
     }
   }
 }
-
-testConnection();
 
 export enum OperationType {
   CREATE = 'create',

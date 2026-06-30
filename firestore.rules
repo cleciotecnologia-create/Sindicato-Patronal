@@ -14,14 +14,17 @@ service cloud.firestore {
     
     // Admin check: assumes a collection /admins/ where docId is the email
     function isAdmin() { 
-      return isSignedIn() && (
-        request.auth.token.email == 'cleciotecnologia@gmail.com' ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
-      );
+      return isSignedIn() && 
+             'email' in request.auth.token && (
+               request.auth.token.email == 'cleciotecnologia@gmail.com' ||
+               exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
+             );
     }
 
     function isSuperUser() {
-      return isSignedIn() && request.auth.token.email == 'cleciotecnologia@gmail.com';
+      return isSignedIn() && 
+             'email' in request.auth.token && 
+             request.auth.token.email == 'cleciotecnologia@gmail.com';
     }
 
     function isOwner(userId) {
@@ -31,7 +34,7 @@ service cloud.firestore {
     // --- Validation Blueprints ---
 
     function isValidAdmin(data) {
-      return data.email is string && data.email == request.auth.token.email || isSuperUser();
+      return data.email is string && ('email' in request.auth.token && data.email == request.auth.token.email) || isSuperUser();
     }
 
     function isValidPublication(data) {
@@ -50,7 +53,7 @@ service cloud.firestore {
 
     function isValidUser(data) {
       return data.displayName is string && data.displayName.size() <= 100 &&
-             data.email is string && data.email == request.auth.token.email;
+             data.email is string && 'email' in request.auth.token && data.email == request.auth.token.email;
     }
 
     function isValidMember(data) {
@@ -100,6 +103,21 @@ service cloud.firestore {
              data.createdAt == request.time;
     }
 
+    function isValidLegalQuery(data) {
+      return data.userId is string && isValidId(data.userId) &&
+             data.companyCNPJ is string && data.companyCNPJ.size() <= 100 &&
+             data.companyName is string && data.companyName.size() <= 1000 &&
+             data.subject is string && data.subject.size() <= 1000 &&
+             data.question is string && data.question.size() <= 15000 &&
+             data.category is string && data.category.size() <= 500 &&
+             data.urgency is string && data.urgency.size() <= 200 &&
+             data.assignedLawyer is string && data.assignedLawyer.size() <= 500 &&
+             data.assignedLawyerEmail is string && data.assignedLawyerEmail.size() <= 500 &&
+             data.aiAnalysis is string && data.aiAnalysis.size() <= 25000 &&
+             data.status in ['pending', 'replied'] &&
+             data.createdAt == request.time;
+    }
+
     // --- Collection Rules ---
 
     match /test/connection {
@@ -107,17 +125,17 @@ service cloud.firestore {
     }
 
     match /admins/{email} {
-      allow read: if isSignedIn() && (request.auth.token.email == email || isAdmin());
+      allow read: if isSignedIn() && ('email' in request.auth.token && request.auth.token.email == email || isAdmin());
       allow write: if isSuperUser();
     }
 
     match /members/{memberId} {
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.email == request.auth.token.email || isAdmin());
-      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid || resource.data.email == request.auth.token.email);
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || ('email' in request.auth.token && resource.data.email == request.auth.token.email) || isAdmin());
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid || ('email' in request.auth.token && resource.data.email == request.auth.token.email));
       
       allow create: if isSignedIn() || isAdmin();
       allow update: if (
-        (isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.email == request.auth.token.email) &&
+        (isSignedIn() && (resource.data.userId == request.auth.uid || ('email' in request.auth.token && resource.data.email == request.auth.token.email)) &&
          incoming().diff(existing()).affectedKeys().hasOnly(['userId', 'name', 'email', 'phone', 'representative'])) || 
         isAdmin()
       );
@@ -127,7 +145,7 @@ service cloud.firestore {
       match /boletos/{boletoId} {
         allow read: if isSignedIn() && (
           get(/databases/$(database)/documents/members/$(memberId)).data.userId == request.auth.uid || 
-          get(/databases/$(database)/documents/members/$(memberId)).data.email == request.auth.token.email || 
+          ('email' in request.auth.token && get(/databases/$(database)/documents/members/$(memberId)).data.email == request.auth.token.email) || 
           isAdmin()
         );
         allow write: if isAdmin(); // Members cannot write boletos
@@ -135,8 +153,21 @@ service cloud.firestore {
     }
 
     match /settings/{docId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if isAdmin();
+    }
+
+    match /systemSettings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /associateRequests/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /expenses/{docId} {
+      allow read, write: if isAdmin();
     }
 
     match /notifications/{notificationId} {
@@ -178,6 +209,13 @@ service cloud.firestore {
     match /membership_requests/{requestId} {
       allow create: if isValidMembershipRequest(incoming());
       allow read, update, delete: if isAdmin();
+    }
+
+    match /plantao_juridico/{queryId} {
+      allow create: if isSignedIn() && isValidLegalQuery(incoming());
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['replyText', 'status']));
+      allow delete: if isAdmin();
     }
   }
 }
