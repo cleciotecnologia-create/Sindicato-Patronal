@@ -12,13 +12,21 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     
-    // Admin check: assumes a collection /admins/ where docId is the email
+    // Admin check: assumes a collection /admins/ where docId is the email OR a role in /users/{uid}
+    // Also allows domain pattern matches (like presidency, board of directors, management, and admin) to align with frontend simulator roles.
     function isAdmin() { 
-      return isSignedIn() && 
-             'email' in request.auth.token && (
-               request.auth.token.email == 'cleciotecnologia@gmail.com' ||
-               exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
-             );
+      return isSignedIn() && (
+        ('email' in request.auth.token && (
+          request.auth.token.email == 'cleciotecnologia@gmail.com' ||
+          request.auth.token.email.matches('(?i).*presidencia.*') ||
+          request.auth.token.email.matches('(?i).*diretoria.*') ||
+          request.auth.token.email.matches('(?i).*gerencia.*') ||
+          request.auth.token.email.matches('(?i).*admin.*') ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
+        )) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'presidencia', 'diretoria', 'gerencia'])
+      );
     }
 
     function isSuperUser() {
@@ -228,6 +236,20 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow create: if isAdmin() && isValidAuditLog(incoming());
       allow update, delete: if false;
+    }
+
+    match /published_documents/{documentId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /team_members/{memberId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /push_subscriptions/{subscriptionId} {
+      allow read, write: if true;
     }
   }
 }

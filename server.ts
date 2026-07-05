@@ -3,8 +3,55 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import * as dotenv from "dotenv";
+import fs from "fs";
+import webpush from "web-push";
+import { initializeApp } from "firebase/app";
+import { getFirestore, initializeFirestore, collection, getDocs, addDoc, query, where, deleteDoc, updateDoc } from "firebase/firestore";
 
 dotenv.config();
+
+// Read Firebase config from file for server-side initialization
+const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
+const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
+
+// Initialize Firebase SDK on server
+const firebaseApp = initializeApp(firebaseConfig);
+
+// Initialize Firestore with database ID support to prevent NOT_FOUND errors
+let dbInstance;
+try {
+  if (firebaseConfig.firestoreDatabaseId) {
+    dbInstance = initializeFirestore(firebaseApp, {}, firebaseConfig.firestoreDatabaseId);
+  } else {
+    dbInstance = getFirestore(firebaseApp);
+  }
+} catch (error) {
+  console.warn("Server: Failed to initialize Firestore with custom database ID, falling back to default:", error);
+  dbInstance = getFirestore(firebaseApp);
+}
+
+const db = dbInstance;
+
+// Initialize VAPID Keys for Web Push
+let vapidKeys = {
+  publicKey: process.env.VAPID_PUBLIC_KEY,
+  privateKey: process.env.VAPID_PRIVATE_KEY,
+};
+
+if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
+  console.log("No VAPID keys found in environment. Generating a new pair...");
+  const generated = webpush.generateVAPIDKeys();
+  vapidKeys = {
+    publicKey: generated.publicKey,
+    privateKey: generated.privateKey,
+  };
+}
+
+webpush.setVapidDetails(
+  "mailto:suporte@sinpa.org.br",
+  vapidKeys.publicKey!,
+  vapidKeys.privateKey!
+);
 
 async function startServer() {
   const app = express();
@@ -179,6 +226,121 @@ async function startServer() {
     } catch (error: any) {
       console.error("Gemini Reply Simulation Error:", error);
       res.status(500).json({ error: error.message || "Failed to simulate lawyer reply" });
+    }
+  });
+
+  // Web Push API: Get Public VAPID Key
+  app.get("/api/push/public-key", (req, res) => {
+    res.json({ publicKey: vapidKeys.publicKey });
+  });
+
+  // Web Push API: Subscribe to Push
+  app.post("/api/push/subscribe", async (req, res) => {
+    try {
+      const { subscription, userId } = req.body;
+      if (!subscription || !subscription.endpoint) {
+        return res.status(400).json({ error: "Subscription endpoint is required." });
+      }
+
+      // Check if subscription already exists
+      const q = query(
+        collection(db, "push_subscriptions"),
+        where("subscription.endpoint", "==", subscription.endpoint)
+      );
+      const snap = await getDocs(q);
+
+      if (snap.empty) {
+        await addDoc(collection(db, "push_subscriptions"), {
+          subscription,
+          userId: userId || null,
+          createdAt: new Date().toISOString(),
+        });
+      } else {
+        const docRef = snap.docs[0].ref;
+        await updateDoc(docRef, {
+          userId: userId || null,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      res.status(201).json({ success: true });
+    } catch (error: any) {
+      console.error("Error saving subscription:", error);
+      res.status(500).json({ error: error.message || "Failed to subscribe" });
+    }
+  });
+
+  // Web Push API: Unsubscribe
+  app.post("/api/push/unsubscribe", async (req, res) => {
+    try {
+      const { endpoint } = req.body;
+      if (!endpoint) {
+        return res.status(400).json({ error: "Endpoint is required." });
+      }
+
+      const q = query(
+        collection(db, "push_subscriptions"),
+        where("subscription.endpoint", "==", endpoint)
+      );
+      const snap = await getDocs(q);
+      const deletions = snap.docs.map((docSnap) => deleteDoc(docSnap.ref));
+      await Promise.all(deletions);
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error unsubscribing:", error);
+      res.status(500).json({ error: error.message || "Failed to unsubscribe" });
+    }
+  });
+
+  // Web Push API: Send Notification (Broadcast or specific User ID)
+  app.post("/api/push/send", async (req, res) => {
+    try {
+      const { title, body, userId, url } = req.body;
+      if (!title || !body) {
+        return res.status(400).json({ error: "Title and body are required." });
+      }
+
+      let q;
+      if (userId) {
+        q = query(collection(db, "push_subscriptions"), where("userId", "==", userId));
+      } else {
+        q = collection(db, "push_subscriptions");
+      }
+
+      const snap = await getDocs(q);
+      const payload = JSON.stringify({ title, body, url: url || "/" });
+
+      const notifications = snap.docs.map(async (docSnap) => {
+        const data = docSnap.data() as any;
+        try {
+          await webpush.sendNotification(data.subscription, payload);
+        } catch (err: any) {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            console.log("Removing expired push subscription:", data.subscription.endpoint);
+            await deleteDoc(docSnap.ref);
+          } else {
+            console.error("Error sending push:", err);
+          }
+        }
+      });
+
+      await Promise.all(notifications);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error sending push notifications:", error);
+      res.status(500).json({ error: error.message || "Failed to send notifications" });
+    }
+  });
+
+  // Web Push API: Get Active Subscriptions Count
+  app.get("/api/push/subscriptions-count", async (req, res) => {
+    try {
+      const snap = await getDocs(collection(db, "push_subscriptions"));
+      res.json({ count: snap.size });
+    } catch (error: any) {
+      console.error("Error fetching subscriptions count:", error);
+      res.status(500).json({ error: error.message || "Failed to get count" });
     }
   });
 

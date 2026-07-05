@@ -130,9 +130,67 @@
         "updatedBy": { "type": "string" }
       },
       "required": ["defaultDaysToDue", "acceptWeekendPayment", "calculationMethod", "workdays"]
+    },
+    "PushSubscription": {
+      "title": "PushSubscription",
+      "description": "Web push subscription payload",
+      "type": "object",
+      "properties": {
+        "endpoint": { "type": "string" },
+        "keys": {
+          "type": "object",
+          "properties": {
+            "p256dh": { "type": "string" },
+            "auth": { "type": "string" }
+          },
+          "required": ["p256dh", "auth"]
+        },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["endpoint", "keys"]
+    },
+    "PublishedDocument": {
+      "title": "PublishedDocument",
+      "description": "Document uploaded by admin for publication",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "vigence": { "type": "string" },
+        "fileName": { "type": "string" },
+        "fileSize": { "type": "string" },
+        "fileData": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "category", "vigence", "fileName", "fileData", "createdAt"]
+    },
+    "TeamMember": {
+      "title": "TeamMember",
+      "description": "Board member or employee of the union",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "category": { "type": "string", "enum": ["presidencia", "diretoria", "gerencia", "atendimento"] },
+        "photo": { "type": "string" }
+      },
+      "required": ["name", "role", "category"]
     }
   },
   "firestore": {
+    "/team_members/{memberId}": {
+      "schema": "TeamMember",
+      "description": "Board members and employees shown in the organizational chart"
+    },
+    "/published_documents/{documentId}": {
+      "schema": "PublishedDocument",
+      "description": "Uploaded documents available for members to download"
+    },
+    "/push_subscriptions/{subscriptionId}": {
+      "schema": "PushSubscription",
+      "description": "Browser push notification subscriptions"
+    },
     "/members/{memberId}": {
       "schema": "Member",
       "description": "Collection of union members"

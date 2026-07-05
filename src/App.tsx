@@ -47,6 +47,7 @@ import {
   CheckCircle,
   X,
   Plus,
+  Trash2,
   Menu,
   Minus,
   PieChart,
@@ -77,6 +78,8 @@ import {
   Scale,
   Gavel,
   AlertTriangle,
+  Lock,
+  Key,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { GoogleGenAI } from "@google/genai";
@@ -833,12 +836,42 @@ function LandingPage() {
 
   // --- LGPD & PRIVACY POLICY STATES & QUERY ---
   const [systemTab, setSystemTab] = useState<
-    "general" | "lgpd" | "production" | "audit"
+    "general" | "lgpd" | "production" | "audit" | "push"
   >("general");
+
+  // --- PUSH NOTIFICATION STATES ---
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushPermissionState, setPushPermissionState] = useState<NotificationPermission>("default");
+  const [pushSubscriptionsCount, setPushSubscriptionsCount] = useState(0);
+  const [testPushTitle, setTestPushTitle] = useState("Faturamento SINPA");
+  const [testPushBody, setTestPushBody] = useState("Seu boleto mensal de faturamento já está disponível no portal corporativo.");
+  const [testPushUrl, setTestPushUrl] = useState("/boletos");
+  const [isSendingTestPush, setIsSendingTestPush] = useState(false);
   const [lgpdBannerInput, setLgpdBannerInput] = useState("");
   const [lgpdPolicyInput, setLgpdPolicyInput] = useState("");
   const [isSavingLgpd, setIsSavingLgpd] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
+
+  // --- QUICK LINKS MODALS STATES ---
+  const [showCCTModal, setShowCCTModal] = useState(false);
+  const [showSeloModal, setShowSeloModal] = useState(false);
+  const [showSuporteJuridicoModal, setShowSuporteJuridicoModal] = useState(false);
+  const [suporteJuridicoForm, setSuporteJuridicoForm] = useState({
+    name: "",
+    email: "",
+    cnpj: "",
+    subject: "Dúvida sobre Convenção Coletiva",
+    message: "",
+  });
+  const [isSubmittingSuporte, setIsSubmittingSuporte] = useState(false);
+
+  // --- PUBLISHED DOCUMENTS STATE ---
+  const [newDocTitle, setNewDocTitle] = useState("");
+  const [newDocCategory, setNewDocCategory] = useState("cct"); // "cct", "estatuto", "ata", "conduta", "fiscal", "tabela", "outros"
+  const [newDocVigence, setNewDocVigence] = useState("");
+  const [newDocFileBase64, setNewDocFileBase64] = useState("");
+  const [newDocFileName, setNewDocFileName] = useState("");
+  const [newDocFileSize, setNewDocFileSize] = useState("");
 
   const { data: lgpdConfig, refetch: refetchLgpdConfig } = useQuery<any>({
     queryKey: ["lgpdConfig"],
@@ -889,6 +922,148 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       setLgpdPolicyInput(lgpdConfig.fullPolicy || "");
     }
   }, [lgpdConfig]);
+
+  // Fetch subscriptions count for admin
+  const fetchSubscriptionsCount = async () => {
+    try {
+      const res = await fetch("/api/push/subscriptions-count");
+      if (res.ok) {
+        const data = await res.json();
+        setPushSubscriptionsCount(data.count || 0);
+      }
+    } catch (err) {
+      console.error("Error fetching push subscriptions count:", err);
+    }
+  };
+
+  React.useEffect(() => {
+    if ("serviceWorker" in navigator && "PushManager" in window) {
+      setPushPermissionState(Notification.permission);
+
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then((reg) => {
+          console.log("Service Worker registrado com sucesso:", reg);
+          return reg.pushManager.getSubscription();
+        })
+        .then((subscription) => {
+          setPushSubscribed(!!subscription);
+        })
+        .catch((err) => {
+          console.error("Falha ao registrar Service Worker:", err);
+        });
+    }
+
+    fetchSubscriptionsCount();
+  }, [currentUser]);
+
+  const subscribeToPush = async () => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      showNotification("error", "Notificações push não são suportadas neste navegador.");
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setPushPermissionState(permission);
+      if (permission !== "granted") {
+        showNotification("error", "Permissão para notificações foi negada.");
+        return;
+      }
+
+      const resKey = await fetch("/api/push/public-key");
+      const { publicKey } = await resKey.json();
+
+      if (!publicKey) {
+        throw new Error("Não foi possível obter a chave pública do faturamento.");
+      }
+
+      const reg = await navigator.serviceWorker.ready;
+      
+      // Converte VAPID de base64 para Uint8Array
+      const padding = "=".repeat((4 - (publicKey.length % 4)) % 4);
+      const base64 = (publicKey + padding).replace(/\-/g, "+").replace(/_/g, "/");
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+
+      const subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: outputArray,
+      });
+
+      const resSub = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subscription,
+          userId: currentUser?.uid || null,
+        }),
+      });
+
+      if (!resSub.ok) {
+        throw new Error("Falha ao registrar inscrição de faturamento no servidor.");
+      }
+
+      setPushSubscribed(true);
+      fetchSubscriptionsCount();
+      showNotification("success", "Notificações push de faturamento ativadas!");
+    } catch (err: any) {
+      console.error("Erro ao ativar notificações:", err);
+      showNotification("error", err.message || "Erro ao ativar notificações push.");
+    }
+  };
+
+  const unsubscribeFromPush = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const subscription = await reg.pushManager.getSubscription();
+      if (subscription) {
+        await subscription.unsubscribe();
+        
+        await fetch("/api/push/unsubscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        });
+      }
+      setPushSubscribed(false);
+      fetchSubscriptionsCount();
+      showNotification("success", "Notificações push desativadas com sucesso.");
+    } catch (err) {
+      console.error("Erro ao desativar notificações:", err);
+      showNotification("error", "Erro ao desativar notificações.");
+    }
+  };
+
+  const sendTestPush = async () => {
+    setIsSendingTestPush(true);
+    try {
+      const res = await fetch("/api/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: testPushTitle,
+          body: testPushBody,
+          url: testPushUrl,
+        }),
+      });
+
+      if (res.ok) {
+        showNotification("success", "Notificação push enviada em lote com sucesso!");
+      } else {
+        const data = await res.json();
+        throw new Error(data.error || "Erro ao disparar");
+      }
+    } catch (err: any) {
+      console.error("Erro ao disparar notificação teste:", err);
+      showNotification("error", err.message || "Erro ao enviar push.");
+    } finally {
+      setIsSendingTestPush(false);
+    }
+  };
 
   const handleSaveLgpdConfig = async () => {
     setIsSavingLgpd(true);
@@ -1340,6 +1515,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
   >("associado");
   const [selectedAssociate, setSelectedAssociate] = useState<any | null>(null);
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [selectedDocCategoryForModal, setSelectedDocCategoryForModal] = useState<string | null>(null);
   const [docType, setDocType] = useState<
     "cct" | "news" | "internal" | "juridico"
   >("cct");
@@ -1530,15 +1706,108 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
     }
   }, [activeDashboardTab, adminSubTab]);
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      showNotification("error", "Erro: Apenas arquivos em formato PDF são permitidos para publicação.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setNewDocFileBase64(reader.result as string);
+      setNewDocFileName(file.name);
+      const sizeInMB = file.size / (1024 * 1024);
+      if (sizeInMB < 0.1) {
+        setNewDocFileSize(`${(file.size / 1024).toFixed(1)} KB`);
+      } else {
+        setNewDocFileSize(`${sizeInMB.toFixed(1)} MB`);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const triggerCCTPushNotification = async (docTitle: string) => {
+    try {
+      // Send the push notification payload to all registered web push subscriptions
+      const res = await fetch("/api/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Nova CCT Publicada! 📄",
+          body: `A Convenção Coletiva de Trabalho "${docTitle}" foi homologada e publicada no portal.`,
+          url: "/#documentos", // Point to the documents section
+        }),
+      });
+
+      if (res.ok) {
+        showNotification("success", "Notificação push enviada em lote com sucesso para os associados!");
+      } else {
+        const data = await res.json();
+        console.warn("Aviso ao enviar notificação push:", data.error);
+      }
+
+      // Register this notification in the Firestore 'notifications' collection so that all users see it in their alerts center
+      await addDoc(collection(db, "notifications"), {
+        title: "Nova CCT Publicada! 📄",
+        description: `A Convenção Coletiva de Trabalho "${docTitle}" já está disponível para consulta e download no portal do Sindicato.`,
+        read: false,
+        type: "publication",
+        createdAt: Timestamp.now(),
+      });
+      
+    } catch (error) {
+      console.error("Erro ao disparar notificação push automática:", error);
+    }
+  };
+
   const handlePublishDoc = async () => {
+    if (!isAdmin) {
+      showNotification("error", "Apenas administradores podem enviar e publicar documentos oficiais.");
+      return;
+    }
+    if (!newDocTitle.trim()) {
+      showNotification("error", "Por favor, informe o título do documento.");
+      return;
+    }
+    if (!newDocFileBase64) {
+      showNotification("error", "Por favor, selecione ou arraste um documento em formato PDF.");
+      return;
+    }
+
     setIsUploadingDoc(true);
     try {
-      // Simulação de upload
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      showNotification(
-        "success",
-        `Documento (${docType.toUpperCase()}) publicado com sucesso no portal!`,
-      );
+      await addDoc(collection(db, "published_documents"), {
+        title: newDocTitle.trim(),
+        category: newDocCategory,
+        vigence: newDocVigence.trim() || `Publicado em ${new Date().toLocaleDateString("pt-BR")}`,
+        fileName: newDocFileName,
+        fileSize: newDocFileSize,
+        fileData: newDocFileBase64,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Automatic push notification for CCT
+      if (newDocCategory === "cct") {
+        await triggerCCTPushNotification(newDocTitle.trim());
+      } else {
+        showNotification(
+          "success",
+          `Documento "${newDocTitle}" publicado com sucesso no portal!`,
+        );
+      }
+
+      // Reset form states
+      setNewDocTitle("");
+      setNewDocVigence("");
+      setNewDocFileBase64("");
+      setNewDocFileName("");
+      setNewDocFileSize("");
+      
+      // Refetch
+      refetchPublishedDocs();
     } catch (error) {
       showNotification(
         "error",
@@ -1546,6 +1815,40 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       );
     } finally {
       setIsUploadingDoc(false);
+    }
+  };
+
+  const categoryNames: Record<string, string> = {
+    cct: "Convenções Coletivas de Trabalho (CCT)",
+    estatuto: "Estatuto Social do Sindicato",
+    ata: "Atas de Assembleia Geral",
+    conduta: "Manuais de Conduta e Ética",
+    fiscal: "Relatórios Fiscais e Balancetes",
+    tabela: "Tabelas Salariais Vigentes",
+    outros: "Outros Documentos Oficiais"
+  };
+
+  const downloadPublishedDoc = (docItem: any) => {
+    try {
+      const link = document.createElement("a");
+      link.href = docItem.fileData;
+      link.download = docItem.fileName || "documento.pdf";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showNotification("success", `Iniciando download de "${docItem.title}"...`);
+    } catch (error) {
+      showNotification("error", "Erro ao baixar o documento.");
+    }
+  };
+
+  const handleDeletePublishedDoc = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "published_documents", id));
+      showNotification("success", "Documento removido com sucesso!");
+      refetchPublishedDocs();
+    } catch (error) {
+      showNotification("error", "Erro ao remover documento: " + getFriendlyErrorMessage(error));
     }
   };
 
@@ -1705,6 +2008,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       category: "atendimento",
     },
   ]);
+
   const [teamFilter, setTeamFilter] = useState<"all" | TeamMember["category"]>(
     "all",
   );
@@ -1715,6 +2019,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       cnpj: "12.345.678/0001-90",
       debt: 4500.0,
       months: 3,
+      category: "Transporte",
     },
     {
       id: 2,
@@ -1722,6 +2027,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       cnpj: "98.765.432/0001-10",
       debt: 1200.5,
       months: 1,
+      category: "Indústria",
     },
     {
       id: 3,
@@ -1729,6 +2035,31 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       cnpj: "45.678.901/0001-22",
       debt: 8900.0,
       months: 6,
+      category: "Comércio",
+    },
+    {
+      id: 4,
+      name: "Hospital de Olhos da Bahia",
+      cnpj: "23.456.789/0001-33",
+      debt: 12500.0,
+      months: 4,
+      category: "Saúde",
+    },
+    {
+      id: 5,
+      name: "Colégio Anchieta Salvador",
+      cnpj: "34.567.890/0001-44",
+      debt: 6800.0,
+      months: 2,
+      category: "Educação",
+    },
+    {
+      id: 6,
+      name: "Clínica Integrada de Reabilitação",
+      cnpj: "56.789.012/0001-55",
+      debt: 3400.0,
+      months: 2,
+      category: "Saúde",
     },
   ]);
 
@@ -1766,6 +2097,8 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
     category: "atendimento" as TeamMember["category"],
     photo: "",
   });
+
+  const [editingTeamMember, setEditingTeamMember] = useState<TeamMember | null>(null);
 
   const [faqs, setFaqs] = useState<any[]>([]);
   const [isGeneratingFAQ, setIsGeneratingFAQ] = useState(false);
@@ -2456,8 +2789,39 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
         angle: 45,
       });
 
+      // Section title: RESUMO DOS DÉBITOS POR SETOR
+      doc.setTextColor(15, 23, 42); // Slate 900
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.text("RESUMO DOS DÉBITOS POR SETOR", 15, 74);
+
+      // Compute total debt per sector
+      const totals = delinquentCompanies.reduce((acc, c) => {
+        const cat = c.category || "Outros";
+        acc[cat] = (acc[cat] || 0) + (c.debt || 0);
+        return acc;
+      }, {} as Record<string, number>);
+
+      let sectorY = 78;
+      doc.setFillColor(248, 250, 252); // Slate 50
+      doc.rect(15, sectorY, 180, 18, "F");
+      doc.setDrawColor(226, 232, 240); // Slate 200
+      doc.rect(15, sectorY, 180, 18);
+
+      let sectorX = 22;
+      Object.entries(totals).forEach(([sector, total]) => {
+        doc.setTextColor(100, 116, 139); // Slate 500
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7);
+        doc.text(sector.toUpperCase(), sectorX, sectorY + 6);
+        doc.setTextColor(225, 29, 72); // Rose 600
+        doc.setFontSize(8.5);
+        doc.text(`R$ ${(total as number).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, sectorX, sectorY + 12);
+        sectorX += 34; // spacing across the box
+      });
+
       // Table Header
-      let y = 80;
+      let y = 106;
 
       const drawTableHeader = (pDoc: any, startY: number) => {
         pDoc.setFillColor(254, 226, 226); // Rose 100
@@ -2494,7 +2858,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
         const nameText = company.name || "Empresa sem Razão Social";
         const truncatedName =
           nameText.length > 55 ? nameText.substring(0, 52) + "..." : nameText;
-        const subText = `CNPJ: ${company.cnpj || "N/A"}`;
+        const subText = `CNPJ: ${company.cnpj || "N/A"} | Setor: ${company.category || "Outros"}`;
 
         doc.setFont("helvetica", "bold");
         doc.text(truncatedName.toUpperCase(), 20, y + 4.5);
@@ -3231,6 +3595,18 @@ Agradecemos o seu pagamento!`;
         "success",
         `Lote de ${billsToSend.length} e-mail(s) com cobranças anexas enviado com sucesso!`,
       );
+
+      // Disparar notificação push automática de faturamento para os associados
+      fetch("/api/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Faturamento SINPA Disponível",
+          body: `Sua guia de contribuição e faturamento mensal já está liberada no portal.`,
+          url: "/boletos"
+        })
+      }).catch((err) => console.error("Error sending push notification on bulk email:", err));
+
       setShowBulkEmailModal(false);
       setSelectedBillingIds([]);
     } catch (error) {
@@ -3488,6 +3864,155 @@ Agradecemos o seu pagamento!`;
     }
   }, [dbBankDetails]);
 
+  // Query for Published Documents from Firestore
+  const { data: publishedDocs, refetch: refetchPublishedDocs } = useQuery<any[]>({
+    queryKey: ["published_documents"],
+    queryFn: async () => {
+      try {
+        const q = query(collection(db, "published_documents"), orderBy("createdAt", "desc"));
+        const snap = await getDocs(q);
+        return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      } catch (error) {
+        console.warn("Could not fetch published documents", error);
+        return [];
+      }
+    },
+    initialData: [],
+  });
+
+  // Query for Team Members from Firestore
+  const { data: dbTeamMembers, refetch: refetchTeamMembers } = useQuery<TeamMember[]>({
+    queryKey: ["team_members"],
+    queryFn: async () => {
+      try {
+        const snap = await getDocs(collection(db, "team_members"));
+        if (snap.empty) {
+          const initialTeam: TeamMember[] = [
+            {
+              id: "1",
+              name: "Dr. Roberto Santos",
+              role: "Presidente",
+              category: "presidencia",
+            },
+            {
+              id: "2",
+              name: "Maria Oliveira",
+              role: "Vice-presidente",
+              category: "presidencia",
+            },
+            {
+              id: "3",
+              name: "Luiz Gustavo",
+              role: "Diretor Financeiro",
+              category: "diretoria",
+            },
+            {
+              id: "4",
+              name: "Dr. André Fonseca",
+              role: "Diretor Jurídico",
+              category: "diretoria",
+            },
+            {
+              id: "5",
+              name: "Ana Beatriz",
+              role: "Gerente Administrativa",
+              category: "gerencia",
+            },
+            {
+              id: "6",
+              name: "Ricardo Souze",
+              role: "Gerente de TI",
+              category: "gerencia",
+            },
+            {
+              id: "7",
+              name: "Juliana Mendes",
+              role: "Atendimento ao Associado",
+              category: "atendimento",
+            },
+            {
+              id: "8",
+              name: "Carlos Eduardo",
+              role: "Suporte Técnico",
+              category: "atendimento",
+            },
+          ];
+          for (const member of initialTeam) {
+            await setDoc(doc(db, "team_members", member.id), {
+              name: member.name,
+              role: member.role,
+              category: member.category,
+              photo: member.photo || "",
+            });
+          }
+          return initialTeam;
+        }
+        const list: TeamMember[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          list.push({
+            id: docSnap.id,
+            name: data.name || "",
+            role: data.role || "",
+            category: data.category || "atendimento",
+            photo: data.photo || "",
+          });
+        });
+        return list;
+      } catch (error) {
+        console.warn("Could not fetch team members", error);
+        return [];
+      }
+    },
+  });
+
+  React.useEffect(() => {
+    if (dbTeamMembers !== undefined) {
+      setTeamMembers(dbTeamMembers);
+    }
+  }, [dbTeamMembers]);
+
+  const handleAddTeamMember = async (memberData: Omit<TeamMember, "id">) => {
+    try {
+      const id = Math.random().toString(36).substr(2, 9);
+      await setDoc(doc(db, "team_members", id), {
+        name: memberData.name,
+        role: memberData.role,
+        category: memberData.category,
+        photo: memberData.photo || "",
+      });
+      refetchTeamMembers();
+      showNotification("success", "Membro cadastrado com sucesso!");
+    } catch (error) {
+      console.error("Erro ao cadastrar membro da equipe:", error);
+      showNotification("error", "Erro ao salvar o membro no banco de dados.");
+    }
+  };
+
+  const handleUpdateTeamMember = async (id: string, memberData: Partial<TeamMember>) => {
+    try {
+      const memberRef = doc(db, "team_members", id);
+      // Use setDoc with merge: true for maximum robustness, supporting creation/updates under all conditions
+      await setDoc(memberRef, memberData, { merge: true });
+      refetchTeamMembers();
+      showNotification("success", "Membro atualizado com sucesso!");
+    } catch (error) {
+      console.error("Erro ao atualizar membro da equipe:", error);
+      showNotification("error", "Erro ao atualizar membro.");
+    }
+  };
+
+  const handleDeleteTeamMember = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "team_members", id));
+      refetchTeamMembers();
+      showNotification("success", "Membro removido com sucesso!");
+    } catch (error) {
+      console.error("Erro ao remover membro da equipe:", error);
+      showNotification("error", "Erro ao remover membro.");
+    }
+  };
+
   // Query for Member's Boletos from Firestore
   const { data: userBoletos } = useQuery({
     queryKey: ["userBoletos", memberProfile?.id],
@@ -3508,27 +4033,100 @@ Agradecemos o seu pagamento!`;
     enabled: !!memberProfile?.id,
   });
 
+  const getCompetenciaFromDate = (dateVal: any, title?: string) => {
+    let month = "";
+    let year = "";
+
+    if (title) {
+      const matchYearMonth = title.match(/(\d{4})\/(\d{2})/);
+      const matchMonthYear = title.match(/(\d{2})\/(\d{4})/);
+      if (matchYearMonth) {
+        month = matchYearMonth[2];
+        year = matchYearMonth[1];
+      } else if (matchMonthYear) {
+        month = matchMonthYear[1];
+        year = matchMonthYear[2];
+      } else if (title.toLowerCase().includes("mai")) {
+        month = "05";
+        year = "2026";
+      } else if (title.toLowerCase().includes("jan")) {
+        month = "01";
+        year = "2026";
+      }
+    }
+
+    if (!month || !year) {
+      let dateObj: Date | null = null;
+      if (dateVal && typeof dateVal.toDate === "function") {
+        dateObj = dateVal.toDate();
+      } else if (dateVal instanceof Date) {
+        dateObj = dateVal;
+      } else if (typeof dateVal === "string") {
+        if (dateVal.includes("/")) {
+          const parts = dateVal.split("/");
+          if (parts.length === 3) {
+            dateObj = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+          }
+        } else if (dateVal.includes("-")) {
+          dateObj = new Date(dateVal);
+        }
+      }
+      if (dateObj && !isNaN(dateObj.getTime())) {
+        month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        year = String(dateObj.getFullYear());
+      } else {
+        month = "05";
+        year = "2026";
+      }
+    }
+
+    const monthsMap: Record<string, string> = {
+      "01": "Janeiro",
+      "02": "Fevereiro",
+      "03": "Março",
+      "04": "Abril",
+      "05": "Maio",
+      "06": "Junho",
+      "07": "Julho",
+      "08": "Agosto",
+      "09": "Setembro",
+      "10": "Outubro",
+      "11": "Novembro",
+      "12": "Dezembro",
+    };
+
+    return {
+      code: `${month}/${year}`,
+      monthName: monthsMap[month] || "Maio"
+    };
+  };
+
   const displayBoletos =
     userBoletos && userBoletos.length > 0
-      ? (userBoletos as any[]).map((b: any) => ({
-          doc: b.title || "Mensalidade",
-          venc:
-            b.dueDate instanceof Timestamp
-              ? b.dueDate.toDate().toLocaleDateString("pt-BR")
-              : typeof b.dueDate === "string" && b.dueDate.includes("T")
-                ? new Date(b.dueDate).toLocaleDateString("pt-BR")
-                : String(b.dueDate),
-          valor:
-            typeof b.amount === "number"
-              ? `R$ ${b.amount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
-              : String(b.amount),
-          status: (b.status || "PENDING").toUpperCase(),
-          id: b.id,
-          rawAmount: b.amount,
-        }))
+      ? (userBoletos as any[]).map((b: any) => {
+          const comp = getCompetenciaFromDate(b.dueDate, b.title);
+          return {
+            doc: b.title || "Mensalidade",
+            competencia: `${comp.code} - Competência de ${comp.monthName}`,
+            venc:
+              b.dueDate instanceof Timestamp
+                ? b.dueDate.toDate().toLocaleDateString("pt-BR")
+                : typeof b.dueDate === "string" && b.dueDate.includes("T")
+                  ? new Date(b.dueDate).toLocaleDateString("pt-BR")
+                  : String(b.dueDate),
+            valor:
+              typeof b.amount === "number"
+                ? `R$ ${b.amount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                : String(b.amount),
+            status: (b.status || "PENDING").toUpperCase(),
+            id: b.id,
+            rawAmount: b.amount,
+          };
+        })
       : [
           {
             doc: "Contribuição Negocial 2026/01",
+            competencia: "01/2026 - Competência de Janeiro",
             venc: "15/05/2026",
             valor: "R$ 840,00",
             status: "PAID",
@@ -3537,6 +4135,7 @@ Agradecemos o seu pagamento!`;
           },
           {
             doc: "Mensalidade Social Mai/26",
+            competencia: "05/2026 - Competência de Maio",
             venc: "20/05/2026",
             valor: "R$ 210,00",
             status: "PENDING",
@@ -3545,6 +4144,7 @@ Agradecemos o seu pagamento!`;
           },
           {
             doc: "Cota de Patrocínio Evento",
+            competencia: "05/2026 - Competência de Maio",
             venc: "05/05/2026",
             valor: "R$ 1.500,00",
             status: "PAID",
@@ -5504,6 +6104,11 @@ Para corrigir:
                       <h4 className="font-bold text-gray-900 text-lg leading-tight">
                         {item.doc}
                       </h4>
+                      {item.competencia && (
+                        <p className="text-xs font-semibold text-blue-600 mt-0.5">
+                          {item.competencia}
+                        </p>
+                      )}
                       <div className="flex items-center gap-3 mt-1.5">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                           Vencimento: {item.venc}
@@ -5583,17 +6188,40 @@ Para corrigir:
                 Comprovantes e histórico financeiro de contribuições adimplidas.
               </p>
             </div>
-            <div>
+            <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => {
-                  showNotification(
-                    "success",
-                    "Certificado de Quitação Financeira gerado com sucesso!",
-                  );
+                  if (memberProfile?.cnpj) {
+                    setSearchTerm(memberProfile.cnpj);
+                    setActiveDocType("quitacao");
+                    setShowPrintModal(true);
+                  } else {
+                    showNotification(
+                      "success",
+                      "Certificado de Quitação Financeira gerado com sucesso!",
+                    );
+                  }
                 }}
                 className="bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black px-6 py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md flex items-center gap-2"
               >
                 <FileCheck className="w-5 h-5" /> Emitir Certidão de Quitação
+              </button>
+              <button
+                onClick={() => {
+                  if (memberProfile?.cnpj) {
+                    setSearchTerm(memberProfile.cnpj);
+                    setActiveDocType("regularidade");
+                    setShowPrintModal(true);
+                  } else {
+                    showNotification(
+                      "success",
+                      "Certidão de Regularidade Sindical gerada com sucesso!",
+                    );
+                  }
+                }}
+                className="bg-emerald-600 hover:bg-amber-400 hover:text-blue-950 text-white font-black px-6 py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md flex items-center gap-2"
+              >
+                <ShieldCheck className="w-5 h-5" /> Regularidade Sindical
               </button>
             </div>
           </div>
@@ -5624,6 +6252,11 @@ Para corrigir:
                       <h4 className="font-bold text-gray-900 text-lg leading-tight">
                         {item.doc}
                       </h4>
+                      {item.competencia && (
+                        <p className="text-xs font-semibold text-blue-600 mt-0.5">
+                          {item.competencia}
+                        </p>
+                      )}
                       <div className="flex items-center gap-3 mt-1.5">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                           Vencimento original: {item.venc}
@@ -6413,6 +7046,42 @@ Para corrigir:
                                 </button>
                               )}
                             </div>
+
+                            {/* Push Notification Toggle Card */}
+                            <div className="p-5 bg-blue-50/50 border-b border-gray-50 flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <Bell className="w-4 h-4 text-blue-600 animate-pulse shrink-0" />
+                                <span className="text-xs font-bold text-blue-950">Notificações no Navegador</span>
+                              </div>
+                              <p className="text-[11px] text-gray-500 leading-normal">
+                                Receba avisos nativos sobre novas guias e boletos mesmo se o navegador estiver fechado.
+                              </p>
+                              {pushPermissionState === "denied" ? (
+                                <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-lg self-start">
+                                  Bloqueado no Navegador (ative nas configurações do site)
+                                </span>
+                              ) : pushSubscribed ? (
+                                <div className="flex items-center justify-between mt-1">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg">
+                                    ● Ativado
+                                  </span>
+                                  <button
+                                    onClick={unsubscribeFromPush}
+                                    className="text-[10px] font-bold text-rose-600 hover:text-rose-700 transition cursor-pointer hover:underline"
+                                  >
+                                    Desativar
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={subscribeToPush}
+                                  className="mt-1 w-full bg-blue-900 hover:bg-blue-950 text-white font-bold text-xs py-2 px-4 rounded-xl transition shadow-sm hover:shadow-md cursor-pointer flex items-center justify-center gap-1.5"
+                                >
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                  Ativar Avisos Nativos
+                                </button>
+                              )}
+                            </div>
                             <div className="max-h-[400px] overflow-y-auto custom-scrollbar">
                               {notifications.length > 0 ? (
                                 notifications.map((n, i) => (
@@ -6901,19 +7570,40 @@ Para corrigir:
                                     {
                                       label: "Convenção atualizada",
                                       icon: FileCheck,
+                                      onClick: () => {
+                                        if (userRole !== "associado") {
+                                          setActiveDashboardTab("docs");
+                                        } else {
+                                          setShowCCTModal(true);
+                                        }
+                                      }
                                     },
                                     {
                                       label: "Selo de Regularidade",
                                       icon: ShieldCheck,
+                                      onClick: () => {
+                                        setShowSeloModal(true);
+                                      }
                                     },
                                     {
                                       label: "Suporte Jurídico",
                                       icon: HelpCircle,
+                                      onClick: () => {
+                                        setSuporteJuridicoForm({
+                                          name: currentUser?.displayName || memberProfile?.representative || "",
+                                          email: currentUser?.email || memberProfile?.email || "",
+                                          cnpj: memberProfile?.cnpj || "",
+                                          subject: "Dúvida sobre Convenção Coletiva",
+                                          message: ""
+                                        });
+                                        setShowSuporteJuridicoModal(true);
+                                      }
                                     },
                                   ].map((link, i) => (
                                     <button
                                       key={i}
-                                      className="w-full flex items-center gap-3 p-4 rounded-2xl bg-gray-50 hover:bg-blue-50 transition-all text-left"
+                                      onClick={link.onClick}
+                                      className="w-full flex items-center gap-3 p-4 rounded-2xl bg-gray-50 hover:bg-blue-50 transition-all text-left cursor-pointer"
                                     >
                                       <link.icon className="w-5 h-5 text-blue-900" />
                                       <span className="font-bold text-sm text-gray-700">
@@ -7282,13 +7972,60 @@ Para corrigir:
                                   Ações Rápidas
                                 </h4>
                                 <div className="space-y-3">
-                                  <button className="w-full py-4 bg-white text-blue-900 rounded-2xl font-bold shadow-lg hover:bg-amber-400 transition-all">
+                                  <button
+                                    onClick={() => {
+                                      const pending = displayBoletos.filter((b) => b.status === "PENDING");
+                                      if (pending.length > 0) {
+                                        const totalAmount = pending.reduce((sum, b) => {
+                                          const clean = b.valor
+                                            .replace("R$", "")
+                                            .replace(/\./g, "")
+                                            .replace(",", ".")
+                                            .trim();
+                                          return sum + (parseFloat(clean) || 0);
+                                        }, 0);
+                                        setSelectedBoletoPix({
+                                          doc: "Consolidado - Todas as Cobranças Pendentes",
+                                          valor: `R$ ${totalAmount.toLocaleString("pt-BR", {
+                                            minimumFractionDigits: 2,
+                                          })}`,
+                                          id: "CONSOLIDADO",
+                                        });
+                                        setShowPixModal(true);
+                                      } else {
+                                        showNotification(
+                                          "info",
+                                          "Você não possui boletos pendentes no momento."
+                                        );
+                                      }
+                                    }}
+                                    className="w-full py-4 bg-white text-blue-900 rounded-2xl font-bold shadow-lg hover:bg-amber-400 transition-all cursor-pointer"
+                                  >
                                     Pagar todas pendentes
                                   </button>
-                                  <button className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl font-bold text-white hover:bg-white/10 transition-all">
+                                  <button
+                                    onClick={() => {
+                                      if (memberProfile?.cnpj) {
+                                        setSearchTerm(memberProfile.cnpj);
+                                        setActiveDocType("quitacao");
+                                        setShowPrintModal(true);
+                                      } else {
+                                        showNotification("error", "CNPJ do associado não encontrado.");
+                                      }
+                                    }}
+                                    className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl font-bold text-white hover:bg-white/10 transition-all cursor-pointer"
+                                  >
                                     Certidão de Quitação
                                   </button>
-                                  <button className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl font-bold text-white hover:bg-white/10 transition-all">
+                                  <button
+                                    onClick={() => {
+                                      window.open(
+                                        `https://wa.me/${whatsappNumber}?text=Olá!%20Sou%20associado%20do%20SINPA%20e%20gostaria%20de%20suporte%20financeiro.`,
+                                        "_blank"
+                                      );
+                                    }}
+                                    className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl font-bold text-white hover:bg-white/10 transition-all cursor-pointer"
+                                  >
                                     Suporte Financeiro
                                   </button>
                                 </div>
@@ -7373,68 +8110,80 @@ Para corrigir:
                               {[
                                 {
                                   label: "Convenção Coletiva",
+                                  category: "cct",
                                   date: "Vigência 2026/2027",
                                   icon: FileCheck,
                                   color: "blue",
                                 },
                                 {
                                   label: "Estatuto Social",
+                                  category: "estatuto",
                                   date: "Atualizado em 2024",
                                   icon: ShieldCheck,
                                   color: "indigo",
                                 },
                                 {
                                   label: "Atas de Assembleia",
+                                  category: "ata",
                                   date: "Exercício 2025",
                                   icon: FileText,
                                   color: "amber",
                                 },
                                 {
                                   label: "Manuais de Conduta",
+                                  category: "conduta",
                                   date: "Diretrizes 2026",
                                   icon: FileCheck,
                                   color: "emerald",
                                 },
                                 {
                                   label: "Relatórios Fiscais",
+                                  category: "fiscal",
                                   date: "Balancete 2025",
                                   icon: BarChart3,
                                   color: "rose",
                                 },
                                 {
                                   label: "Tabelas Salariais",
+                                  category: "tabela",
                                   date: "Setor Metalúrgico",
                                   icon: Calculator,
                                   color: "violet",
                                 },
-                              ].map((doc, i) => (
-                                <motion.div
-                                  initial={{ opacity: 0, scale: 0.95 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  transition={{ delay: i * 0.05 }}
-                                  key={i}
-                                  className="bg-white border border-gray-100 p-10 rounded-[40px] hover:border-blue-900 transition-all group flex flex-col justify-between shadow-sm hover:shadow-2xl h-[320px] relative overflow-hidden"
-                                >
-                                  <div className="absolute top-0 right-0 w-32 h-32 bg-gray-50 rounded-bl-[100px] pointer-events-none group-hover:bg-blue-50 transition-colors" />
-                                  <div className="relative z-10">
-                                    <div
-                                      className={`w-16 h-16 bg-${doc.color}-50 text-${doc.color}-600 rounded-[20px] flex items-center justify-center mb-8 border border-${doc.color}-100 shadow-sm group-hover:scale-110 transition-transform duration-500`}
-                                    >
-                                      <doc.icon className="w-8 h-8" />
+                              ].map((doc, i) => {
+                                const catDocs = publishedDocs?.filter((d: any) => d.category === doc.category) || [];
+                                const count = catDocs.length;
+                                return (
+                                  <motion.div
+                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ delay: i * 0.05 }}
+                                    key={i}
+                                    className="bg-white border border-gray-100 p-10 rounded-[40px] hover:border-blue-900 transition-all group flex flex-col justify-between shadow-sm hover:shadow-2xl h-[320px] relative overflow-hidden"
+                                  >
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-gray-50 rounded-bl-[100px] pointer-events-none group-hover:bg-blue-50 transition-colors" />
+                                    <div className="relative z-10">
+                                      <div
+                                        className={`w-16 h-16 bg-${doc.color}-50 text-${doc.color}-600 rounded-[20px] flex items-center justify-center mb-8 border border-${doc.color}-100 shadow-sm group-hover:scale-110 transition-transform duration-500`}
+                                      >
+                                        <doc.icon className="w-8 h-8" />
+                                      </div>
+                                      <h4 className="font-bold text-2xl text-gray-900 mb-2 font-display">
+                                        {doc.label}
+                                      </h4>
+                                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">
+                                        {count > 0 ? `${count} arquivo(s) PDF disponível(is)` : doc.date}
+                                      </p>
                                     </div>
-                                    <h4 className="font-bold text-2xl text-gray-900 mb-2 font-display">
-                                      {doc.label}
-                                    </h4>
-                                    <p className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em]">
-                                      {doc.date}
-                                    </p>
-                                  </div>
-                                  <button className="w-full py-5 bg-gray-50 group-hover:bg-blue-900 group-hover:text-white text-blue-900 rounded-[24px] font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 border border-transparent group-hover:shadow-xl group-hover:shadow-blue-900/20 active:scale-95">
-                                    <Download className="w-4 h-4" /> Baixar
-                                    Documento
-                                  </button>
-                                </motion.div>
-                              ))}
+                                    <button
+                                      onClick={() => setSelectedDocCategoryForModal(doc.category)}
+                                      className="w-full py-5 bg-gray-50 group-hover:bg-blue-900 group-hover:text-white text-blue-900 rounded-[24px] font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 border border-transparent group-hover:shadow-xl group-hover:shadow-blue-900/20 active:scale-95 cursor-pointer"
+                                    >
+                                      <Download className="w-4 h-4" /> Acessar Documentos
+                                    </button>
+                                  </motion.div>
+                                );
+                              })}
                             </div>
                           ) : (
                             <div className="grid lg:grid-cols-3 gap-12">
@@ -7773,10 +8522,12 @@ Para corrigir:
                                             className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${
                                               proc.status === "Concluído"
                                                 ? "bg-emerald-100 text-emerald-700"
-                                                : "bg-blue-100 text-blue-700"
+                                                : proc.status === "Em Análise"
+                                                ? "bg-blue-100 text-blue-700"
+                                                : "bg-rose-100 text-rose-700"
                                             }`}
                                           >
-                                            {proc.status}
+                                            {proc.status === "Aguardando Documento" ? "Pendente de Documento" : proc.status}
                                           </span>
                                         </div>
                                         <h5 className="font-bold text-gray-800 leading-tight">
@@ -7789,7 +8540,13 @@ Para corrigir:
                                           <div className="flex-1">
                                             <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
                                               <div
-                                                className={`h-full ${proc.status === "Concluído" ? "bg-emerald-500 w-full" : "bg-blue-500 w-[65%]"} transition-all duration-1000 animate-pulse`}
+                                                className={`h-full ${
+                                                  proc.status === "Concluído"
+                                                    ? "bg-emerald-500 w-full"
+                                                    : proc.status === "Em Análise"
+                                                    ? "bg-blue-500 w-[65%]"
+                                                    : "bg-rose-500 w-[30%]"
+                                                } transition-all duration-1000 animate-pulse`}
                                               ></div>
                                             </div>
                                           </div>
@@ -9887,10 +10644,7 @@ Para corrigir:
                                               .slice(0, 5)
                                               .map((log: any, idx: number) => (
                                                 <div
-                                                  key={
-                                                    log.id ||
-                                                    `audit-slice-${idx}`
-                                                  }
+                                                  key={`audit-slice-${log.id || idx}-${idx}`}
                                                   className="text-xs p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-2"
                                                 >
                                                   <div className="flex items-center justify-between text-[10px] font-black text-gray-400">
@@ -10398,12 +11152,62 @@ Para corrigir:
                                         </div>
                                       </div>
 
+                                      {/* Resumo Dinâmico por Setor */}
+                                      <div className="mb-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                                        {(() => {
+                                          const totals = delinquentCompanies.reduce((acc, c) => {
+                                            const cat = c.category || "Outros";
+                                            acc[cat] = (acc[cat] || 0) + (c.debt || 0);
+                                            return acc;
+                                          }, {} as Record<string, number>);
+                                          const grandTotal = (Object.values(totals) as number[]).reduce((a, b) => a + b, 0);
+
+                                          const sectorColors: Record<string, { bg: string, text: string, border: string, bar: string }> = {
+                                            "Saúde": { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-100", bar: "bg-emerald-500" },
+                                            "Educação": { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-100", bar: "bg-blue-500" },
+                                            "Transporte": { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-100", bar: "bg-amber-500" },
+                                            "Indústria": { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-100", bar: "bg-purple-500" },
+                                            "Comércio": { bg: "bg-pink-50", text: "text-pink-700", border: "border-pink-100", bar: "bg-pink-500" },
+                                            "Outros": { bg: "bg-gray-50", text: "text-gray-700", border: "border-gray-100", bar: "bg-gray-500" },
+                                          };
+
+                                          return (Object.entries(totals) as Array<[string, number]>).map(([sector, total]) => {
+                                            const colors = sectorColors[sector] || sectorColors["Outros"];
+                                            const pct = grandTotal > 0 ? (total / grandTotal) * 100 : 0;
+                                            return (
+                                              <div
+                                                key={sector}
+                                                className={`p-4 rounded-2xl border ${colors.border} ${colors.bg} relative overflow-hidden transition-all hover:shadow-md`}
+                                              >
+                                                <div className="flex items-center justify-between">
+                                                  <span className={`text-[9px] font-black uppercase tracking-wider ${colors.text}`}>
+                                                    {sector}
+                                                  </span>
+                                                  <span className="text-[9px] text-gray-400 font-mono font-bold">
+                                                    {pct.toFixed(0)}%
+                                                  </span>
+                                                </div>
+                                                <p className="text-base font-black text-gray-900 mt-1 font-display">
+                                                  R$ {total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                                                </p>
+                                                <div className="w-full bg-gray-200/50 h-1 rounded-full mt-2 overflow-hidden">
+                                                  <div className={`h-full ${colors.bar}`} style={{ width: `${pct}%` }} />
+                                                </div>
+                                              </div>
+                                            );
+                                          });
+                                        })()}
+                                      </div>
+
                                       <div className="overflow-x-auto">
                                         <table className="w-full">
                                           <thead>
                                             <tr className="border-b border-gray-100">
                                               <th className="text-left py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest font-mono">
                                                 Empresa
+                                              </th>
+                                              <th className="text-left py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest font-mono">
+                                                Setor / Categoria
                                               </th>
                                               <th className="text-left py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest font-mono">
                                                 Dívida Total
@@ -10430,6 +11234,18 @@ Para corrigir:
                                                     <p className="text-[10px] text-gray-400 font-mono">
                                                       {company.cnpj}
                                                     </p>
+                                                  </td>
+                                                  <td className="py-6">
+                                                    <span className={`px-2.5 py-1 text-[10px] font-black rounded-lg uppercase tracking-wider ${
+                                                      company.category === "Saúde" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
+                                                      company.category === "Educação" ? "bg-blue-50 text-blue-700 border border-blue-100" :
+                                                      company.category === "Transporte" ? "bg-amber-50 text-amber-700 border border-amber-100" :
+                                                      company.category === "Indústria" ? "bg-purple-50 text-purple-700 border border-purple-100" :
+                                                      company.category === "Comércio" ? "bg-pink-50 text-pink-700 border border-pink-100" :
+                                                      "bg-gray-50 text-gray-700 border border-gray-100"
+                                                    }`}>
+                                                      {company.category || "Outros"}
+                                                    </span>
                                                   </td>
                                                   <td className="py-6 font-bold text-rose-600 text-sm">
                                                     R${" "}
@@ -12090,6 +12906,16 @@ Para corrigir:
                                       >
                                         Logs de Auditoria
                                       </button>
+                                      <button
+                                        onClick={() => setSystemTab("push")}
+                                        className={`flex-1 px-5 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                          systemTab === "push"
+                                            ? "bg-blue-900 text-white shadow-md shadow-blue-900/10"
+                                            : "text-gray-400 hover:text-gray-700 hover:bg-gray-100/50"
+                                        }`}
+                                      >
+                                        Notificações Push
+                                      </button>
                                     </div>
 
                                     {systemTab === "general" && (
@@ -12777,9 +13603,7 @@ Para corrigir:
                                         {auditLogs.map(
                                           (log: any, index: number) => (
                                             <div
-                                              key={
-                                                log.id || `audit-full-${index}`
-                                              }
+                                              key={`audit-full-${log.id || index}-${index}`}
                                               className="p-5 bg-gray-50 rounded-2xl border border-gray-100 space-y-3 shadow-inner"
                                             >
                                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-200 pb-2.5">
@@ -12824,6 +13648,144 @@ Para corrigir:
                                 </motion.div>
                               )}
 
+                              {systemTab === "push" && (
+                                <motion.div
+                                  key="admin_push_notifications"
+                                  initial={{ opacity: 0, y: 15 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className="space-y-8"
+                                >
+                                  <div className="grid md:grid-cols-3 gap-6">
+                                    <div className="bg-gradient-to-br from-blue-900 to-blue-950 p-8 rounded-[36px] text-white shadow-xl relative overflow-hidden">
+                                      <div className="absolute right-[-20px] top-[-20px] opacity-10">
+                                        <Bell className="w-40 h-40" />
+                                      </div>
+                                      <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-200">Total de Inscritos</p>
+                                      <h3 className="text-4xl font-extrabold mt-3 font-mono">{pushSubscriptionsCount}</h3>
+                                      <p className="text-xs text-blue-200/80 mt-2">Navegadores aptos a receber alertas instantâneos.</p>
+                                    </div>
+
+                                    <div className="bg-white border border-gray-100 p-8 rounded-[36px] shadow-sm flex flex-col justify-between">
+                                      <div>
+                                        <p className="text-xs font-black uppercase tracking-wider text-gray-400">Status das Chaves VAPID</p>
+                                        <div className="flex items-center gap-2 mt-3">
+                                          <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping"></span>
+                                          <span className="font-bold text-blue-950 text-base">Configuradas & Ativas</span>
+                                        </div>
+                                      </div>
+                                      <p className="text-xs text-gray-500 mt-4 leading-relaxed">Geradas automaticamente pelo servidor para criptografia de ponta a ponta.</p>
+                                    </div>
+
+                                    <div className="bg-white border border-gray-100 p-8 rounded-[36px] shadow-sm flex flex-col justify-between">
+                                      <div>
+                                        <p className="text-xs font-black uppercase tracking-wider text-gray-400">Status no Navegador</p>
+                                        <div className="flex items-center gap-2 mt-3">
+                                          <span className={`w-2.5 h-2.5 rounded-full ${pushSubscribed ? "bg-emerald-500 animate-ping" : "bg-gray-400"}`}></span>
+                                          <span className="font-bold text-blue-950 text-base">
+                                            {pushSubscribed ? "Inscrito neste dispositivo" : "Não inscrito neste dispositivo"}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <button
+                                        onClick={pushSubscribed ? unsubscribeFromPush : subscribeToPush}
+                                        className={`mt-4 w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all border ${
+                                          pushSubscribed
+                                            ? "bg-white border-rose-200 text-rose-600 hover:bg-rose-50"
+                                            : "bg-blue-900 text-white hover:bg-blue-950 border-transparent"
+                                        }`}
+                                      >
+                                        {pushSubscribed ? "Desativar Avisos" : "Ativar neste Navegador"}
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Send Test Notification Simulator */}
+                                  <div className="bg-gray-50 border border-gray-100 rounded-[36px] p-8 space-y-6">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-amber-600">
+                                        <Send className="w-5 h-5" />
+                                      </div>
+                                      <div>
+                                        <h5 className="font-bold text-blue-950">Simulador de Notificação Push</h5>
+                                        <p className="text-xs text-gray-500">Envie um alerta instantâneo de faturamento para todos os associados inscritos.</p>
+                                      </div>
+                                    </div>
+
+                                    <div className="grid md:grid-cols-2 gap-6">
+                                      <div className="space-y-4">
+                                        <div>
+                                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1.5 ml-1">Título do Alerta</label>
+                                          <input
+                                            type="text"
+                                            value={testPushTitle}
+                                            onChange={(e) => setTestPushTitle(e.target.value)}
+                                            className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 text-blue-950"
+                                            placeholder="Ex: Mensalidade Disponível"
+                                          />
+                                        </div>
+
+                                        <div>
+                                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1.5 ml-1">Mensagem (Corpo)</label>
+                                          <textarea
+                                            value={testPushBody}
+                                            onChange={(e) => setTestPushBody(e.target.value)}
+                                            rows={3}
+                                            className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 text-blue-950 resize-none"
+                                            placeholder="Ex: Seu boleto referente à mensalidade de Julho/2026 já está disponível para pagamento."
+                                          />
+                                        </div>
+
+                                        <div>
+                                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1.5 ml-1">URL de Destino (Ao clicar)</label>
+                                          <input
+                                            type="text"
+                                            value={testPushUrl}
+                                            onChange={(e) => setTestPushUrl(e.target.value)}
+                                            className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 text-blue-950"
+                                            placeholder="Ex: / (página inicial) ou /boletos"
+                                          />
+                                        </div>
+
+                                        <button
+                                          onClick={sendTestPush}
+                                          disabled={isSendingTestPush}
+                                          className="w-full bg-blue-900 hover:bg-blue-950 text-white font-bold text-xs py-3.5 px-6 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+                                        >
+                                          {isSendingTestPush ? (
+                                            <>
+                                              <Loader2 className="w-4 h-4 animate-spin" /> Enviando...
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Send className="w-4 h-4" /> Disparar Alerta Push Nativo
+                                            </>
+                                          )}
+                                        </button>
+                                      </div>
+
+                                      <div className="bg-white border border-gray-100 rounded-2xl p-6 flex flex-col justify-between">
+                                        <div>
+                                          <h6 className="text-xs font-black uppercase tracking-wider text-gray-400 mb-4">Pré-visualização do Alerta Nativo</h6>
+                                          <div className="bg-gray-100/50 rounded-xl p-4 flex gap-4 border border-gray-50">
+                                            <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center text-white font-extrabold text-lg shrink-0">
+                                              S
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-sm font-bold text-gray-900 truncate">{testPushTitle || "Título da Notificação"}</p>
+                                              <p className="text-xs text-gray-500 mt-0.5 break-words line-clamp-3">{testPushBody || "Corpo da notificação contendo os detalhes do aviso..."}</p>
+                                              <p className="text-[10px] text-gray-400 mt-2 font-medium">sinpa.org.br</p>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <div className="text-[11px] text-gray-400 mt-6 italic">
+                                          * O aviso será disparado nativamente pelo sistema operacional do usuário, exibindo um balão de notificação push no Windows, macOS, Android ou Linux.
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
+
                               {adminSubTab === "team" && (
                                 <motion.div
                                   key="team"
@@ -12864,17 +13826,20 @@ Para corrigir:
                                           <label className="absolute inset-0 bg-blue-900/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center cursor-pointer">
                                             <input
                                               type="file"
+                                              accept="image/*"
                                               className="hidden"
                                               onChange={(e) => {
                                                 const file =
                                                   e.target.files?.[0];
                                                 if (file) {
-                                                  const url =
-                                                    URL.createObjectURL(file);
-                                                  setNewMemberForm({
-                                                    ...newMemberForm,
-                                                    photo: url,
-                                                  });
+                                                  const reader = new FileReader();
+                                                  reader.onloadend = () => {
+                                                    setNewMemberForm({
+                                                      ...newMemberForm,
+                                                      photo: reader.result as string,
+                                                    });
+                                                  };
+                                                  reader.readAsDataURL(file);
                                                 }
                                               }}
                                             />
@@ -12967,20 +13932,11 @@ Para corrigir:
                                                 alert("Preencha nome e cargo.");
                                                 return;
                                               }
-                                              const member: TeamMember = {
-                                                id: Math.random()
-                                                  .toString(36)
-                                                  .substr(2, 9),
-                                                ...newMemberForm,
-                                              };
-                                              setTeamMembers([
-                                                ...teamMembers,
-                                                member,
-                                              ]);
+                                              handleAddTeamMember(newMemberForm);
                                               setNewMemberForm({
                                                 name: "",
                                                 role: "",
-                                                category: member.category,
+                                                category: newMemberForm.category,
                                                 photo: "",
                                               });
                                             }}
@@ -13019,9 +13975,29 @@ Para corrigir:
                                                   key={`team-member-${member.id || i}-${i}`}
                                                   className="flex flex-col gap-4 p-4 bg-white border border-gray-100 rounded-2xl group hover:border-blue-200 transition-all cursor-pointer"
                                                 >
-                                                  <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-4">
-                                                      <div className="w-12 h-12 bg-white rounded-2xl shadow-inner flex items-center justify-center overflow-hidden border border-gray-100 p-0.5">
+                                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
+                                                    <div className="flex items-center gap-4 min-w-0 flex-1">
+                                                      <label 
+                                                        className="w-12 h-12 bg-white rounded-2xl shadow-inner flex items-center justify-center overflow-hidden border border-gray-100 p-0.5 relative cursor-pointer group/avatar hover:border-blue-300 transition-colors shrink-0"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                      >
+                                                        <input
+                                                          type="file"
+                                                          accept="image/*"
+                                                          className="hidden"
+                                                          onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (file) {
+                                                              const reader = new FileReader();
+                                                              reader.onloadend = () => {
+                                                                handleUpdateTeamMember(member.id, {
+                                                                  photo: reader.result as string,
+                                                                });
+                                                              };
+                                                              reader.readAsDataURL(file);
+                                                            }
+                                                          }}
+                                                        />
                                                         {member.photo ? (
                                                           <img
                                                             src={member.photo}
@@ -13031,13 +14007,16 @@ Para corrigir:
                                                         ) : (
                                                           <Users className="w-5 h-5 text-blue-200" />
                                                         )}
-                                                      </div>
-                                                      <div>
-                                                        <p className="text-sm font-black text-blue-950 leading-tight">
+                                                        <div className="absolute inset-0 bg-blue-900/60 backdrop-blur-[1px] opacity-0 group-hover/avatar:opacity-100 transition-all flex items-center justify-center rounded-[14px]">
+                                                          <Camera className="w-4 h-4 text-white" />
+                                                        </div>
+                                                      </label>
+                                                      <div className="min-w-0 flex-1">
+                                                        <p className="text-sm font-black text-blue-950 leading-tight truncate">
                                                           {member.name}
                                                         </p>
-                                                        <div className="flex items-center gap-2">
-                                                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest truncate max-w-[150px]">
                                                             {member.role}
                                                           </p>
                                                           <button
@@ -13055,18 +14034,9 @@ Para corrigir:
                                                                 newRole.trim() !==
                                                                   ""
                                                               ) {
-                                                                setTeamMembers(
-                                                                  teamMembers.map(
-                                                                    (m) =>
-                                                                      m.id ===
-                                                                      member.id
-                                                                        ? {
-                                                                            ...m,
-                                                                            role: newRole,
-                                                                          }
-                                                                        : m,
-                                                                  ),
-                                                                );
+                                                                handleUpdateTeamMember(member.id, {
+                                                                  role: newRole,
+                                                                });
                                                               }
                                                             }}
                                                             className="p-1 hover:bg-gray-100 rounded text-blue-400 hover:text-blue-600 transition-colors opacity-0 group-hover:opacity-100"
@@ -13081,37 +14051,26 @@ Para corrigir:
                                                         </div>
                                                       </div>
                                                     </div>
-                                                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                                    <div className="flex items-center gap-1.5 lg:opacity-0 lg:group-hover:opacity-100 transition-all shrink-0 self-end sm:self-auto">
                                                       <button
-                                                        className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-900 hover:bg-blue-600 hover:text-white rounded-xl transition-all shadow-sm text-[10px] font-black uppercase tracking-widest"
-                                                        title="Visualizar Detalhes"
-                                                      >
-                                                        <Eye className="w-3.5 h-3.5" />
-                                                        <span className="hidden sm:inline">
-                                                          Ver
-                                                        </span>
-                                                      </button>
-                                                      <button
-                                                        className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-600 hover:bg-amber-500 hover:text-white rounded-xl transition-all shadow-sm text-[10px] font-black uppercase tracking-widest"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          setEditingTeamMember(member);
+                                                        }}
+                                                        className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-50 text-amber-600 hover:bg-amber-500 hover:text-white rounded-xl transition-all shadow-sm text-[9px] font-black uppercase tracking-wider"
                                                         title="Editar Perfil"
                                                       >
                                                         <Settings className="w-3.5 h-3.5" />
-                                                        <span className="hidden sm:inline">
-                                                          Editar
-                                                        </span>
+                                                        <span>Editar</span>
                                                       </button>
                                                       <button
                                                         onClick={(e) => {
                                                           e.stopPropagation();
-                                                          setTeamMembers(
-                                                            teamMembers.filter(
-                                                              (m) =>
-                                                                m.id !==
-                                                                member.id,
-                                                            ),
-                                                          );
+                                                          if (confirm(`Tem certeza que deseja remover ${member.name}?`)) {
+                                                            handleDeleteTeamMember(member.id);
+                                                          }
                                                         }}
-                                                        className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm"
+                                                        className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm flex items-center justify-center"
                                                         title="Remover"
                                                       >
                                                         <X className="w-3.5 h-3.5" />
@@ -13166,51 +14125,123 @@ Para corrigir:
                                       </div>
 
                                       <div className="space-y-4">
-                                        <div className="border-2 border-dashed border-gray-100 rounded-3xl p-8 text-center hover:border-blue-300 transition-all cursor-pointer bg-gray-50/50 group">
-                                          <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm group-hover:scale-110 transition-transform">
-                                            <Upload className="w-8 h-8 text-blue-300" />
-                                          </div>
-                                          <p className="text-sm font-bold text-gray-600 mb-1">
-                                            Arraste seus documentos aqui
-                                          </p>
-                                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                                            PDF, DOCX até 50MB
-                                          </p>
+                                        <div className="space-y-1">
+                                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">
+                                            Título do Documento
+                                          </label>
+                                          <input
+                                            type="text"
+                                            value={newDocTitle}
+                                            onChange={(e) => setNewDocTitle(e.target.value)}
+                                            placeholder="Ex: Convenção Coletiva de Trabalho 2026/2027"
+                                            className="w-full bg-gray-50 border border-gray-100 px-4 py-3 rounded-2xl text-xs font-bold focus:bg-white outline-none transition-all"
+                                          />
                                         </div>
 
-                                        <div className="grid grid-cols-4 gap-2">
-                                          {[
-                                            { label: "CCT", val: "cct" },
-                                            { label: "Notícia", val: "news" },
-                                            {
-                                              label: "Edital",
-                                              val: "internal",
-                                            },
-                                            {
-                                              label: "Jurídico",
-                                              val: "juridico",
-                                            },
-                                          ].map((t) => (
-                                            <button
-                                              key={t.val}
-                                              onClick={() =>
-                                                setDocType(t.val as any)
-                                              }
-                                              className={`py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
-                                                docType === t.val
-                                                  ? "bg-blue-900 text-white border-blue-900 shadow-lg shadow-blue-900/20"
-                                                  : "border-gray-100 text-gray-400 hover:bg-gray-50"
-                                              }`}
-                                            >
-                                              {t.label}
-                                            </button>
-                                          ))}
+                                        <div className="space-y-1">
+                                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">
+                                            Vigência / Ano (Opcional)
+                                          </label>
+                                          <input
+                                            type="text"
+                                            value={newDocVigence}
+                                            onChange={(e) => setNewDocVigence(e.target.value)}
+                                            placeholder="Ex: Vigência 2026/2027 ou Exercício 2025"
+                                            className="w-full bg-gray-50 border border-gray-100 px-4 py-3 rounded-2xl text-xs font-bold focus:bg-white outline-none transition-all"
+                                          />
+                                        </div>
+
+                                        <div className="space-y-1">
+                                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">
+                                            Categoria do Portal
+                                          </label>
+                                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                            {[
+                                              { label: "CCT", val: "cct" },
+                                              { label: "Estatuto", val: "estatuto" },
+                                              { label: "Atas", val: "ata" },
+                                              { label: "Manuais", val: "conduta" },
+                                              { label: "Fiscais", val: "fiscal" },
+                                              { label: "Tabelas", val: "tabela" },
+                                              { label: "Outros", val: "outros" },
+                                            ].map((t) => (
+                                              <button
+                                                key={t.val}
+                                                type="button"
+                                                onClick={() =>
+                                                  setNewDocCategory(t.val)
+                                                }
+                                                className={`py-2 rounded-xl border text-[9px] font-black uppercase tracking-wider transition-all ${
+                                                  newDocCategory === t.val
+                                                    ? "bg-blue-900 text-white border-blue-900 shadow-lg shadow-blue-900/10"
+                                                    : "border-gray-100 text-gray-400 bg-gray-50/50 hover:bg-gray-100"
+                                                }`}
+                                              >
+                                                {t.label}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        <div className="space-y-1 pt-2">
+                                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">
+                                            Selecione o Arquivo
+                                          </label>
+                                          {newDocFileBase64 ? (
+                                            <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-3xl flex items-center justify-between">
+                                              <div className="flex items-center gap-3 min-w-0">
+                                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center border border-emerald-200 shadow-sm shrink-0">
+                                                  <FileCheck className="w-5 h-5 text-emerald-600" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                  <p className="text-xs font-bold text-gray-800 truncate">
+                                                    {newDocFileName}
+                                                  </p>
+                                                  <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">
+                                                    {newDocFileSize} • Pronto
+                                                  </p>
+                                                </div>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setNewDocFileBase64("");
+                                                  setNewDocFileName("");
+                                                  setNewDocFileSize("");
+                                                }}
+                                                className="p-2 bg-white text-rose-500 hover:bg-rose-500 hover:text-white border border-rose-100 rounded-xl transition-all shadow-sm shrink-0"
+                                                title="Remover arquivo"
+                                              >
+                                                <X className="w-4 h-4" />
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <label className="block">
+                                              <div className="border border-dashed border-gray-200 hover:border-blue-500 rounded-3xl p-6 text-center hover:bg-blue-50/20 transition-all cursor-pointer bg-gray-50/50 group">
+                                                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm group-hover:scale-110 transition-transform border border-gray-100">
+                                                  <Upload className="w-6 h-6 text-blue-500" />
+                                                </div>
+                                                <p className="text-xs font-bold text-gray-600 mb-0.5">
+                                                  Selecione seu documento aqui
+                                                </p>
+                                                <p className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">
+                                                  Apenas formato PDF de até 10MB
+                                                </p>
+                                                <input
+                                                  type="file"
+                                                  className="hidden"
+                                                  accept=".pdf"
+                                                  onChange={handleFileChange}
+                                                />
+                                              </div>
+                                            </label>
+                                          )}
                                         </div>
 
                                         <button
                                           onClick={handlePublishDoc}
                                           disabled={isUploadingDoc}
-                                          className="w-full bg-blue-950 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-950/20 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                                          className="w-full bg-blue-950 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-950/20 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 mt-4"
                                         >
                                           {isUploadingDoc ? (
                                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -13225,145 +14256,63 @@ Para corrigir:
                                       <h4 className="text-xl font-bold mb-8 text-blue-900 font-display uppercase tracking-widest text-xs">
                                         Publicações Ativas
                                       </h4>
-                                      <div className="space-y-4">
-                                        {[
-                                          {
-                                            title:
-                                              "CCT 2026/2027 - Setor Metalúrgico",
-                                            type: "CCT",
-                                            date: "Hoje, 10:45",
-                                            desc: "Convenção Coletiva de Trabalho completa contendo os novos pisos salariais e cláusulas sociais aprovadas em assembleia.",
-                                          },
-                                          {
-                                            title: "Link do Diário Oficial",
-                                            type: "Link",
-                                            date: "Ontem",
-                                            desc: "Acesse a publicação oficial no Diário Oficial da União.",
-                                            isExternal: true,
-                                            url: "https://dou.gov.br",
-                                          },
-                                          {
-                                            title:
-                                              "Edital de Convocação - Assembleia Geral",
-                                            type: "Edital",
-                                            date: "12/05/2026",
-                                            desc: "Edital oficial convocando todos os associados para a Assembleia Geral Extraordinária sobre o plano de saúde.",
-                                          },
-                                        ].map((pub, i) => (
-                                          <div
-                                            key={i}
-                                            className="bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden group hover:bg-white hover:border-blue-200 transition-all"
-                                          >
-                                            <div className="p-4 flex items-center justify-between">
-                                              <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center">
-                                                  {pub.isExternal ? (
-                                                    <Globe className="w-5 h-5 text-blue-600" />
-                                                  ) : (
-                                                    <FileText className="w-5 h-5 text-blue-600" />
-                                                  )}
-                                                </div>
-                                                <div>
-                                                  <p className="text-xs font-bold text-gray-800 line-clamp-1 flex items-center gap-1.5">
-                                                    {pub.title}
-                                                    {pub.isExternal && (
-                                                      <ExternalLink className="w-3 h-3 text-gray-400" />
-                                                    )}
-                                                  </p>
-                                                  <div className="flex items-center gap-2">
-                                                    <span className="text-[8px] font-black bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded uppercase">
-                                                      {pub.type}
-                                                    </span>
-                                                    <span className="text-[9px] text-gray-400 font-bold">
-                                                      {pub.date}
-                                                    </span>
+                                      <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+                                        {publishedDocs && publishedDocs.length > 0 ? (
+                                          publishedDocs.map((pub: any, i: number) => (
+                                            <div
+                                              key={pub.id || i}
+                                              className="bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden group hover:bg-white hover:border-blue-200 transition-all"
+                                            >
+                                              <div className="p-4 flex items-center justify-between">
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                  <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center border border-gray-100 shrink-0">
+                                                    <FileCheck className="w-5 h-5 text-blue-600" />
                                                   </div>
-                                                </div>
-                                              </div>
-                                              <div className="flex items-center gap-2">
-                                                {pub.isExternal && (
-                                                  <button
-                                                    className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-600 hover:text-white transition-all shadow-sm"
-                                                    title="Baixar em PDF"
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      alert("Baixando PDF...");
-                                                    }}
-                                                  >
-                                                    <Download className="w-3.5 h-3.5" />
-                                                    <span>PDF</span>
-                                                  </button>
-                                                )}
-                                                <button
-                                                  onClick={() => {
-                                                    if (
-                                                      pub.isExternal &&
-                                                      pub.url
-                                                    ) {
-                                                      window.open(
-                                                        pub.url,
-                                                        "_blank",
-                                                      );
-                                                    } else {
-                                                      setExpandedPubIndex(
-                                                        expandedPubIndex === i
-                                                          ? null
-                                                          : i,
-                                                      );
-                                                    }
-                                                  }}
-                                                  className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-600 hover:text-white transition-all"
-                                                >
-                                                  {pub.isExternal ? (
-                                                    <>
-                                                      Link Externo{" "}
-                                                      <ExternalLink className="w-3 h-3" />
-                                                    </>
-                                                  ) : expandedPubIndex === i ? (
-                                                    "Recolher"
-                                                  ) : (
-                                                    "Ver Detalhes"
-                                                  )}
-                                                </button>
-                                                <button className="p-2 text-gray-300 hover:text-blue-600">
-                                                  <Eye className="w-4 h-4" />
-                                                </button>
-                                              </div>
-                                            </div>
-
-                                            <AnimatePresence>
-                                              {expandedPubIndex === i && (
-                                                <motion.div
-                                                  initial={{
-                                                    height: 0,
-                                                    opacity: 0,
-                                                  }}
-                                                  animate={{
-                                                    height: "auto",
-                                                    opacity: 1,
-                                                  }}
-                                                  exit={{
-                                                    height: 0,
-                                                    opacity: 0,
-                                                  }}
-                                                  className="px-4 pb-4 border-t border-gray-100 bg-white/50"
-                                                >
-                                                  <div className="pt-4 space-y-3">
-                                                    <p className="text-xs text-gray-500 font-medium leading-relaxed">
-                                                      {pub.desc}
+                                                  <div className="min-w-0">
+                                                    <p className="text-xs font-bold text-gray-800 truncate" title={pub.title}>
+                                                      {pub.title}
                                                     </p>
-                                                    <div className="flex items-center gap-2 pt-2 border-t border-gray-50">
-                                                      <Clock className="w-3 h-3 text-gray-400" />
-                                                      <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
-                                                        Publicado em: {pub.date}
+                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                      <span className="text-[8px] font-black bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded uppercase">
+                                                        {pub.category === "cct" ? "CCT" :
+                                                         pub.category === "estatuto" ? "Estatuto" :
+                                                         pub.category === "ata" ? "Ata" :
+                                                         pub.category === "conduta" ? "Manual" :
+                                                         pub.category === "fiscal" ? "Fiscal" :
+                                                         pub.category === "tabela" ? "Tabela" : "Outros"}
+                                                      </span>
+                                                      <span className="text-[9px] text-gray-400 font-bold">
+                                                        {pub.vigence}
                                                       </span>
                                                     </div>
                                                   </div>
-                                                </motion.div>
-                                              )}
-                                            </AnimatePresence>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                  <button
+                                                    onClick={() => downloadPublishedDoc(pub)}
+                                                    className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-600 hover:text-white rounded-xl transition-all shadow-sm"
+                                                    title="Baixar Documento"
+                                                  >
+                                                    <Download className="w-4 h-4" />
+                                                  </button>
+                                                  <button
+                                                    onClick={() => handleDeletePublishedDoc(pub.id)}
+                                                    className="p-2 text-rose-600 bg-rose-50 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm"
+                                                    title="Excluir Documento"
+                                                  >
+                                                    <Trash2 className="w-4 h-4" />
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ))
+                                        ) : (
+                                          <div className="text-center py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                                            <FileText className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                                            <p className="text-xs font-bold text-gray-500">Nenhum documento publicado ainda.</p>
+                                            <p className="text-[10px] text-gray-400 mt-1">Use o formulário ao lado para realizar o upload e publicar.</p>
                                           </div>
-                                        ))}
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -13711,10 +14660,7 @@ Para corrigir:
                                             .slice(0, 6)
                                             .map((log: any, idx: number) => (
                                               <div
-                                                key={
-                                                  log.id ||
-                                                  `audit-portal-${idx}`
-                                                }
+                                                key={`audit-portal-${log.id || idx}-${idx}`}
                                                 className="text-xs p-5 bg-gray-50 rounded-3xl border border-gray-100 space-y-3"
                                               >
                                                 <div className="flex items-center justify-between text-[10px] font-black text-gray-400 border-b border-gray-200 pb-2">
@@ -13855,29 +14801,69 @@ Para corrigir:
                                                   {proc.type}
                                                 </p>
                                               </td>
-                                              <td className="px-10 py-8">
-                                                <div className="flex items-center gap-3">
-                                                  <div
-                                                    className={`w-3 h-3 rounded-full ${
-                                                      proc.status ===
-                                                      "Concluído"
-                                                        ? "bg-emerald-500"
-                                                        : proc.status ===
-                                                            "Em Análise"
-                                                          ? "bg-blue-500"
-                                                          : "bg-amber-500"
-                                                    } ring-4 ${
-                                                      proc.status ===
-                                                      "Concluído"
-                                                        ? "ring-emerald-50"
-                                                        : proc.status ===
-                                                            "Em Análise"
-                                                          ? "ring-blue-50"
-                                                          : "ring-amber-50"
-                                                    }`}
-                                                  ></div>
-                                                  <span className="text-sm font-bold text-gray-800">
-                                                    {proc.status}
+                                              <td className="px-10 py-8 min-w-[280px]">
+                                                <div className="flex flex-col gap-2">
+                                                  <div className="flex items-center justify-between gap-4">
+                                                    <div className="flex items-center gap-2">
+                                                      <div
+                                                        className={`w-2.5 h-2.5 rounded-full ${
+                                                          proc.status === "Concluído"
+                                                            ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse"
+                                                            : proc.status === "Em Análise"
+                                                            ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)] animate-pulse"
+                                                            : "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)] animate-pulse"
+                                                        }`}
+                                                      ></div>
+                                                      <select
+                                                        value={proc.status}
+                                                        onChange={(e) => {
+                                                          const val = e.target.value;
+                                                          setJucebProcesses((prev) =>
+                                                            prev.map((p) =>
+                                                              p.id === proc.id ? { ...p, status: val } : p
+                                                            )
+                                                          );
+                                                        }}
+                                                        className={`text-xs font-bold px-3 py-1 rounded-full border cursor-pointer focus:outline-none transition-all ${
+                                                          proc.status === "Concluído"
+                                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/50"
+                                                            : proc.status === "Em Análise"
+                                                            ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100/50"
+                                                            : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100/50"
+                                                        }`}
+                                                      >
+                                                        <option value="Em Análise">🔍 Em Análise</option>
+                                                        <option value="Aguardando Documento">⚠️ Pendente de Documento</option>
+                                                        <option value="Concluído">✅ Concluído</option>
+                                                      </select>
+                                                    </div>
+                                                    <span className="text-[10px] font-black text-gray-500 bg-gray-100/80 px-1.5 py-0.5 rounded">
+                                                      {proc.status === "Concluído"
+                                                        ? "100%"
+                                                        : proc.status === "Em Análise"
+                                                        ? "65%"
+                                                        : "30%"}
+                                                    </span>
+                                                  </div>
+                                                  
+                                                  <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                                                    <div
+                                                      className={`h-full rounded-full transition-all duration-500 ${
+                                                        proc.status === "Concluído"
+                                                          ? "bg-emerald-500 w-full"
+                                                          : proc.status === "Em Análise"
+                                                          ? "bg-blue-500 w-[65%]"
+                                                          : "bg-rose-500 w-[30%]"
+                                                      }`}
+                                                    ></div>
+                                                  </div>
+                                                  
+                                                  <span className="text-[9px] font-black uppercase tracking-wider text-gray-400">
+                                                    {proc.status === "Concluído"
+                                                      ? "Processo Finalizado"
+                                                      : proc.status === "Em Análise"
+                                                      ? "Análise Técnica"
+                                                      : "Pendente de Documento"}
                                                   </span>
                                                 </div>
                                               </td>
@@ -16721,200 +17707,232 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                     {...fadeInUp}
                     className="bg-white rounded-[40px] p-8 lg:p-12 shadow-2xl shadow-blue-900/10 border border-white"
                   >
-                    <form
-                      onSubmit={handleSearch}
-                      className="relative z-10 mb-8"
-                    >
-                      <div className="relative">
-                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block ml-1">
-                          {activeDocType === "boleto"
-                            ? "Consulta de Débito"
-                            : "Validação de Registro"}
-                        </label>
-                        <div className="flex flex-col sm:flex-row gap-3">
-                          <div className="relative flex-1">
-                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                            <input
-                              type="text"
-                              value={searchTerm}
-                              onChange={(e) => setSearchTerm(e.target.value)}
-                              placeholder="Informe seu CNPJ ou CPF"
-                              className="w-full bg-gray-50 border border-gray-200 rounded-2xl pl-12 pr-6 py-4 outline-none focus:ring-2 focus:ring-blue-900 transition-all font-medium"
-                            />
-                          </div>
+                    {!currentUser ? (
+                      <div className="text-center py-8 space-y-6">
+                        <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto text-amber-500 border border-amber-100 shadow-inner">
+                          <Lock className="w-10 h-10" />
+                        </div>
+                        <div className="space-y-3">
+                          <h3 className="text-2xl font-black text-blue-950 tracking-tight font-display">
+                            Acesso Restrito a Associados
+                          </h3>
+                          <p className="text-sm text-gray-500 max-w-md mx-auto leading-relaxed">
+                            Por determinação estatutária, apenas associados ativos e logados têm acesso à consulta de débitos, emissão de Certidões de Quitação, Declaração de Regularidade Sindical e Boletos de Cobrança por Competência.
+                          </p>
+                        </div>
+                        <div className="pt-2">
                           <button
-                            disabled={isSearching}
-                            className="bg-blue-900 text-white px-8 py-4 rounded-2xl font-bold hover:bg-blue-800 disabled:opacity-50 transition-all shadow-lg shadow-blue-950/20"
+                            onClick={() => {
+                              setAuthType("associate");
+                              setShowAuthModal(true);
+                            }}
+                            className="bg-blue-900 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-black transition-all shadow-lg shadow-blue-950/20 active:scale-95 inline-flex items-center gap-2"
                           >
-                            {activeDocType === "boleto"
-                              ? "Listar Boletos"
-                              : "Validar"}
+                            <Key className="w-4 h-4" /> Acessar Portal do Associado
                           </button>
                         </div>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                          Sindicato Patronal SINPA
+                        </p>
                       </div>
-                    </form>
-
-                    <AnimatePresence mode="wait">
-                      {isSearching ? (
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          className="py-12 text-center"
+                    ) : (
+                      <>
+                        <form
+                          onSubmit={handleSearch}
+                          className="relative z-10 mb-8"
                         >
-                          <div className="inline-block w-12 h-12 border-4 border-blue-900/10 border-t-blue-900 rounded-full animate-spin mb-4"></div>
-                          <p className="text-gray-500 font-medium">
-                            Consultando registros...
-                          </p>
-                        </motion.div>
-                      ) : certificateResult === "active" ? (
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="space-y-6"
-                        >
-                          <div className="bg-emerald-50 rounded-[32px] p-8 border border-emerald-100 relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-4 opacity-10">
-                              <ShieldCheck className="w-24 h-24 text-emerald-900" />
+                          <div className="relative">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block ml-1">
+                              {activeDocType === "boleto"
+                                ? "Consulta de Débito"
+                                : "Validação de Registro"}
+                            </label>
+                            <div className="flex flex-col sm:flex-row gap-3">
+                              <div className="relative flex-1">
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                                <input
+                                  type="text"
+                                  value={searchTerm}
+                                  onChange={(e) => setSearchTerm(e.target.value)}
+                                  placeholder="Informe seu CNPJ ou CPF"
+                                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl pl-12 pr-6 py-4 outline-none focus:ring-2 focus:ring-blue-900 transition-all font-medium"
+                                />
+                              </div>
+                              <button
+                                disabled={isSearching}
+                                className="bg-blue-900 text-white px-8 py-4 rounded-2xl font-bold hover:bg-blue-800 disabled:opacity-50 transition-all shadow-lg shadow-blue-950/20"
+                              >
+                                {activeDocType === "boleto"
+                                  ? "Listar Boletos"
+                                  : "Validar"}
+                              </button>
                             </div>
-
-                            <div className="flex items-center gap-4 mb-6">
-                              <div className="w-12 h-12 bg-emerald-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                                <CheckCircle2 className="w-6 h-6" />
-                              </div>
-                              <div>
-                                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest block mb-0.5">
-                                  Status do Associado
-                                </span>
-                                <h3 className="text-2xl font-bold text-emerald-900">
-                                  REGULARIZADO
-                                </h3>
-                              </div>
-                            </div>
-
-                            <div className="space-y-4 mb-8">
-                              <div className="flex justify-between text-sm py-2 border-b border-emerald-900/5">
-                                <span className="text-emerald-800/60 font-medium tracking-wide uppercase text-[10px]">
-                                  Identificação
-                                </span>
-                                <span className="text-emerald-900 font-bold font-mono">
-                                  {searchTerm}
-                                </span>
-                              </div>
-                              <div className="flex justify-between text-sm py-2 border-b border-emerald-900/5">
-                                <span className="text-emerald-800/60 font-medium tracking-wide uppercase text-[10px]">
-                                  Data da Consulta
-                                </span>
-                                <span className="text-emerald-900 font-bold">
-                                  {new Date().toLocaleDateString("pt-BR")} às{" "}
-                                  {new Date().toLocaleTimeString("pt-BR", {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </span>
-                              </div>
-                            </div>
-
-                            <p className="text-emerald-800/70 text-sm leading-relaxed mb-8">
-                              Não constam débitos ou pendências administrativas
-                              registradas até a presente data. A Certidão de
-                              Quitação está válida e disponível para emissão
-                              eletrônica.
-                            </p>
-
-                            <button
-                              onClick={() => setShowPrintModal(true)}
-                              className="w-full bg-blue-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/20 hover:scale-[1.02]"
-                            >
-                              <Printer className="w-5 h-5" /> Emitir{" "}
-                              {activeDocType === "quitacao"
-                                ? "Certidão Sindical"
-                                : "Declaração de Regularidade"}
-                            </button>
                           </div>
-                        </motion.div>
-                      ) : certificateResult === "pending" ? (
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="space-y-6"
-                        >
-                          <div className="bg-rose-50 rounded-[32px] p-8 border border-rose-100 relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-4 opacity-10">
-                              <ShieldAlert className="w-24 h-24 text-rose-900" />
-                            </div>
+                        </form>
 
-                            <div className="flex items-center gap-4 mb-6">
-                              <div className="w-12 h-12 bg-rose-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-rose-500/20">
-                                <AlertCircle className="w-6 h-6" />
-                              </div>
-                              <div>
-                                <span className="text-[10px] font-bold text-rose-600 uppercase tracking-widest block mb-0.5">
-                                  Status do Associado
-                                </span>
-                                <h3 className="text-2xl font-bold text-rose-900">
-                                  CONSTA EM DÉBITO
-                                </h3>
-                              </div>
-                            </div>
-
-                            <div className="space-y-4 mb-8">
-                              {searchedMemberName && (
-                                <div className="flex justify-between text-sm py-2 border-b border-rose-900/5">
-                                  <span className="text-rose-800/60 font-medium tracking-wide uppercase text-[10px]">
-                                    Razão Social
-                                  </span>
-                                  <span className="text-rose-900 font-bold text-right uppercase max-w-[180px] truncate">
-                                    {searchedMemberName}
-                                  </span>
+                        <AnimatePresence mode="wait">
+                          {isSearching ? (
+                            <motion.div
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              className="py-12 text-center"
+                            >
+                              <div className="inline-block w-12 h-12 border-4 border-blue-900/10 border-t-blue-900 rounded-full animate-spin mb-4"></div>
+                              <p className="text-gray-500 font-medium">
+                                Consultando registros...
+                              </p>
+                            </motion.div>
+                          ) : certificateResult === "active" ? (
+                            <motion.div
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="space-y-6"
+                            >
+                              <div className="bg-emerald-50 rounded-[32px] p-8 border border-emerald-100 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-4 opacity-10">
+                                  <ShieldCheck className="w-24 h-24 text-emerald-900" />
                                 </div>
-                              )}
-                              <div className="flex justify-between text-sm py-2 border-b border-rose-900/5">
-                                <span className="text-rose-800/60 font-medium tracking-wide uppercase text-[10px]">
-                                  Identificação
-                                </span>
-                                <span className="text-rose-900 font-bold font-mono">
-                                  {searchTerm}
-                                </span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-rose-800/60 font-medium tracking-wide uppercase text-[10px]">
-                                  Resultado da Certidão
-                                </span>
-                                <span className="text-rose-900 font-bold">
-                                  Certidão Positiva
-                                </span>
-                              </div>
-                            </div>
 
-                            <div className="p-4 bg-white/60 border border-rose-200 rounded-2xl text-xs text-rose-900 leading-relaxed font-semibold mb-6">
-                              ⚠️{" "}
-                              <span className="text-rose-900 font-black">
-                                Atenção:
-                              </span>{" "}
-                              Quando o associado estiver em débito, a certidão
-                              sai positiva. Por favor,{" "}
-                              <span className="underline">
-                                procure o SINPA para regularizar
-                              </span>{" "}
-                              suas pendências financeiras.
-                            </div>
+                                <div className="flex items-center gap-4 mb-6">
+                                  <div className="w-12 h-12 bg-emerald-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                                    <CheckCircle2 className="w-6 h-6" />
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest block mb-0.5">
+                                      Status do Associado
+                                    </span>
+                                    <h3 className="text-2xl font-bold text-emerald-900">
+                                      REGULARIZADO
+                                    </h3>
+                                  </div>
+                                </div>
 
-                            <button
-                              onClick={() => setShowPrintModal(true)}
-                              className="w-full bg-rose-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-rose-800 transition-all shadow-lg shadow-rose-900/20 hover:scale-[1.02]"
+                                <div className="space-y-4 mb-8">
+                                  <div className="flex justify-between text-sm py-2 border-b border-emerald-900/5">
+                                    <span className="text-emerald-800/60 font-medium tracking-wide uppercase text-[10px]">
+                                      Identificação
+                                    </span>
+                                    <span className="text-emerald-900 font-bold font-mono">
+                                      {searchTerm}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between text-sm py-2 border-b border-emerald-900/5">
+                                    <span className="text-emerald-800/60 font-medium tracking-wide uppercase text-[10px]">
+                                      Data da Consulta
+                                    </span>
+                                    <span className="text-emerald-900 font-bold">
+                                      {new Date().toLocaleDateString("pt-BR")} às{" "}
+                                      {new Date().toLocaleTimeString("pt-BR", {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <p className="text-emerald-800/70 text-sm leading-relaxed mb-8">
+                                  Não constam débitos ou pendências administrativas
+                                  registradas até a presente data. A Certidão de
+                                  Quitação está válida e disponível para emissão
+                                  eletrônica.
+                                </p>
+
+                                <button
+                                  onClick={() => setShowPrintModal(true)}
+                                  className="w-full bg-blue-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/20 hover:scale-[1.02]"
+                                >
+                                  <Printer className="w-5 h-5" /> Emitir{" "}
+                                  {activeDocType === "quitacao"
+                                    ? "Certidão Sindical"
+                                    : "Declaração de Regularidade"}
+                                </button>
+                              </div>
+                            </motion.div>
+                          ) : certificateResult === "pending" ? (
+                            <motion.div
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="space-y-6"
                             >
-                              <Printer className="w-5 h-5" /> Emitir Certidão
-                              Positiva
-                            </button>
-                          </div>
-                        </motion.div>
-                      ) : (
-                        <div className="py-8 text-center text-gray-400 italic">
-                          Insira o CNPJ/CPF acima para iniciar a validação.
-                        </div>
-                      )}
-                    </AnimatePresence>
+                              <div className="bg-rose-50 rounded-[32px] p-8 border border-rose-100 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-4 opacity-10">
+                                  <ShieldAlert className="w-24 h-24 text-rose-900" />
+                                </div>
+
+                                <div className="flex items-center gap-4 mb-6">
+                                  <div className="w-12 h-12 bg-rose-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-rose-500/20">
+                                    <AlertCircle className="w-6 h-6" />
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] font-bold text-rose-600 uppercase tracking-widest block mb-0.5">
+                                      Status do Associado
+                                    </span>
+                                    <h3 className="text-2xl font-bold text-rose-900">
+                                      CONSTA EM DÉBITO
+                                    </h3>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-4 mb-8">
+                                  {searchedMemberName && (
+                                    <div className="flex justify-between text-sm py-2 border-b border-rose-900/5">
+                                      <span className="text-rose-800/60 font-medium tracking-wide uppercase text-[10px]">
+                                        Razão Social
+                                      </span>
+                                      <span className="text-rose-900 font-bold text-right uppercase max-w-[180px] truncate">
+                                        {searchedMemberName}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="flex justify-between text-sm py-2 border-b border-rose-900/5">
+                                    <span className="text-rose-800/60 font-medium tracking-wide uppercase text-[10px]">
+                                      Identificação
+                                    </span>
+                                    <span className="text-rose-900 font-bold font-mono">
+                                      {searchTerm}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-rose-800/60 font-medium tracking-wide uppercase text-[10px]">
+                                      Resultado da Certidão
+                                    </span>
+                                    <span className="text-rose-900 font-bold">
+                                      Certidão Positiva
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="p-4 bg-white/60 border border-rose-200 rounded-2xl text-xs text-rose-900 leading-relaxed font-semibold mb-6">
+                                  ⚠️{" "}
+                                  <span className="text-rose-900 font-black">
+                                    Atenção:
+                                  </span>{" "}
+                                  Quando o associado estiver em débito, a certidão
+                                  sai positiva. Por favor,{" "}
+                                  <span className="underline">
+                                    procure o SINPA para regularizar
+                                  </span>{" "}
+                                  suas pendências financeiras.
+                                </div>
+
+                                <button
+                                  onClick={() => setShowPrintModal(true)}
+                                  className="w-full bg-rose-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-rose-800 transition-all shadow-lg shadow-rose-900/20 hover:scale-[1.02]"
+                                >
+                                  <Printer className="w-5 h-5" /> Emitir Certidão
+                                  Positiva
+                                </button>
+                              </div>
+                            </motion.div>
+                          ) : (
+                            <div className="py-8 text-center text-gray-400 italic">
+                              Insira o CNPJ/CPF acima para iniciar a validação.
+                            </div>
+                          )}
+                        </AnimatePresence>
+                      </>
+                    )}
                   </motion.div>
                 </div>
               </div>
@@ -17592,6 +18610,14 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                     exit={{ opacity: 0, scale: 0.9, y: 20 }}
                     className="bg-white rounded-[32px] p-8 lg:p-10 max-w-md w-full shadow-2xl relative z-10 border border-gray-100"
                   >
+                    <button
+                      onClick={() => setShowPrintModal(false)}
+                      className="absolute top-6 right-6 p-2 text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                      aria-label="Fechar"
+                      title="Fechar"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
                     <div className="w-16 h-16 bg-blue-50 text-blue-900 rounded-2xl flex items-center justify-center mb-6">
                       <Printer className="w-8 h-8" />
                     </div>
@@ -18742,6 +19768,413 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
           )}
         </AnimatePresence>
 
+        {/* Modal Convenção Coletiva (CCT) */}
+        <AnimatePresence>
+          {showCCTModal && (
+            <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white w-full max-w-4xl rounded-[40px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+              >
+                <div className="p-10 pb-6 shrink-0 flex items-center justify-between border-b border-gray-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center">
+                      <FileCheck className="w-7 h-7 text-indigo-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black text-blue-950 uppercase tracking-tighter">
+                        Convenção Atualizada
+                      </h3>
+                      <p className="text-xs font-bold text-gray-400">
+                        Acordo Coletivo de Trabalho do Sindicato SINPA (2026/2027)
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowCCTModal(false)}
+                    className="p-3 hover:bg-gray-50 rounded-2xl transition-all cursor-pointer"
+                  >
+                    <X className="w-6 h-6 text-gray-400" />
+                  </button>
+                </div>
+
+                {/* Content Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 overflow-y-auto flex-1 divide-y lg:divide-y-0 lg:divide-x divide-gray-100 min-h-0">
+                  {/* Left Column: CCT content */}
+                  <div className="lg:col-span-7 p-10 py-8 overflow-y-auto space-y-8">
+                    <div className="bg-indigo-50/50 rounded-3xl p-6 border border-indigo-100/50">
+                      <h4 className="text-sm font-bold text-indigo-950 uppercase tracking-wider mb-2">
+                        Informações Gerais
+                      </h4>
+                      <p className="text-xs text-gray-600 font-semibold leading-relaxed">
+                        A Convenção Coletiva de Trabalho para o biênio 2026/2027 já está registrada junto ao Ministério do Trabalho. Fiquem atentos às novas diretrizes, pisos de remuneração e reajustes obrigatórios para todos os estabelecimentos integrados.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
+                        <p className="text-[10px] font-black uppercase text-gray-400 mb-1">Piso Salarial Geral</p>
+                        <p className="text-xl font-bold text-blue-950">R$ 1.980,00</p>
+                        <p className="text-[10px] text-emerald-600 font-bold mt-1">+5.5% de Reajuste</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
+                        <p className="text-[10px] font-black uppercase text-gray-400 mb-1">Vale Alimentação</p>
+                        <p className="text-xl font-bold text-blue-950">R$ 28,00 / Dia</p>
+                        <p className="text-[10px] text-indigo-600 font-bold mt-1">Benefício Obrigatório</p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-800 uppercase tracking-wider mb-4">
+                        Tópicos Críticos e Cláusulas
+                      </h4>
+                      <div className="space-y-3">
+                        {[
+                          { title: "Cláusula 3ª - Pisos Salariais", desc: "Novos salários de ingresso válidos a partir da data de assinatura." },
+                          { title: "Cláusula 12ª - Jornada Especial", desc: "Regras de compensação de horas, feriados e trabalho híbrido regulamentado." },
+                          { title: "Cláusula 24ª - Benefício Odontológico", desc: "Obrigatoriedade de disponibilização do plano coparticipativo de apoio familiar." },
+                        ].map((cl, idx) => (
+                          <div key={idx} className="flex gap-4 p-4 rounded-xl bg-gray-50/50 border border-gray-100">
+                            <div className="w-2 h-2 rounded-full bg-indigo-500 mt-1.5 shrink-0"></div>
+                            <div>
+                              <p className="text-xs font-bold text-gray-800">{cl.title}</p>
+                              <p className="text-xs text-gray-500 font-medium leading-relaxed mt-0.5">{cl.desc}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: News and signatories */}
+                  <div className="lg:col-span-5 p-10 py-8 bg-gray-50/50 overflow-y-auto space-y-8">
+                    {/* Related news for CCT */}
+                    <div>
+                      <h4 className="text-sm font-black text-blue-950 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <Bell className="w-4 h-4 text-blue-600 animate-pulse" />
+                        Informativos & Editais da CCT
+                      </h4>
+                      <div className="space-y-4">
+                        {[
+                          {
+                            title: "Homologação do Termo de Aditivo Coletivo",
+                            date: "12 Mai 2026",
+                            desc: "O reajuste do piso da categoria foi devidamente registrado no sistema do MTE.",
+                            badge: "Homologado"
+                          },
+                          {
+                            title: "Orientação Técnica sobre Reajustes",
+                            date: "15 Mai 2026",
+                            desc: "Informativo contendo a tabela prática de transição e cálculo para o novo piso salarial.",
+                            badge: "Guia Prático"
+                          }
+                        ].map((news, idx) => (
+                          <div key={idx} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[8px] font-black uppercase bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">
+                                {news.badge}
+                              </span>
+                              <span className="text-[9px] font-semibold text-gray-400">{news.date}</span>
+                            </div>
+                            <h5 className="text-xs font-bold text-gray-900 leading-snug">{news.title}</h5>
+                            <p className="text-[10px] text-gray-500 leading-relaxed mt-1 font-medium">{news.desc}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Active Signatories: Board and President */}
+                    <div>
+                      <h4 className="text-sm font-black text-blue-950 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <Users className="w-4 h-4 text-blue-600" />
+                        Signatários (Diretoria & Presidência)
+                      </h4>
+                      <p className="text-xs text-gray-500 font-medium mb-4 leading-relaxed">
+                        Representantes patronais responsáveis pela assinatura da Convenção e deliberações oficiais:
+                      </p>
+                      <div className="space-y-3">
+                        {teamMembers && teamMembers
+                          .filter((m) => m.category === "presidencia" || m.category === "diretoria")
+                          .slice(0, 4)
+                          .map((member) => (
+                            <div key={member.id} className="flex items-center gap-3 bg-white p-3.5 rounded-2xl border border-gray-100 shadow-sm">
+                              <div className="w-10 h-10 bg-gray-50 rounded-xl shadow-inner flex items-center justify-center overflow-hidden border border-gray-100 shrink-0">
+                                {member.photo ? (
+                                  <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <Users className="w-4 h-4 text-blue-200" />
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-black text-blue-950 truncate leading-tight">
+                                  {member.name}
+                                </p>
+                                <p className="text-[9px] text-gray-400 font-extrabold uppercase tracking-widest mt-0.5">
+                                  {member.role}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-10 pt-6 shrink-0 border-t border-gray-100 flex gap-4">
+                  <button
+                    onClick={() => setShowCCTModal(false)}
+                    className="flex-1 py-4 bg-gray-50 hover:bg-gray-100 text-gray-500 font-bold rounded-2xl text-xs uppercase tracking-widest transition-all"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    onClick={() => {
+                      showNotification("success", "Arquivo CCT_2026_2027_Completo.pdf baixado com sucesso!");
+                      setShowCCTModal(false);
+                    }}
+                    className="flex-[2] py-4 bg-blue-900 text-white font-bold rounded-2xl text-xs uppercase tracking-widest hover:scale-[1.01] active:scale-95 transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2"
+                  >
+                    <Download className="w-4 h-4" /> Baixar Convenção Completa (PDF)
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Modal Selo de Regularidade */}
+        <AnimatePresence>
+          {showSeloModal && (
+            <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden flex flex-col"
+              >
+                <div className="p-10 pb-6 shrink-0 flex items-center justify-between border-b border-gray-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center">
+                      <ShieldCheck className="w-7 h-7 text-emerald-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black text-blue-950 uppercase tracking-tighter">
+                        Selo de Regularidade
+                      </h3>
+                      <p className="text-xs font-bold text-gray-400">
+                        Certificação de Adimplência Sindical SINPA
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowSeloModal(false)}
+                    className="p-3 hover:bg-gray-50 rounded-2xl transition-all cursor-pointer"
+                  >
+                    <X className="w-6 h-6 text-gray-400" />
+                  </button>
+                </div>
+
+                <div className="p-10 py-8 overflow-y-auto flex-1 custom-scrollbar flex flex-col items-center">
+                  <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/30 border-2 border-emerald-500/20 rounded-[32px] p-8 w-full relative overflow-hidden flex flex-col items-center text-center shadow-inner">
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                      <ShieldCheck className="w-48 h-48 text-emerald-600" />
+                    </div>
+
+                    <div className="bg-emerald-500 text-white px-4 py-1.5 rounded-full font-black text-[10px] tracking-widest uppercase mb-6 shadow-md shadow-emerald-500/20 flex items-center gap-1.5">
+                      <CheckCircle className="w-3.5 h-3.5" /> Sindical Regularizado
+                    </div>
+
+                    <h4 className="text-xs uppercase font-black text-emerald-800 tracking-wider mb-2">Razão Social</h4>
+                    <p className="text-xl font-bold text-blue-950 mb-4 max-w-sm">
+                      {memberProfile?.name || currentUser?.displayName || "Empresa Demonstrativa S.A."}
+                    </p>
+
+                    <h4 className="text-xs uppercase font-black text-emerald-800 tracking-wider mb-2">CNPJ</h4>
+                    <p className="font-mono text-sm text-gray-600 font-bold mb-6">
+                      {memberProfile?.cnpj || "12.345.678/0001-90"}
+                    </p>
+
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-emerald-100 flex items-center gap-4 max-w-xs w-full justify-center">
+                      <QRCodeCanvas value={`VALIDATION-SINPA-${memberProfile?.cnpj || "DEMO"}`} size={70} />
+                      <div className="text-left">
+                        <p className="text-[10px] font-black uppercase text-emerald-700">Validador Digital</p>
+                        <p className="text-[9px] font-mono font-bold text-gray-500 mt-1">CHAVE: FD-992384</p>
+                        <p className="text-[9px] font-semibold text-gray-400">Válido até 31/12/2026</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-gray-400 text-center font-semibold leading-relaxed mt-6 max-w-sm">
+                    Este certificado garante que o associado está em dia com todas as obrigações sindicais e financeiras perante o Sindicato SINPA.
+                  </p>
+                </div>
+
+                <div className="p-10 pt-6 shrink-0 border-t border-gray-100 flex gap-4">
+                  <button
+                    onClick={() => setShowSeloModal(false)}
+                    className="flex-1 py-4 bg-gray-50 hover:bg-gray-100 text-gray-500 font-bold rounded-2xl text-xs uppercase tracking-widest transition-all"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    onClick={() => {
+                      showNotification("success", "Selo de Regularidade exportado/impresso com sucesso!");
+                      setShowSeloModal(false);
+                    }}
+                    className="flex-[2] py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  >
+                    <Printer className="w-4 h-4" /> Imprimir Certificado
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Modal Suporte Jurídico */}
+        <AnimatePresence>
+          {showSuporteJuridicoModal && (
+            <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl overflow-hidden flex flex-col"
+              >
+                <div className="p-10 pb-6 shrink-0 flex items-center justify-between border-b border-gray-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center">
+                      <HelpCircle className="w-7 h-7 text-blue-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black text-blue-950 uppercase tracking-tighter">
+                        Suporte Jurídico
+                      </h3>
+                      <p className="text-xs font-bold text-gray-400">
+                        Assessoria Trabalhista & Convenções SINPA
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowSuporteJuridicoModal(false)}
+                    className="p-3 hover:bg-gray-50 rounded-2xl transition-all cursor-pointer"
+                  >
+                    <X className="w-6 h-6 text-gray-400" />
+                  </button>
+                </div>
+
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setIsSubmittingSuporte(true);
+                    // Simula envio de dados para o suporte jurídico
+                    await new Promise((resolve) => setTimeout(resolve, 1500));
+                    setIsSubmittingSuporte(false);
+                    setShowSuporteJuridicoModal(false);
+                    showNotification("success", "Sua consulta jurídica foi registrada! Nossos advogados entrarão em contato em até 24h.");
+                  }}
+                  className="flex-1 flex flex-col overflow-hidden"
+                >
+                  <div className="p-10 py-8 overflow-y-auto flex-1 custom-scrollbar space-y-5">
+                    <p className="text-xs text-gray-500 font-semibold leading-relaxed">
+                      Utilize o formulário abaixo para registrar suas dúvidas jurídicas (direitos trabalhistas, interpretação de CCT, homologações). A assessoria do Sindicato analisará o seu caso.
+                    </p>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-black uppercase text-gray-400 tracking-wider mb-2">Nome Completo</label>
+                        <input
+                          type="text"
+                          required
+                          value={suporteJuridicoForm.name}
+                          onChange={(e) => setSuporteJuridicoForm({ ...suporteJuridicoForm, name: e.target.value })}
+                          className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-sm font-semibold outline-none focus:border-blue-300 focus:bg-white transition-all text-gray-800"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-black uppercase text-gray-400 tracking-wider mb-2">E-mail Corporativo</label>
+                          <input
+                            type="email"
+                            required
+                            value={suporteJuridicoForm.email}
+                            onChange={(e) => setSuporteJuridicoForm({ ...suporteJuridicoForm, email: e.target.value })}
+                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-sm font-semibold outline-none focus:border-blue-300 focus:bg-white transition-all text-gray-800"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black uppercase text-gray-400 tracking-wider mb-2">CNPJ da Empresa</label>
+                          <input
+                            type="text"
+                            required
+                            value={suporteJuridicoForm.cnpj}
+                            onChange={(e) => setSuporteJuridicoForm({ ...suporteJuridicoForm, cnpj: e.target.value })}
+                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-sm font-semibold outline-none focus:border-blue-300 focus:bg-white transition-all text-gray-800"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-black uppercase text-gray-400 tracking-wider mb-2">Assunto Principal</label>
+                        <select
+                          value={suporteJuridicoForm.subject}
+                          onChange={(e) => setSuporteJuridicoForm({ ...suporteJuridicoForm, subject: e.target.value })}
+                          className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-sm font-semibold outline-none focus:border-blue-300 focus:bg-white transition-all text-gray-800"
+                        >
+                          <option value="Dúvida sobre Convenção Coletiva">🔍 Dúvida sobre Convenção Coletiva</option>
+                          <option value="Consulta Trabalhista Geral">⚖️ Consulta Trabalhista Geral</option>
+                          <option value="Processo de Homologação">📋 Processo de Homologação</option>
+                          <option value="Cálculos de Rescisão / Acordos">💰 Cálculos de Rescisão / Acordos</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-black uppercase text-gray-400 tracking-wider mb-2">Detalhamento da Consulta</label>
+                        <textarea
+                          required
+                          rows={4}
+                          value={suporteJuridicoForm.message}
+                          onChange={(e) => setSuporteJuridicoForm({ ...suporteJuridicoForm, message: e.target.value })}
+                          placeholder="Descreva aqui sua dúvida jurídica com detalhes..."
+                          className="w-full bg-gray-50 border border-gray-100 rounded-3xl p-5 text-sm font-semibold outline-none focus:border-blue-300 focus:bg-white transition-all text-gray-800 resize-none"
+                        ></textarea>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-10 pt-6 shrink-0 border-t border-gray-100 flex gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowSuporteJuridicoModal(false)}
+                      className="flex-1 py-4 bg-gray-50 hover:bg-gray-100 text-gray-500 font-bold rounded-2xl text-xs uppercase tracking-widest transition-all"
+                    >
+                      Fechar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmittingSuporte}
+                      className="flex-[2] py-4 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-2xl text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2"
+                    >
+                      {isSubmittingSuporte ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" /> Registrando...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4" /> Enviar para Assessoria
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
         {/* PIX Payment Modal */}
         <AnimatePresence>
           {showPixModal && selectedBoletoPix && (
@@ -19573,6 +21006,383 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
                   className="px-8 py-4 bg-gray-100 text-gray-500 hover:bg-gray-200 rounded-3xl font-bold uppercase text-xs tracking-widest transition-all cursor-pointer"
                 >
                   Fechar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {selectedDocCategoryForModal && (
+          <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white w-full max-w-4xl rounded-[40px] shadow-2xl overflow-hidden text-gray-900 flex flex-col max-h-[85vh]"
+            >
+              {/* Header */}
+              <div className="p-8 pb-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shrink-0 border border-blue-100 shadow-sm">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-blue-950 uppercase tracking-tight">
+                      {categoryNames[selectedDocCategoryForModal] || "Documentos Oficiais"}
+                    </h3>
+                    <p className="text-xs text-gray-400 font-bold mt-0.5 uppercase tracking-wider">
+                      Arquivos Oficiais publicados em formato PDF
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedDocCategoryForModal(null)}
+                  className="p-3 hover:bg-gray-100 rounded-2xl transition-colors cursor-pointer text-gray-400 hover:text-gray-900"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Content Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 overflow-y-auto flex-1 divide-y lg:divide-y-0 lg:divide-x divide-gray-100 min-h-0">
+                {/* Left Side: Files list */}
+                <div className="lg:col-span-7 p-8 overflow-y-auto space-y-4">
+                  <h4 className="text-[11px] font-black text-gray-400 uppercase tracking-widest px-2 mb-2">
+                    Documentos Oficiais Publicados
+                  </h4>
+                  {(() => {
+                    const filtered = publishedDocs?.filter((d: any) => d.category === selectedDocCategoryForModal) || [];
+                    if (filtered.length > 0) {
+                      return filtered.map((docItem: any) => (
+                        <div
+                          key={docItem.id}
+                          className="bg-gray-50 border border-gray-100 p-5 rounded-3xl flex items-center justify-between hover:bg-white hover:border-blue-200 transition-all shadow-sm"
+                        >
+                          <div className="flex items-center gap-4 min-w-0">
+                            <div className="w-12 h-12 bg-blue-100/50 text-blue-600 rounded-2xl flex items-center justify-center shrink-0 border border-blue-100">
+                              <FileCheck className="w-6 h-6" />
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="text-sm font-bold text-gray-900 truncate" title={docItem.title}>
+                                {docItem.title}
+                              </h4>
+                              <p className="text-[10px] text-gray-500 font-semibold mt-1 flex items-center gap-3">
+                                <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md font-bold text-[8px] uppercase tracking-wide">
+                                  {docItem.vigence || "Vigente"}
+                                </span>
+                                <span>•</span>
+                                <span>Tamanho: {docItem.fileSize || "PDF"}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => downloadPublishedDoc(docItem)}
+                            className="flex items-center gap-2 bg-blue-900 hover:bg-black text-white px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-md shadow-blue-900/10 cursor-pointer active:scale-95 shrink-0"
+                          >
+                            <Download className="w-4 h-4" />
+                            <span>Baixar PDF</span>
+                          </button>
+                        </div>
+                      ));
+                    } else {
+                      return (
+                        <div className="text-center py-12 px-6 bg-gray-50 rounded-3xl border border-dashed border-gray-200">
+                          <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                          <h4 className="text-sm font-bold text-gray-700">Nenhum documento publicado nesta categoria</h4>
+                          <p className="text-xs text-gray-400 mt-2 max-w-sm mx-auto">
+                            Os documentos oficiais desta categoria são publicados periodicamente pela diretoria administrativa do sindicato.
+                          </p>
+                          <div className="mt-6">
+                            <button
+                              onClick={() => {
+                                // Simulate download of a helper sample
+                                const link = document.createElement("a");
+                                link.href = "data:application/pdf;base64,JVBERi0xLjQKJbXtrvshCjEgMCBvYmoKPDwKL1R5cGUgL0NhdGFsb2cKL1BhZ2VzIDIgMCBSCj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9UeXBlIC9QYWdlcwovS2lkcyBbMyAwIFJdCi9Db3VudCAxCj4+CmVuZG9iagozIDAgb2JqCjw8Ci9UeXBlIC9QYWdlCi9QYXJlbnQgMiAwIFIKL01lZGlhQm94IFswIDAgNTk1IDg0Ml0KL1Jlc291cmNlcyA8PAovRm9udCA8PAovRjEgNCAwIFIKPj4KPj4KL0NvbnRlbnRzIDUgMCBSCj4+CmVuZG9iago0IDAgb2JqCjw8Ci9UeXBlIC9Gb250Ci9TdWJ0eXBlIC9UeXBlMQovQmFzZUZvbnQgL0hlbHZldGljYQo+PgplbmRvYmoKNSAwIG9iago8PAovTGVuZ3RoIDQ0Cj4+CnN0cmVhbQpCVAovRjEgMTIgVGYKNTAgNzAwIFRkCihEb2N1bWVudG8gT2ZpY2lhbCAtIFNpbmRpY2F0byBQYXRyb25hbCkgVGoKRVQKZW5kc3RyZWFtCmVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA2OCAwMDAwMCBuIAowMDAwMDAwMTI1IDAwMDAwIGYgCjAwMDAwMDAyMjEgMDAwMDAgbiAKMDAwMDAwMDI4MCAwMDAwMCBuIAp0cmFpbGVyCjw8Ci9TaXplIDYKL1Jvb3QgMSAwIFIKPj4Kc3RhcnR4cmVmCjM3NQolJUVPRg==";
+                                link.download = "documento-modelo-sinpa.pdf";
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                showNotification("success", "Baixando documento modelo em PDF...");
+                              }}
+                              className="bg-white hover:bg-gray-100 text-blue-900 border border-gray-200 px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer shadow-sm"
+                            >
+                              Baixar Modelo PDF Sindical
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+                  })()}
+                </div>
+
+                {/* Right Side: Board representation and Notices/News */}
+                <div className="lg:col-span-5 p-8 bg-gray-50/50 overflow-y-auto space-y-6">
+                  {/* News block inside the modal */}
+                  <div>
+                    <h4 className="text-xs font-black text-blue-950 uppercase tracking-widest mb-3 flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-blue-600 animate-bounce animate-duration-1000" />
+                      Informativos & Notícias Vinculados
+                    </h4>
+                    <div className="space-y-3">
+                      {[
+                        {
+                          title: "Aditivo Coletivo CCT Homologado",
+                          date: "12 Mai 2026",
+                          badge: "Urgente",
+                          desc: "A diretoria homologou o termo aditivo de ajuste do piso salarial com mediação do Ministério do Trabalho.",
+                          category: "cct"
+                        },
+                        {
+                          title: "Aviso Legal sobre Contribuição Patronal",
+                          date: "18 Mai 2026",
+                          badge: "Importante",
+                          desc: "Assembleia define as regras para o exercício do direito de oposição, em total transparência.",
+                          category: "ata"
+                        },
+                        {
+                          title: "Guia Geral de Condutas de Conformidade",
+                          date: "20 Mai 2026",
+                          badge: "Informativo",
+                          desc: "Divulgação dos novos procedimentos éticos para conselhos de administração das empresas parceiras.",
+                          category: "conduta"
+                        },
+                        {
+                          title: "Demonstrações Fiscais Anuais Aprovadas",
+                          date: "25 Mai 2026",
+                          badge: "Transparência",
+                          desc: "Relatório anual validado e assinado pelo Conselho Fiscal e auditores independentes do Sindicato.",
+                          category: "fiscal"
+                        }
+                      ]
+                        .filter(item => item.category === selectedDocCategoryForModal || selectedDocCategoryForModal === "cct" || item.category === "cct")
+                        .slice(0, 2)
+                        .map((news, idx) => (
+                          <div key={idx} className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[8px] font-black uppercase bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">
+                                {news.badge}
+                              </span>
+                              <span className="text-[9px] font-semibold text-gray-400">{news.date}</span>
+                            </div>
+                            <h5 className="text-xs font-bold text-gray-900 leading-snug">{news.title}</h5>
+                            <p className="text-[10px] text-gray-500 leading-relaxed mt-1 font-medium">{news.desc}</p>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+
+                  {/* Representative board & President */}
+                  <div>
+                    <h4 className="text-xs font-black text-blue-950 uppercase tracking-widest mb-3 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-blue-600" />
+                      Signatários & Representantes
+                    </h4>
+                    <p className="text-[10px] text-gray-400 mb-3 font-semibold leading-relaxed uppercase tracking-wide">
+                      Membros da Diretoria e Presidência ativos nesta publicação:
+                    </p>
+                    <div className="space-y-2.5">
+                      {teamMembers && teamMembers
+                        .filter((m) => m.category === "presidencia" || m.category === "diretoria")
+                        .slice(0, 4)
+                        .map((member) => (
+                          <div key={member.id} className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-gray-100 shadow-sm animate-fade-in">
+                            <div className="w-10 h-10 bg-gray-50 rounded-xl shadow-inner flex items-center justify-center overflow-hidden border border-gray-100 shrink-0">
+                              {member.photo ? (
+                                <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <Users className="w-4 h-4 text-blue-200" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-black text-blue-950 truncate leading-tight">
+                                {member.name}
+                              </p>
+                              <p className="text-[9px] text-gray-400 font-extrabold uppercase tracking-widest mt-0.5">
+                                {member.role}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-8 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3 shrink-0">
+                <button
+                  onClick={() => setSelectedDocCategoryForModal(null)}
+                  className="px-6 py-3.5 bg-gray-200 text-gray-700 hover:bg-gray-300 rounded-2xl font-bold uppercase text-xs tracking-widest transition-all cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {editingTeamMember && (
+          <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl overflow-hidden text-gray-900 flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="p-8 pb-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shrink-0 border border-amber-100 shadow-sm">
+                    <Settings className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-blue-950 tracking-tight">
+                      Editar Perfil de Membro
+                    </h3>
+                    <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+                      Atualizar Informações e Foto
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEditingTeamMember(null)}
+                  className="w-10 h-10 hover:bg-gray-100 text-gray-400 hover:text-gray-600 rounded-full flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-8 overflow-y-auto space-y-6">
+                {/* Photo Upload Section */}
+                <div className="flex flex-col items-center gap-4 bg-gray-50 p-6 rounded-[32px] border border-gray-100">
+                  <div className="w-32 h-32 bg-white rounded-[28px] border-2 border-dashed border-gray-200 flex items-center justify-center relative overflow-hidden group">
+                    {editingTeamMember.photo ? (
+                      <img
+                        src={editingTeamMember.photo}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <Camera className="w-8 h-8 text-gray-200" />
+                    )}
+                    <label className="absolute inset-0 bg-blue-900/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setEditingTeamMember({
+                                ...editingTeamMember,
+                                photo: reader.result as string,
+                              });
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                      <div className="text-center text-white">
+                        <Upload className="w-5 h-5 mx-auto mb-1" />
+                        <span className="text-[9px] font-black uppercase tracking-widest">
+                          Alterar Foto
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                    Foto de Perfil (Diretoria / Presidente)
+                  </p>
+                </div>
+
+                {/* Form Fields */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">
+                      Nome do Membro
+                    </label>
+                    <input
+                      type="text"
+                      value={editingTeamMember.name}
+                      onChange={(e) =>
+                        setEditingTeamMember({
+                          ...editingTeamMember,
+                          name: e.target.value,
+                        })
+                      }
+                      className="w-full bg-white border border-gray-200 px-6 py-4 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">
+                      Cargo / Função
+                    </label>
+                    <input
+                      type="text"
+                      value={editingTeamMember.role}
+                      onChange={(e) =>
+                        setEditingTeamMember({
+                          ...editingTeamMember,
+                          role: e.target.value,
+                        })
+                      }
+                      className="w-full bg-white border border-gray-200 px-6 py-4 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2 mb-1 block">
+                      Categoria
+                    </label>
+                    <select
+                      value={editingTeamMember.category}
+                      onChange={(e) =>
+                        setEditingTeamMember({
+                          ...editingTeamMember,
+                          category: e.target.value as any,
+                        })
+                      }
+                      className="w-full bg-white border border-gray-200 px-6 py-4 rounded-2xl text-sm focus:outline-none focus:border-blue-900 transition-all font-bold appearance-none cursor-pointer"
+                    >
+                      <option value="presidencia">Presidência</option>
+                      <option value="diretoria">Diretoria</option>
+                      <option value="gerencia">Gerência</option>
+                      <option value="atendimento">Atendimento</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-8 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3 shrink-0">
+                <button
+                  onClick={() => setEditingTeamMember(null)}
+                  className="px-6 py-3.5 bg-gray-200 text-gray-500 hover:bg-gray-300 rounded-2xl font-bold uppercase text-xs tracking-widest transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!editingTeamMember.name || !editingTeamMember.role) {
+                      showNotification("error", "Nome e cargo são obrigatórios.");
+                      return;
+                    }
+                    await handleUpdateTeamMember(editingTeamMember.id, {
+                      name: editingTeamMember.name,
+                      role: editingTeamMember.role,
+                      category: editingTeamMember.category,
+                      photo: editingTeamMember.photo || "",
+                    });
+                    setEditingTeamMember(null);
+                  }}
+                  className="px-8 py-3.5 bg-blue-950 text-white hover:bg-black rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer shadow-lg shadow-blue-950/20"
+                >
+                  Salvar Alterações
                 </button>
               </div>
             </motion.div>
