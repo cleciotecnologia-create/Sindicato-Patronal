@@ -107,6 +107,7 @@ import {
   LineChart,
   Line,
 } from "recharts";
+import { initializeApp, deleteApp } from "firebase/app";
 import {
   auth,
   db,
@@ -124,6 +125,7 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   sendPasswordResetEmail,
+  getAuth,
 } from "firebase/auth";
 import {
   collection,
@@ -445,6 +447,17 @@ function LandingPage() {
   const [showCalculator, setShowCalculator] = useState(false);
   const [calcBaseSalary, setCalcBaseSalary] = useState(2500);
   const [calcAdjustment, setCalcAdjustment] = useState(5);
+
+  // Become a Partner / Discount Proposals States
+  const [isBecomePartnerModalOpen, setIsBecomePartnerModalOpen] = useState(false);
+  const [partnerProposalName, setPartnerProposalName] = useState("");
+  const [partnerProposalCnpj, setPartnerProposalCnpj] = useState("");
+  const [partnerProposalCategory, setPartnerProposalCategory] = useState("servicos");
+  const [partnerProposalDiscount, setPartnerProposalDiscount] = useState("");
+  const [partnerProposalDescription, setPartnerProposalDescription] = useState("");
+  const [partnerProposalWebsite, setPartnerProposalWebsite] = useState("");
+  const [partnerProposalPhone, setPartnerProposalPhone] = useState("");
+  const [isSubmittingPartnerProposal, setIsSubmittingPartnerProposal] = useState(false);
 
   const [activeDashboardTab, setActiveDashboardTab] = useState<
     | "overview"
@@ -5624,6 +5637,18 @@ Para corrigir:
     role: string;
   } | null>(null);
 
+  // States for manual registration of associate
+  const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
+  const [newMemberName, setNewMemberName] = useState("");
+  const [newMemberCnpj, setNewMemberCnpj] = useState("");
+  const [newMemberEmail, setNewMemberEmail] = useState("");
+  const [newMemberPhone, setNewMemberPhone] = useState("");
+  const [newMemberRepresentative, setNewMemberRepresentative] = useState("");
+  const [newMemberLevel, setNewMemberLevel] = useState("Bronze");
+  const [newMemberMonthlyValue, setNewMemberMonthlyValue] = useState(150);
+  const [newMemberPassword, setNewMemberPassword] = useState("");
+  const [isRegisteringMember, setIsRegisteringMember] = useState(false);
+
   const {
     data: userProfile,
     isLoading: isUserProfileLoading,
@@ -5874,6 +5899,210 @@ Para corrigir:
     } catch (err: any) {
       console.error("Erro ao pré-cadastrar usuário:", err);
       showNotification("error", "Erro ao pré-cadastrar o novo usuário.");
+    }
+  };
+
+  const handleSubmitPartnerProposal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (
+      !partnerProposalName.trim() ||
+      !partnerProposalCnpj.trim() ||
+      !partnerProposalDiscount.trim() ||
+      !partnerProposalDescription.trim() ||
+      !partnerProposalPhone.trim()
+    ) {
+      showNotification("error", "Preencha todos os campos obrigatórios (*).");
+      return;
+    }
+
+    setIsSubmittingPartnerProposal(true);
+    try {
+      await addDoc(collection(db, "partner_proposals"), {
+        companyName: partnerProposalName.trim(),
+        cnpj: partnerProposalCnpj.trim(),
+        category: partnerProposalCategory,
+        discount: partnerProposalDiscount.trim(),
+        description: partnerProposalDescription.trim(),
+        website: partnerProposalWebsite.trim(),
+        phone: partnerProposalPhone.trim(),
+        status: "pending",
+        userEmail: currentUser?.email || "Visitante",
+        createdAt: serverTimestamp(),
+      });
+
+      showNotification(
+        "success",
+        "Sua proposta de parceria foi enviada com sucesso! Analisaremos os dados e entraremos em contato."
+      );
+
+      // Reset fields
+      setPartnerProposalName("");
+      setPartnerProposalCnpj("");
+      setPartnerProposalCategory("servicos");
+      setPartnerProposalDiscount("");
+      setPartnerProposalDescription("");
+      setPartnerProposalWebsite("");
+      setPartnerProposalPhone("");
+      setIsBecomePartnerModalOpen(false);
+    } catch (err: any) {
+      console.error("Erro ao enviar proposta de parceria:", err);
+      showNotification("error", "Erro ao enviar proposta: " + err.message);
+    } finally {
+      setIsSubmittingPartnerProposal(false);
+    }
+  };
+
+  const handleCreateMemberAndCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (
+      !newMemberName.trim() ||
+      !newMemberCnpj.trim() ||
+      !newMemberEmail.trim() ||
+      !newMemberPhone.trim() ||
+      !newMemberRepresentative.trim() ||
+      !newMemberPassword.trim()
+    ) {
+      showNotification("error", "Preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    setIsRegisteringMember(true);
+    try {
+      const emailLower = newMemberEmail.trim().toLowerCase();
+
+      // 1. Check if email already exists in members collection
+      const emailQuery = query(
+        collection(db, "members"),
+        where("email", "==", emailLower),
+      );
+      const emailSnap = await getDocs(emailQuery);
+      if (!emailSnap.empty) {
+        showNotification("error", "Este e-mail já está cadastrado para outro associado.");
+        setIsRegisteringMember(false);
+        return;
+      }
+
+      // 2. Check if CNPJ already exists in members collection
+      const cnpjQuery = query(
+        collection(db, "members"),
+        where("cnpj", "==", newMemberCnpj.trim()),
+      );
+      const cnpjSnap = await getDocs(cnpjQuery);
+      if (!cnpjSnap.empty) {
+        showNotification("error", "Este CNPJ já está cadastrado para outro associado.");
+        setIsRegisteringMember(false);
+        return;
+      }
+
+      // 3. Create Firebase Auth account via secondary app
+      let uid = "";
+      const secondaryApp = initializeApp(firebaseConfig, "SecondaryAppRegister");
+      const secondaryAuth = getAuth(secondaryApp);
+      try {
+        const userCredential = await createUserWithEmailAndPassword(
+          secondaryAuth,
+          emailLower,
+          newMemberPassword,
+        );
+        if (userCredential.user) {
+          uid = userCredential.user.uid;
+          await updateProfile(userCredential.user, {
+            displayName: newMemberName.trim(),
+          });
+        }
+        await signOut(secondaryAuth);
+      } catch (authErr: any) {
+        console.error("Erro ao criar credenciais no Firebase Auth:", authErr);
+        let errorMsg = "Erro ao criar credenciais.";
+        if (authErr.code === "auth/email-already-in-use") {
+          errorMsg = "Este e-mail já está em uso na autenticação.";
+        } else if (authErr.code === "auth/weak-password") {
+          errorMsg = "A senha deve ter pelo menos 6 caracteres.";
+        } else if (authErr.code === "auth/invalid-email") {
+          errorMsg = "O formato de e-mail informado não é válido.";
+        }
+        showNotification("error", errorMsg);
+        setIsRegisteringMember(false);
+        await deleteApp(secondaryApp);
+        return;
+      } finally {
+        await deleteApp(secondaryApp);
+      }
+
+      if (!uid) {
+        showNotification("error", "Não foi possível gerar as credenciais de acesso.");
+        setIsRegisteringMember(false);
+        return;
+      }
+
+      // 4. Create Member Document
+      const memberRef = await addDoc(collection(db, "members"), {
+        name: newMemberName.trim(),
+        cnpj: newMemberCnpj.trim(),
+        email: emailLower,
+        phone: newMemberPhone.trim(),
+        representative: newMemberRepresentative.trim(),
+        level: newMemberLevel,
+        status: "active",
+        userId: uid,
+        createdAt: serverTimestamp(),
+      });
+
+      // 5. Generate 12 monthly boletos
+      const monthlyValue = Number(newMemberMonthlyValue) || 150.0;
+      const today = new Date();
+
+      for (let i = 0; i < 12; i++) {
+        const dueDate = new Date(
+          today.getFullYear(),
+          today.getMonth() + i + 1,
+          15,
+        );
+        await addDoc(collection(db, "members", memberRef.id, "boletos"), {
+          memberId: memberRef.id,
+          memberName: newMemberName.trim(),
+          title: `Mensalidade ${dueDate.getMonth() + 1}/${dueDate.getFullYear()}`,
+          amount: monthlyValue,
+          dueDate: Timestamp.fromDate(dueDate),
+          status: "pending",
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      // 6. Create User Profile Document
+      const userRef = doc(db, "users", uid);
+      await setDoc(userRef, {
+        uid: uid,
+        email: emailLower,
+        displayName: newMemberName.trim(),
+        approved: true,
+        role: "associado",
+        createdAt: new Date().toISOString(),
+      });
+
+      showNotification(
+        "success",
+        `Associado cadastrado com sucesso! Credenciais e 12 cobranças geradas.`,
+      );
+
+      // Reset states
+      setNewMemberName("");
+      setNewMemberCnpj("");
+      setNewMemberEmail("");
+      setNewMemberPhone("");
+      setNewMemberRepresentative("");
+      setNewMemberLevel("Bronze");
+      setNewMemberMonthlyValue(150);
+      setNewMemberPassword("");
+      setIsAddMemberModalOpen(false);
+
+      // Refetch
+      fetchMembers();
+    } catch (err: any) {
+      console.error("Erro completo ao registrar associado:", err);
+      showNotification("error", "Erro ao cadastrar o associado: " + err.message);
+    } finally {
+      setIsRegisteringMember(false);
     }
   };
 
@@ -6557,45 +6786,97 @@ Para corrigir:
             </div>
           ) : (
             <div className="space-y-4">
-              {pendingList.map((item, index) => (
-                <div
-                  key={`pending-boleto-${item.id || index}-${index}`}
-                  className="p-6 bg-gray-50 border border-gray-100 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-6 hover:shadow-md transition-all duration-300"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 bg-amber-500/10 text-amber-600 rounded-2xl flex items-center justify-center">
-                      <CreditCard className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-gray-900 text-lg leading-tight">
-                        {item.doc}
-                      </h4>
-                      {item.competencia && (
-                        <p className="text-xs font-semibold text-blue-600 mt-0.5">
-                          {item.competencia}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-3 mt-1.5">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                          Vencimento: {item.venc}
-                        </p>
-                        <span className="text-[9px] font-mono text-gray-400 uppercase">
-                          ID: {String(item.id).substring(0, 8).toUpperCase()}
-                        </span>
+              {/* Tabela de Boletos em Aberto */}
+              <div className="hidden md:grid grid-cols-12 gap-4 px-6 pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 mb-2">
+                <div className="col-span-5">Documento</div>
+                <div className="col-span-3">Alerta de Vencimento</div>
+                <div className="col-span-2 text-right">Valor / Situação</div>
+                <div className="col-span-2 text-right">Ações</div>
+              </div>
+
+              {pendingList.map((item, index) => {
+                const details = getBoletoStatusDetails(item.venc, item.status);
+                
+                // Determinar estilo e ícone do Alerta de Vencimento
+                let alertIcon = <Clock className="w-4 h-4" />;
+                let alertText = "No Prazo";
+                let alertClass = "text-blue-700 bg-blue-50 border-blue-100/50";
+                
+                if (details.isOverdue) {
+                  alertIcon = <ShieldAlert className="w-4 h-4" />;
+                  alertText = `Atrasado (${Math.abs(details.daysRemaining)}d)`;
+                  alertClass = "text-rose-700 bg-rose-50 border-rose-100/50 animate-pulse";
+                } else if (details.isExpiringToday) {
+                  alertIcon = <Clock className="w-4 h-4" />;
+                  alertText = "Vence Hoje!";
+                  alertClass = "text-orange-700 bg-orange-50 border-orange-100/50";
+                } else if (details.isExpiringSoon) {
+                  alertIcon = <AlertTriangle className="w-4 h-4" />;
+                  alertText = `Vence em ${details.daysRemaining} dias`;
+                  alertClass = "text-amber-700 bg-amber-50 border-amber-100/50";
+                } else {
+                  alertText = `Regular (${details.daysRemaining}d)`;
+                }
+
+                return (
+                  <div
+                    key={`pending-boleto-${item.id || index}-${index}`}
+                    className="p-6 bg-gray-50 border border-gray-100 rounded-3xl flex flex-col md:grid md:grid-cols-12 md:gap-4 md:items-center hover:border-blue-900/20 transition-all duration-300 group"
+                  >
+                    {/* Coluna 1: Documento */}
+                    <div className="col-span-5 flex items-center gap-4 mb-4 md:mb-0">
+                      <div className="w-12 h-12 bg-amber-500/10 text-amber-600 rounded-2xl flex items-center justify-center shrink-0">
+                        <CreditCard className="w-6 h-6" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-gray-900 text-sm md:text-base truncate">
+                          {item.doc}
+                        </h4>
+                        {item.competencia && (
+                          <p className="text-xs font-semibold text-blue-600 mt-0.5 truncate">
+                            {item.competencia}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+                            Vencimento: {item.venc}
+                          </p>
+                          <span className="text-[9px] font-mono text-gray-400 uppercase whitespace-nowrap">
+                            ID: {String(item.id).substring(0, 8).toUpperCase()}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="flex items-center justify-between md:justify-end gap-6">
-                    <div className="text-right">
+                    {/* Coluna 2: Alerta de Vencimento */}
+                    <div className="col-span-3 mb-4 md:mb-0">
+                      <div className="block md:hidden text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                        Alerta de Vencimento
+                      </div>
+                      <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${alertClass}`}>
+                        {alertIcon}
+                        <span>{alertText}</span>
+                      </div>
+                    </div>
+
+                    {/* Coluna 3: Valor e Situação */}
+                    <div className="col-span-2 mb-4 md:mb-0 md:text-right">
+                      <div className="block md:hidden text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                        Valor / Situação
+                      </div>
                       <p className="text-xl font-black text-blue-900">
                         {item.valor}
                       </p>
                       <span className="text-[10px] font-black text-amber-500 uppercase tracking-wider">
-                        Aguardando Pagamento
+                        Aguardando
                       </span>
                     </div>
-                    <div className="flex gap-2">
+
+                    {/* Coluna 4: Ações */}
+                    <div className="col-span-2 flex items-center justify-start md:justify-end gap-2">
+                      <div className="block md:hidden text-[10px] font-black text-gray-400 uppercase tracking-widest mr-2">
+                        Ações:
+                      </div>
                       <button
                         onClick={() => {
                           setSelectedBoletoPix({
@@ -6605,7 +6886,7 @@ Para corrigir:
                           });
                           setShowPixModal(true);
                         }}
-                        className="w-12 h-12 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm group/pix"
+                        className="w-10 h-10 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm group/pix shrink-0 cursor-pointer"
                         title="Pagar com PIX"
                       >
                         <QrCode className="w-5 h-5 group-hover/pix:scale-110 transition-transform" />
@@ -6617,15 +6898,15 @@ Para corrigir:
                             "PDF do boleto gerado com sucesso!",
                           );
                         }}
-                        className="w-12 h-12 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-blue-900 hover:bg-blue-900 hover:text-white transition-all shadow-sm"
+                        className="w-10 h-10 bg-white border border-gray-100 rounded-xl flex items-center justify-center text-blue-900 hover:bg-blue-900 hover:text-white transition-all shadow-sm shrink-0 cursor-pointer"
                         title="Baixar Boleto / Segunda Via"
                       >
                         <DownloadCloud className="w-5 h-5" />
                       </button>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -8365,35 +8646,84 @@ Para corrigir:
                                 </button>
                               </div>
 
+                              {/* Tabela de Boletos */}
+                              <div className="hidden md:grid grid-cols-12 gap-4 px-6 pb-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 mb-4">
+                                <div className="col-span-5">Documento</div>
+                                <div className="col-span-3">Alerta de Vencimento</div>
+                                <div className="col-span-2 text-right">Valor / Situação</div>
+                                <div className="col-span-2 text-right">Ações</div>
+                              </div>
+
                               <div className="space-y-4">
-                                {displayBoletos.map((item, i) => (
-                                  <div
-                                    key={`boleto-${item.id || i}-${i}`}
-                                    className="flex flex-col md:flex-row md:items-center justify-between p-6 rounded-[24px] bg-gray-50/50 border border-gray-100 hover:border-blue-900/20 transition-all group"
-                                  >
-                                    <div className="flex items-center gap-5 mb-4 md:mb-0">
-                                      <div className="w-12 h-12 bg-white border border-gray-100 rounded-2xl flex items-center justify-center text-gray-400 group-hover:text-blue-900 transition-all">
-                                        <FileText className="w-6 h-6" />
-                                      </div>
-                                      <div>
-                                        <p className="font-bold text-gray-900">
-                                          {item.doc}
-                                        </p>
-                                        <div className="flex items-center gap-3 mt-1">
-                                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                                            Vencimento: {item.venc}
+                                {displayBoletos.map((item, i) => {
+                                  const details = getBoletoStatusDetails(item.venc, item.status);
+                                  
+                                  // Determinar estilo e ícone de Alerta de Vencimento
+                                  let alertIcon = <CheckCircle2 className="w-4 h-4" />;
+                                  let alertText = "Pago";
+                                  let alertClass = "text-emerald-700 bg-emerald-50 border-emerald-100/50";
+                                  
+                                  if (item.status !== "PAID") {
+                                    if (details.isOverdue) {
+                                      alertIcon = <ShieldAlert className="w-4 h-4" />;
+                                      alertText = `Atrasado (${Math.abs(details.daysRemaining)}d)`;
+                                      alertClass = "text-rose-700 bg-rose-50 border-rose-100/50 animate-pulse";
+                                    } else if (details.isExpiringToday) {
+                                      alertIcon = <Clock className="w-4 h-4" />;
+                                      alertText = "Vence Hoje!";
+                                      alertClass = "text-orange-700 bg-orange-50 border-orange-100/50";
+                                    } else if (details.isExpiringSoon) {
+                                      alertIcon = <AlertTriangle className="w-4 h-4" />;
+                                      alertText = `Vence em ${details.daysRemaining} dias`;
+                                      alertClass = "text-amber-700 bg-amber-50 border-amber-100/50";
+                                    } else {
+                                      alertIcon = <Clock className="w-4 h-4" />;
+                                      alertText = `Regular (${details.daysRemaining}d)`;
+                                      alertClass = "text-blue-700 bg-blue-50 border-blue-100/50";
+                                    }
+                                  }
+
+                                  return (
+                                    <div
+                                      key={`boleto-${item.id || i}-${i}`}
+                                      className="flex flex-col md:grid md:grid-cols-12 md:gap-4 md:items-center p-6 rounded-[24px] bg-gray-50/50 border border-gray-100 hover:border-blue-900/20 transition-all group animate-fade-in"
+                                    >
+                                      {/* Coluna 1: Documento */}
+                                      <div className="col-span-5 flex items-center gap-4 mb-4 md:mb-0">
+                                        <div className="w-12 h-12 bg-white border border-gray-100 rounded-2xl flex items-center justify-center text-gray-400 group-hover:text-blue-900 transition-all shrink-0">
+                                          <FileText className="w-6 h-6" />
+                                        </div>
+                                        <div className="min-w-0">
+                                          <p className="font-bold text-gray-900 truncate text-sm md:text-base">
+                                            {item.doc}
                                           </p>
-                                          <span className="text-[9px] font-mono text-gray-400 uppercase">
-                                            ID:{" "}
-                                            {String(item.id)
-                                              .substring(0, 8)
-                                              .toUpperCase()}
-                                          </span>
+                                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+                                              Vencimento: {item.venc}
+                                            </p>
+                                            <span className="text-[9px] font-mono text-gray-400 uppercase whitespace-nowrap">
+                                              ID: {String(item.id).substring(0, 8).toUpperCase()}
+                                            </span>
+                                          </div>
                                         </div>
                                       </div>
-                                    </div>
-                                    <div className="flex items-center justify-between md:justify-end gap-8">
-                                      <div className="text-right">
+
+                                      {/* Coluna 2: Alerta de Vencimento */}
+                                      <div className="col-span-3 mb-4 md:mb-0">
+                                        <div className="block md:hidden text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                                          Alerta de Vencimento
+                                        </div>
+                                        <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${alertClass}`}>
+                                          {alertIcon}
+                                          <span>{alertText}</span>
+                                        </div>
+                                      </div>
+
+                                      {/* Coluna 3: Valor e Situação */}
+                                      <div className="col-span-2 mb-4 md:mb-0 md:text-right">
+                                        <div className="block md:hidden text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                                          Valor / Situação
+                                        </div>
                                         <p className="text-lg font-bold text-blue-900">
                                           {item.valor}
                                         </p>
@@ -8405,7 +8735,12 @@ Para corrigir:
                                             : "Aguardando"}
                                         </span>
                                       </div>
-                                      <div className="flex gap-2">
+
+                                      {/* Coluna 4: Ações */}
+                                      <div className="col-span-2 flex items-center justify-start md:justify-end gap-2">
+                                        <div className="block md:hidden text-[10px] font-black text-gray-400 uppercase tracking-widest mr-2">
+                                          Ações:
+                                        </div>
                                         {item.status === "PENDING" && (
                                           <button
                                             onClick={() => {
@@ -8416,19 +8751,19 @@ Para corrigir:
                                               });
                                               setShowPixModal(true);
                                             }}
-                                            className="w-12 h-12 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm group/pix"
+                                            className="w-10 h-10 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm group/pix shrink-0 cursor-pointer"
                                             title="Pagar com PIX"
                                           >
                                             <QrCode className="w-5 h-5 group-hover/pix:scale-110 transition-transform" />
                                           </button>
                                         )}
-                                        <button className="w-12 h-12 bg-white border border-gray-100 rounded-xl flex items-center justify-center text-blue-900 hover:bg-blue-900 hover:text-white transition-all shadow-sm">
+                                        <button className="w-10 h-10 bg-white border border-gray-100 rounded-xl flex items-center justify-center text-blue-900 hover:bg-blue-900 hover:text-white transition-all shadow-sm shrink-0 cursor-pointer">
                                           <DownloadCloud className="w-5 h-5" />
                                         </button>
                                       </div>
                                     </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             </div>
 
@@ -9047,6 +9382,12 @@ Para corrigir:
                               </div>
 
                               <div className="flex flex-wrap items-center gap-4">
+                                <button
+                                  onClick={() => setIsBecomePartnerModalOpen(true)}
+                                  className="bg-blue-900 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/10 cursor-pointer"
+                                >
+                                  <Briefcase className="w-5 h-5 text-amber-400" /> Seja um Parceiro
+                                </button>
                                 {isAdmin && (
                                   <button
                                     onClick={() => setShowAddPartnerModal(true)}
@@ -16374,7 +16715,22 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                           cada associado.
                                         </p>
                                       </div>
-                                      <div className="flex gap-2">
+                                      <div className="flex gap-3 flex-wrap">
+                                        <button
+                                          onClick={() => {
+                                            const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#";
+                                            let autoPass = "";
+                                            for (let idx = 0; idx < 8; idx++) {
+                                              autoPass += chars.charAt(Math.floor(Math.random() * chars.length));
+                                            }
+                                            setNewMemberPassword(autoPass);
+                                            setIsAddMemberModalOpen(true);
+                                          }}
+                                          className="bg-blue-900 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider hover:bg-blue-800 transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0"
+                                        >
+                                          <Users className="w-4 h-4" />
+                                          Cadastrar Associado
+                                        </button>
                                         <div className="relative">
                                           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                                           <input
@@ -20265,6 +20621,431 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                       className="flex-1 bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer"
                     >
                       Cadastrar Usuário
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Become a Discount Partner Proposal Modal */}
+      <AnimatePresence>
+        {isBecomePartnerModalOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!isSubmittingPartnerProposal) setIsBecomePartnerModalOpen(false);
+              }}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-2xl rounded-[44px] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+            >
+              <div className="p-8 lg:p-10 overflow-y-auto custom-scrollbar">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-2xl lg:text-3xl font-black text-blue-950 font-display tracking-tight">
+                      Seja um Parceiro do Sindicato
+                    </h3>
+                    <p className="text-gray-500 font-semibold text-xs mt-1">
+                      Ofereça descontos ou vantagens exclusivas e divulgue sua marca para nossa rede de associados.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!isSubmittingPartnerProposal) setIsBecomePartnerModalOpen(false);
+                    }}
+                    disabled={isSubmittingPartnerProposal}
+                    className="w-12 h-12 bg-gray-50 flex items-center justify-center rounded-2xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSubmitPartnerProposal} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Nome da Empresa / Razão Social */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        Razão Social / Nome da Empresa *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Minha Empresa Ltda"
+                        value={partnerProposalName}
+                        onChange={(e) => setPartnerProposalName(e.target.value)}
+                        disabled={isSubmittingPartnerProposal}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+
+                    {/* CNPJ */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        CNPJ da Empresa *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: 12.345.678/0001-90"
+                        value={partnerProposalCnpj}
+                        onChange={(e) => setPartnerProposalCnpj(e.target.value)}
+                        disabled={isSubmittingPartnerProposal}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+
+                    {/* Categoria do Convênio */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        Categoria de Atuação *
+                      </label>
+                      <select
+                        value={partnerProposalCategory}
+                        onChange={(e) => setPartnerProposalCategory(e.target.value)}
+                        disabled={isSubmittingPartnerProposal}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm cursor-pointer"
+                      >
+                        <option value="saude">Saúde & Bem-Estar</option>
+                        <option value="educacao">Educação & Cursos</option>
+                        <option value="lazer">Lazer & Turismo</option>
+                        <option value="servicos">Serviços Profissionais</option>
+                        <option value="comercio">Comércio & Varejo</option>
+                      </select>
+                    </div>
+
+                    {/* Desconto Ofertado */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        Desconto / Vantagem Ofertada *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: 15% OFF, Compre 1 Leve 2"
+                        value={partnerProposalDiscount}
+                        onChange={(e) => setPartnerProposalDiscount(e.target.value)}
+                        disabled={isSubmittingPartnerProposal}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+
+                    {/* Site / Website */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        Site Oficial / Link do Negócio (Opcional)
+                      </label>
+                      <input
+                        type="url"
+                        placeholder="Ex: https://meusite.com.br"
+                        value={partnerProposalWebsite}
+                        onChange={(e) => setPartnerProposalWebsite(e.target.value)}
+                        disabled={isSubmittingPartnerProposal}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+
+                    {/* Telefone / WhatsApp de Contato */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        Telefone / WhatsApp de Contato *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: (11) 99999-9999"
+                        value={partnerProposalPhone}
+                        onChange={(e) => setPartnerProposalPhone(e.target.value)}
+                        disabled={isSubmittingPartnerProposal}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Descrição do Benefício */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      Descrição do Benefício & Como Utilizar *
+                    </label>
+                    <textarea
+                      required
+                      rows={3}
+                      placeholder="Descreva detalhadamente o benefício e as regras do convênio que sua empresa oferecerá para os associados."
+                      value={partnerProposalDescription}
+                      onChange={(e) => setPartnerProposalDescription(e.target.value)}
+                      disabled={isSubmittingPartnerProposal}
+                      className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm resize-none"
+                    />
+                  </div>
+
+                  {/* Termos informativos */}
+                  <div className="bg-amber-50/60 rounded-3xl p-5 border border-amber-100 flex gap-4">
+                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="text-xs font-black text-amber-900 uppercase tracking-wider">
+                        Processo de Homologação
+                      </p>
+                      <p className="text-[10px] font-medium text-amber-800/80 leading-relaxed">
+                        Ao enviar a proposta, nossa equipe de parcerias analisará a viabilidade e entrará em contato via telefone/WhatsApp para homologação do contrato oficial e liberação no portal.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setIsBecomePartnerModalOpen(false)}
+                      disabled={isSubmittingPartnerProposal}
+                      className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl text-xs uppercase tracking-widest transition-all border border-gray-100 cursor-pointer disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmittingPartnerProposal}
+                      className="flex-1 bg-blue-900 hover:bg-blue-800 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer disabled:bg-blue-950/50 flex items-center justify-center gap-2"
+                    >
+                      {isSubmittingPartnerProposal ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Enviando...
+                        </>
+                      ) : (
+                        "Enviar Proposta"
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Manual Associate Registration Modal */}
+      <AnimatePresence>
+        {isAddMemberModalOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!isRegisteringMember) setIsAddMemberModalOpen(false);
+              }}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-2xl rounded-[44px] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+            >
+              <div className="p-8 lg:p-10 overflow-y-auto custom-scrollbar">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-2xl lg:text-3xl font-black text-blue-950 font-display tracking-tight">
+                      Cadastrar Associado
+                    </h3>
+                    <p className="text-gray-500 font-semibold text-xs mt-1">
+                      Cadastre a empresa, gere as credenciais de login e inicie a cobrança de mensalidades.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!isRegisteringMember) setIsAddMemberModalOpen(false);
+                    }}
+                    disabled={isRegisteringMember}
+                    className="w-12 h-12 bg-gray-50 flex items-center justify-center rounded-2xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateMemberAndCredentials} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Razão Social */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        Razão Social / Nome da Empresa *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Auto Posto Alvorada Ltda"
+                        value={newMemberName}
+                        onChange={(e) => setNewMemberName(e.target.value)}
+                        disabled={isRegisteringMember}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+
+                    {/* CNPJ */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        CNPJ *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: 12.345.678/0001-90"
+                        value={newMemberCnpj}
+                        onChange={(e) => setNewMemberCnpj(e.target.value)}
+                        disabled={isRegisteringMember}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+
+                    {/* E-mail de Contato / Login */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        E-mail (Usado para Login de Acesso) *
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="Ex: contato@empresa.com.br"
+                        value={newMemberEmail}
+                        onChange={(e) => setNewMemberEmail(e.target.value)}
+                        disabled={isRegisteringMember}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+
+                    {/* Telefone */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        Telefone / Celular *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: (11) 99999-9999"
+                        value={newMemberPhone}
+                        onChange={(e) => setNewMemberPhone(e.target.value)}
+                        disabled={isRegisteringMember}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+
+                    {/* Representante Legal */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        Representante Legal *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Roberto da Silva"
+                        value={newMemberRepresentative}
+                        onChange={(e) => setNewMemberRepresentative(e.target.value)}
+                        disabled={isRegisteringMember}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+
+                    {/* Nível de Filiação */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        Nível de Filiação *
+                      </label>
+                      <select
+                        value={newMemberLevel}
+                        onChange={(e) => setNewMemberLevel(e.target.value)}
+                        disabled={isRegisteringMember}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      >
+                        <option value="Bronze">Bronze (Básico)</option>
+                        <option value="Prata">Prata (Intermediário)</option>
+                        <option value="Ouro">Ouro (Avançado)</option>
+                        <option value="Diamante">Diamante (Premium)</option>
+                      </select>
+                    </div>
+
+                    {/* Valor da Mensalidade */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        Valor Mensal da Cobrança (R$) *
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min="0"
+                        step="0.01"
+                        placeholder="Ex: 150.00"
+                        value={newMemberMonthlyValue}
+                        onChange={(e) => setNewMemberMonthlyValue(Number(e.target.value))}
+                        disabled={isRegisteringMember}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+
+                    {/* Senha */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block">
+                        Senha de Acesso Gerada *
+                      </label>
+                      <div className="relative flex">
+                        <input
+                          type="text"
+                          required
+                          placeholder="Senha de pelo menos 6 caracteres"
+                          value={newMemberPassword}
+                          onChange={(e) => setNewMemberPassword(e.target.value)}
+                          disabled={isRegisteringMember}
+                          className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 pl-5 pr-12 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#";
+                            let autoPass = "";
+                            for (let idx = 0; idx < 8; idx++) {
+                              autoPass += chars.charAt(Math.floor(Math.random() * chars.length));
+                            }
+                            setNewMemberPassword(autoPass);
+                          }}
+                          disabled={isRegisteringMember}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-900 hover:text-blue-700 font-bold text-xs cursor-pointer"
+                          title="Gerar nova senha"
+                        >
+                          Gerar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddMemberModalOpen(false)}
+                      disabled={isRegisteringMember}
+                      className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl text-xs uppercase tracking-widest transition-all border border-gray-100 cursor-pointer disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isRegisteringMember}
+                      className="flex-1 bg-blue-900 hover:bg-blue-800 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer disabled:bg-blue-900/50 flex items-center justify-center gap-2"
+                    >
+                      {isRegisteringMember ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Salvando...
+                        </>
+                      ) : (
+                        "Salvar e Gerar Acesso"
+                      )}
                     </button>
                   </div>
                 </form>
