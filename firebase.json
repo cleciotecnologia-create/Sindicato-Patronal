@@ -1,0 +1,8 @@
+{
+  "firestore": [
+    {
+      "database": "ai-studio-sindicatopatrona-cb8b8e30-132a-47d8-859c-88d80d5b8b71",
+      "rules": "firestore.rules"
+    }
+  ]
+}

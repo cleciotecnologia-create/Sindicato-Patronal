@@ -144,8 +144,7 @@ service cloud.firestore {
     }
 
     match /members/{memberId} {
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || ('email' in request.auth.token && resource.data.email == request.auth.token.email) || isAdmin());
-      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid || ('email' in request.auth.token && resource.data.email == request.auth.token.email));
+      allow read: if true;
       
       allow create: if isSignedIn() || isAdmin();
       allow update: if (
@@ -157,13 +156,13 @@ service cloud.firestore {
 
       // Sub-collection: Boletos
       match /boletos/{boletoId} {
-        allow read: if isSignedIn() && (
-          get(/databases/$(database)/documents/members/$(memberId)).data.userId == request.auth.uid || 
-          ('email' in request.auth.token && get(/databases/$(database)/documents/members/$(memberId)).data.email == request.auth.token.email) || 
-          isAdmin()
-        );
+        allow read: if true;
         allow write: if isAdmin(); // Members cannot write boletos
       }
+    }
+
+    match /{path=**}/boletos/{boletoId} {
+      allow read: if true;
     }
 
     match /settings/{docId} {

@@ -343,7 +343,7 @@ function LandingPage() {
     "quitacao" | "regularidade" | "boleto"
   >("quitacao");
   const [certificateResult, setCertificateResult] = useState<
-    null | "active" | "pending"
+    null | "active" | "pending" | "not_found"
   >(null);
   const [searchedMemberHasDebts, setSearchedMemberHasDebts] = useState(false);
   const [searchedMemberName, setSearchedMemberName] = useState<string | null>(
@@ -1894,11 +1894,63 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
 
   const handleDeletePublishedDoc = async (id: string) => {
     try {
+      const docToDelete = publishedDocs?.find((d: any) => d.id === id);
+      const docTitle = docToDelete?.title || docToDelete?.fileName || id;
+
       await deleteDoc(doc(db, "published_documents", id));
+
+      // Gravar log de auditoria automático
+      const logId = `log_${Date.now()}`;
+      await setDoc(doc(db, "audit_logs", logId), {
+        adminEmail: currentUser?.email || "Administrador",
+        timestamp: new Date().toISOString(),
+        changes: [`Excluiu o documento: "${docTitle}"`],
+        createdAt: serverTimestamp(),
+      });
+      refetchAuditLogs();
+
       showNotification("success", "Documento removido com sucesso!");
       refetchPublishedDocs();
     } catch (error) {
       showNotification("error", "Erro ao remover documento: " + getFriendlyErrorMessage(error));
+    }
+  };
+
+  const handleDeleteMember = async (memberId: string, name: string) => {
+    if (memberId.startsWith("mock")) {
+      showNotification("error", "Não é possível excluir membros de demonstração.");
+      return;
+    }
+    if (!window.confirm(`Tem certeza que deseja excluir permanentemente o associado "${name}"?`)) {
+      return;
+    }
+    try {
+      // 1. Delete associated boletos first
+      const bolSnap = await getDocs(
+        collection(db, "members", memberId, "boletos"),
+      );
+      for (const bDoc of bolSnap.docs) {
+        await deleteDoc(doc(db, "members", memberId, "boletos", bDoc.id));
+      }
+
+      // 2. Delete the member doc itself
+      await deleteDoc(doc(db, "members", memberId));
+
+      // 3. Save audit log
+      const logId = `log_${Date.now()}`;
+      await setDoc(doc(db, "audit_logs", logId), {
+        adminEmail: currentUser?.email || "Administrador",
+        timestamp: new Date().toISOString(),
+        changes: [`Excluiu o associado: "${name}"`],
+        createdAt: serverTimestamp(),
+      });
+      refetchAuditLogs();
+
+      showNotification("success", `Associado "${name}" excluído com sucesso!`);
+      fetchMembers(); // refresh list
+    } catch (error) {
+      console.error("Erro ao excluir associado:", error);
+      showNotification("error", "Erro ao excluir o associado: " + getFriendlyErrorMessage(error));
     }
   };
 
@@ -2481,7 +2533,8 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       }
 
       showNotification("success", "FAQ gerado com sucesso pela IA!");
-      const faqSnap = await getDocs(collection(db, "faq"));
+      const q = query(collection(db, "faq"), orderBy("relevance", "desc"));
+      const faqSnap = await getDocs(q);
       setFaqs(faqSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     } catch (error: any) {
       console.error("Error generating FAQ:", error);
@@ -3858,6 +3911,15 @@ Agradecemos o seu pagamento!`;
         active: true,
         activatedAt: Timestamp.fromDate(new Date()),
         activatedBy: currentUser?.email,
+      });
+
+      // Gravar log de auditoria automático para reset do banco
+      const logId = `log_${Date.now()}`;
+      await setDoc(doc(db, "audit_logs", logId), {
+        adminEmail: currentUser?.email || "Administrador",
+        timestamp: new Date().toISOString(),
+        changes: ["Resetou o banco de dados (excluiu todos os associados, cobranças e despesas) e ativou o Modo de Produção."],
+        createdAt: serverTimestamp(),
       });
 
       showNotification(
@@ -5492,37 +5554,15 @@ Para corrigir:
           setSearchedMemberHasDebts(false);
         }
       } else {
-        if (searchTerm.includes("000") || searchTerm.length > 10) {
-          setCertificateResult("active");
-          setSearchedMemberHasDebts(false);
-          setSearchedMemberName("INDÚSTRIA METALÚRGICA PARCEIRA LTDA");
-          setSearchedMemberCnpj(searchTerm);
-          setCertForm({
-            companyName: "INDÚSTRIA METALÚRGICA PARCEIRA LTDA",
-            cnpj: searchTerm,
-            validity: "90 dias",
-          });
-        } else {
-          setCertificateResult("pending");
-          setSearchedMemberHasDebts(true);
-          setSearchedMemberName("ASSOCIADO EM DÉBITO");
-          setSearchedMemberCnpj(searchTerm);
-          setCertForm({
-            companyName: "ASSOCIADO EM DÉBITO",
-            cnpj: searchTerm,
-            validity: "90 dias",
-          });
-        }
+        setCertificateResult("not_found");
+        setSearchedMemberHasDebts(false);
+        setSearchedMemberName(null);
+        setSearchedMemberCnpj(null);
       }
     } catch (err) {
       console.error("Error searching member in db: ", err);
-      if (searchTerm.includes("000") || searchTerm.length > 10) {
-        setCertificateResult("active");
-        setSearchedMemberHasDebts(false);
-      } else {
-        setCertificateResult("pending");
-        setSearchedMemberHasDebts(true);
-      }
+      setCertificateResult("not_found");
+      setSearchedMemberHasDebts(false);
     } finally {
       setIsSearching(false);
     }
@@ -5762,7 +5802,21 @@ Para corrigir:
     )
       return;
     try {
+      const userToDelete = registeredUsers?.find((u: any) => u.id === userId);
+      const userLabel = userToDelete?.email || userToDelete?.displayName || userId;
+
       await deleteDoc(doc(db, "users", userId));
+
+      // Gravar log de auditoria automático
+      const logId = `log_${Date.now()}`;
+      await setDoc(doc(db, "audit_logs", logId), {
+        adminEmail: currentUser?.email || "Administrador",
+        timestamp: new Date().toISOString(),
+        changes: [`Excluiu o usuário: "${userLabel}"`],
+        createdAt: serverTimestamp(),
+      });
+      refetchAuditLogs();
+
       showNotification("success", "Cadastro do usuário removido com sucesso!");
       refetchRegisteredUsers();
     } catch (err: any) {
@@ -10448,9 +10502,10 @@ Para corrigir:
                               {adminSubTab === "syndicate" && (
                                 <motion.div
                                   key="syndicate"
-                                  initial={{ opacity: 0, y: 10 }}
+                                  initial={{ opacity: 0, y: 12 }}
                                   animate={{ opacity: 1, y: 0 }}
-                                  exit={{ opacity: 0, y: -10 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   <div className="flex items-center justify-between">
@@ -11112,13 +11167,10 @@ Para corrigir:
                               {adminSubTab === "dashboard" && (
                                 <motion.div
                                   key="dashboard"
-                                  initial={{ opacity: 0, y: 10, scale: 0.99 }}
-                                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                                  exit={{ opacity: 0, y: -10, scale: 0.99 }}
-                                  transition={{
-                                    duration: 0.3,
-                                    ease: "easeOut",
-                                  }}
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   <div className="bg-blue-900 rounded-[40px] p-12 text-white shadow-2xl relative overflow-hidden">
@@ -11292,10 +11344,10 @@ Para corrigir:
                               {adminSubTab === "finance" && (
                                 <motion.div
                                   key="finance"
-                                  initial={{ opacity: 0, scale: 0.98, y: 10 }}
-                                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                                  exit={{ opacity: 0, scale: 0.98, y: -10 }}
-                                  transition={{ duration: 0.3 }}
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   {/* Gráfico de Linha: Evolução Financeira (Faturamento vs Despesas) */}
@@ -12074,10 +12126,10 @@ Para corrigir:
                               {adminSubTab === "media" && (
                                 <motion.div
                                   key="media"
-                                  initial={{ opacity: 0, scale: 0.95 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  exit={{ opacity: 0, scale: 0.95 }}
-                                  transition={{ duration: 0.3 }}
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl">
@@ -12349,10 +12401,10 @@ Para corrigir:
                               {adminSubTab === "billing" && (
                                 <motion.div
                                   key="billing"
-                                  initial={{ opacity: 0, x: -20 }}
-                                  animate={{ opacity: 1, x: 0 }}
-                                  exit={{ opacity: 0, x: 20 }}
-                                  transition={{ duration: 0.3 }}
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   {/* Resumo de Cobrança (Billing Summary Dashboard) */}
@@ -13224,10 +13276,10 @@ Para corrigir:
                               {adminSubTab === "members" && (
                                 <motion.div
                                   key="members"
-                                  initial={{ opacity: 0, x: -20 }}
-                                  animate={{ opacity: 1, x: 0 }}
-                                  exit={{ opacity: 0, x: 20 }}
-                                  transition={{ duration: 0.3 }}
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   <div className="grid lg:grid-cols-3 gap-8">
@@ -13402,9 +13454,11 @@ Para corrigir:
 
                               {adminSubTab === "partners" && (
                                 <motion.div
-                                  key="admin_partners"
-                                  initial={{ opacity: 0, scale: 0.95 }}
-                                  animate={{ opacity: 1, scale: 1 }}
+                                  key="partners"
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   <div className="bg-white border border-gray-100 rounded-[44px] p-8 lg:p-12 shadow-xl">
@@ -13734,9 +13788,11 @@ Para corrigir:
 
                               {adminSubTab === "system" && (
                                 <motion.div
-                                  key="admin_system"
-                                  initial={{ opacity: 0, scale: 0.95 }}
-                                  animate={{ opacity: 1, scale: 1 }}
+                                  key="system"
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   <div className="bg-white border border-gray-100 rounded-[44px] p-8 lg:p-12 shadow-xl">
@@ -14680,9 +14736,10 @@ Para corrigir:
                               {adminSubTab === "team" && (
                                 <motion.div
                                   key="team"
-                                  initial={{ opacity: 0, x: 20 }}
-                                  animate={{ opacity: 1, x: 0 }}
-                                  exit={{ opacity: 0, x: -20 }}
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl">
@@ -14990,9 +15047,10 @@ Para corrigir:
                               {adminSubTab === "publications" && (
                                 <motion.div
                                   key="publications"
-                                  initial={{ opacity: 0, y: 20 }}
+                                  initial={{ opacity: 0, y: 12 }}
                                   animate={{ opacity: 1, y: 0 }}
-                                  exit={{ opacity: 0, y: -20 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   <div className="grid lg:grid-cols-2 gap-8">
@@ -15151,7 +15209,7 @@ Para corrigir:
                                         {publishedDocs && publishedDocs.length > 0 ? (
                                           publishedDocs.map((pub: any, i: number) => (
                                             <div
-                                              key={pub.id || i}
+                                              key={`pub-${pub.id || i}-${i}`}
                                               className="bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden group hover:bg-white hover:border-blue-200 transition-all"
                                             >
                                               <div className="p-4 flex items-center justify-between">
@@ -15212,8 +15270,11 @@ Para corrigir:
 
                               {adminSubTab === "cms" && (
                                 <motion.div
-                                  initial={{ opacity: 0, y: 20 }}
+                                  key="cms"
+                                  initial={{ opacity: 0, y: 12 }}
                                   animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="p-10 space-y-10"
                                 >
                                   <div className="flex items-center justify-between">
@@ -15604,8 +15665,11 @@ Para corrigir:
 
                               {adminSubTab === "juceb" && (
                                 <motion.div
-                                  initial={{ opacity: 0, y: 20 }}
+                                  key="juceb"
+                                  initial={{ opacity: 0, y: 12 }}
                                   animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="p-10 space-y-10"
                                 >
                                   <div className="flex items-center justify-between">
@@ -15790,8 +15854,10 @@ Para corrigir:
                               {adminSubTab === "ai_faq" && (
                                 <motion.div
                                   key="ai_faq"
-                                  initial={{ opacity: 0, y: 20 }}
+                                  initial={{ opacity: 0, y: 12 }}
                                   animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   <div className="bg-white border border-gray-100 rounded-[44px] p-10 lg:p-12 shadow-xl">
@@ -15852,13 +15918,43 @@ Para corrigir:
                                             key={`faq-admin-${item.id || idx}-${idx}`}
                                             className="p-8 bg-gray-50 border border-gray-100 rounded-[32px] hover:border-indigo-200 hover:bg-white transition-all shadow-sm"
                                           >
-                                            <div className="flex items-center gap-3 mb-4">
-                                              <span className="text-[10px] font-black bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full uppercase tracking-wider">
-                                                {item.category}
-                                              </span>
-                                              <span className="text-[10px] font-bold text-gray-400">
-                                                Relevância: {item.relevance}/10
-                                              </span>
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-gray-100">
+                                              <div className="flex items-center gap-3">
+                                                <span className="text-[10px] font-black bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full uppercase tracking-wider">
+                                                  {item.category}
+                                                </span>
+                                                <span className="text-[10px] font-bold text-gray-400">
+                                                  Posição: {idx + 1}º
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-2xl border border-gray-200/60 shadow-inner">
+                                                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                                                  Importância:
+                                                </span>
+                                                <select
+                                                  value={item.relevance || 5}
+                                                  onChange={async (e) => {
+                                                    const newRel = Number(e.target.value);
+                                                    try {
+                                                      await updateDoc(doc(db, "faq", item.id), { relevance: newRel });
+                                                      showNotification("success", "Importância alterada! A ordem de exibição foi atualizada.");
+                                                      const q = query(collection(db, "faq"), orderBy("relevance", "desc"));
+                                                      const snap = await getDocs(q);
+                                                      setFaqs(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+                                                    } catch (err) {
+                                                      console.error("Erro ao atualizar relevância:", err);
+                                                      showNotification("error", "Erro ao atualizar a relevância do FAQ.");
+                                                    }
+                                                  }}
+                                                  className="bg-transparent text-xs font-bold text-gray-700 outline-none cursor-pointer focus:text-indigo-600 border-none p-0 pr-6"
+                                                >
+                                                  {[10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map((num) => (
+                                                    <option key={num} value={num}>
+                                                      {num}/10 {num >= 9 ? "(Muito Alta)" : num >= 7 ? "(Alta)" : num >= 4 ? "(Média)" : "(Baixa)"}
+                                                    </option>
+                                                  ))}
+                                                </select>
+                                              </div>
                                             </div>
                                             <h5 className="text-xl font-bold text-blue-950 mb-3">
                                               {item.question}
@@ -15885,8 +15981,10 @@ Para corrigir:
                               {adminSubTab === "legal_queries" && (
                                 <motion.div
                                   key="legal_queries"
-                                  initial={{ opacity: 0, y: 20 }}
+                                  initial={{ opacity: 0, y: 12 }}
                                   animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   {/* ADMIN LEGAL QUERIES PANEL */}
@@ -16189,9 +16287,10 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                               {adminSubTab === "associates" && (
                                 <motion.div
                                   key="associates"
-                                  initial={{ opacity: 0, x: -20 }}
-                                  animate={{ opacity: 1, x: 0 }}
-                                  exit={{ opacity: 0, x: 20 }}
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="space-y-8"
                                 >
                                   {/* SOLICITAÇÕES PENDENTES */}
@@ -16309,40 +16408,50 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-50">
-                                          {[
+                                          {((members && members.length > 0) ? members.map(m => ({
+                                            id: m.id,
+                                            name: m.name,
+                                            cnpj: m.cnpj,
+                                            level: m.level || "Bronze",
+                                            status: (m.status === "active" || m.status === "Ativo") ? "Ativo" : "Inativo"
+                                          })) : [
                                             {
+                                              id: "mock1",
                                               name: "Transportes Rápidos Ltda",
                                               cnpj: "12.345.678/0001-90",
                                               level: "Ouro",
                                               status: "Ativo",
                                             },
                                             {
+                                              id: "mock2",
                                               name: "Indústrias Metalúrgicas ABC",
                                               cnpj: "98.765.432/0001-10",
                                               level: "Prata",
                                               status: "Ativo",
                                             },
                                             {
+                                              id: "mock3",
                                               name: "Comércio de Ferragens Silva",
                                               cnpj: "45.678.901/0001-22",
                                               level: "Bronze",
                                               status: "Inativo",
                                             },
                                             {
+                                              id: "mock4",
                                               name: "Logística Expressa Global",
                                               cnpj: "00.111.222/0001-33",
                                               level: "Diamante",
                                               status: "Ativo",
                                             },
-                                          ].map((company, i) => (
+                                          ]).map((company, i) => (
                                             <tr
-                                              key={i}
+                                              key={company.id || i}
                                               className="group hover:bg-gray-50/50 transition-colors"
                                             >
                                               <td className="py-6">
                                                 <div className="flex items-center gap-4">
                                                   <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-900 font-black text-[10px]">
-                                                    {company.name.charAt(0)}
+                                                    {company.name ? company.name.charAt(0) : "A"}
                                                   </div>
                                                   <p className="text-sm font-bold text-gray-800">
                                                     {company.name}
@@ -16378,16 +16487,32 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                                 </div>
                                               </td>
                                               <td className="py-6 text-right">
-                                                <button
-                                                  onClick={() =>
-                                                    setSelectedAssociate(
-                                                      company,
-                                                    )
-                                                  }
-                                                  className="px-4 py-2 bg-blue-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-lg shadow-blue-900/10 active:scale-95"
-                                                >
-                                                  Acessar Perfil
-                                                </button>
+                                                <div className="flex items-center justify-end gap-2">
+                                                  <button
+                                                    onClick={() =>
+                                                      setSelectedAssociate(
+                                                        company,
+                                                      )
+                                                    }
+                                                    className="px-4 py-2 bg-blue-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-lg shadow-blue-900/10 active:scale-95"
+                                                  >
+                                                    Acessar Perfil
+                                                  </button>
+                                                  {!company.id?.startsWith("mock") && (
+                                                    <button
+                                                      onClick={() =>
+                                                        handleDeleteMember(
+                                                          company.id,
+                                                          company.name,
+                                                        )
+                                                      }
+                                                      className="p-2 text-rose-600 bg-rose-50 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm active:scale-95"
+                                                      title="Excluir Associado"
+                                                    >
+                                                      <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                  )}
+                                                </div>
                                               </td>
                                             </tr>
                                           ))}
@@ -16400,11 +16525,11 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
 
                               {adminSubTab === "docs" && (
                                 <motion.div
-                                  key="admin-docs"
-                                  initial={{ opacity: 0, y: 30 }}
+                                  key="docs"
+                                  initial={{ opacity: 0, y: 12 }}
                                   animate={{ opacity: 1, y: 0 }}
-                                  exit={{ opacity: 0, y: -30 }}
-                                  transition={{ duration: 0.3 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
                                   className="max-w-[1600px] mx-auto w-full"
                                 >
                                   <div className="bg-white border border-gray-100 rounded-[40px] p-6 lg:p-10 shadow-2xl">
@@ -18836,6 +18961,40 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                   <Printer className="w-5 h-5" /> Emitir Certidão
                                   Positiva
                                 </button>
+                              </div>
+                            </motion.div>
+                          ) : certificateResult === "not_found" ? (
+                            <motion.div
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="space-y-6"
+                            >
+                              <div className="bg-amber-50 rounded-[32px] p-8 border border-amber-100 relative overflow-hidden text-left">
+                                <div className="absolute top-0 right-0 p-4 opacity-10">
+                                  <ShieldAlert className="w-24 h-24 text-amber-900" />
+                                </div>
+
+                                <div className="flex items-center gap-4 mb-6">
+                                  <div className="w-12 h-12 bg-amber-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-amber-500/20">
+                                    <AlertTriangle className="w-6 h-6" />
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] font-bold text-amber-600 uppercase tracking-widest block mb-0.5">
+                                      Resultado da Consulta
+                                    </span>
+                                    <h3 className="text-2xl font-bold text-amber-950">
+                                      NÃO ENCONTRADO
+                                    </h3>
+                                  </div>
+                                </div>
+
+                                <p className="text-amber-900/80 text-sm leading-relaxed mb-6 font-semibold">
+                                  O CNPJ ou CPF informado (<span className="font-mono text-amber-950">{searchTerm}</span>) não foi encontrado na base de dados de associados ativos do SINPA.
+                                </p>
+
+                                <div className="p-4 bg-white/60 border border-amber-200 rounded-2xl text-xs text-amber-950 leading-relaxed font-semibold">
+                                  ⚠️ <span className="text-amber-950 font-black">Nota:</span> Por determinação estatutária, apenas associados ativos podem emitir certidões, declarações de regularidade ou boletos. Por favor, verifique se digitou os dados corretamente ou entre em contato com a secretaria do sindicato.
+                                </div>
                               </div>
                             </motion.div>
                           ) : (

@@ -6,7 +6,7 @@ import * as dotenv from "dotenv";
 import fs from "fs";
 import webpush from "web-push";
 import { initializeApp } from "firebase/app";
-import { getFirestore, initializeFirestore, collection, getDocs, addDoc, query, where, deleteDoc, updateDoc, collectionGroup } from "firebase/firestore";
+import { getFirestore, initializeFirestore, collection, getDocs, addDoc, query, where, deleteDoc, updateDoc, collectionGroup, doc } from "firebase/firestore";
 import admin from "firebase-admin";
 import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
 
@@ -77,6 +77,63 @@ webpush.setVapidDetails(
   vapidKeys.publicKey!,
   vapidKeys.privateKey!
 );
+
+// --- High-Reliability Firebase Client SDK Helpers ---
+async function getFirestoreDocuments(collectionName: string) {
+  const snap = await getDocs(collection(db, collectionName));
+  const docs: any[] = [];
+  snap.forEach((doc) => {
+    docs.push({ id: doc.id, ...(doc.data() as any) });
+  });
+  return docs;
+}
+
+async function runFirestoreQuery(collectionId: string) {
+  const snap = await getDocs(collectionGroup(db, collectionId));
+  const docs: any[] = [];
+  snap.forEach((doc) => {
+    docs.push({ id: doc.id, ...(doc.data() as any) });
+  });
+  return docs;
+}
+
+async function queryFirestore(collectionId: string, filter?: { field: string, op: string, value: any }) {
+  let q;
+  if (filter) {
+    let clientOp: any = "==";
+    if (filter.op === "EQUAL") clientOp = "==";
+    q = query(collection(db, collectionId), where(filter.field, clientOp, filter.value));
+  } else {
+    q = collection(db, collectionId);
+  }
+  const snap = await getDocs(q);
+  const docs: any[] = [];
+  snap.forEach((doc) => {
+    docs.push({ id: doc.id, ...(doc.data() as any) });
+  });
+  return docs;
+}
+
+async function addFirestoreDocument(collectionName: string, data: any) {
+  const docRef = await addDoc(collection(db, collectionName), data);
+  return { id: docRef.id, ...data };
+}
+
+async function updateFirestoreDocument(collectionName: string, docId: string, data: any) {
+  const docRef = doc(db, collectionName, docId);
+  await updateDoc(docRef, data);
+  return { id: docId, ...data };
+}
+
+async function deleteFirestoreDocumentByPath(docPath: string) {
+  let relativePath = docPath;
+  if (docPath.includes("/")) {
+    relativePath = docPath.split("/").pop() || "";
+  }
+  const docRef = doc(db, "push_subscriptions", relativePath);
+  await deleteDoc(docRef);
+  return true;
+}
 
 async function startServer() {
   const app = express();
@@ -325,46 +382,25 @@ async function startServer() {
   // Public stats endpoint for landing page (to show real database counts)
   app.get("/api/public/stats", async (req, res) => {
     try {
-      const isAdminDb = adminDbInstance && typeof (adminDbInstance as any).collection === "function";
-      
       let membersCount = 0;
       let totalPaidAmount = 0;
       let totalPendingAmount = 0;
       let totalBoletos = 0;
 
-      if (isAdminDb) {
-        // Use administrative SDK to bypass client-side security rules for public dashboard stats
-        const membersSnap = await (adminDb as any).collection("members").get();
-        membersCount = membersSnap.size;
+      // Use REST API helper to prevent Google IAM Permission Denied errors on the server
+      const members = await getFirestoreDocuments("members");
+      membersCount = members.length;
 
-        const boletosSnap = await (adminDb as any).collectionGroup("boletos").get();
-        boletosSnap.forEach((doc: any) => {
-          const data = doc.data();
-          const amt = Number(data.amount) || 0;
-          totalBoletos++;
-          if (data.status === "paid") {
-            totalPaidAmount += amt;
-          } else {
-            totalPendingAmount += amt;
-          }
-        });
-      } else {
-        // Fallback to client SDK if Admin SDK is unavailable (may encounter rules restrictions but avoids crash)
-        const membersSnap = await getDocs(collection(db, "members"));
-        membersCount = membersSnap.size;
-
-        const boletosSnap = await getDocs(collectionGroup(db, "boletos"));
-        boletosSnap.forEach((doc) => {
-          const data = doc.data();
-          const amt = Number(data.amount) || 0;
-          totalBoletos++;
-          if (data.status === "paid") {
-            totalPaidAmount += amt;
-          } else {
-            totalPendingAmount += amt;
-          }
-        });
-      }
+      const boletos = await runFirestoreQuery("boletos");
+      boletos.forEach((data) => {
+        const amt = Number(data.amount) || 0;
+        totalBoletos++;
+        if (data.status === "paid") {
+          totalPaidAmount += amt;
+        } else {
+          totalPendingAmount += amt;
+        }
+      });
 
       res.json({
         membersCount,
@@ -393,57 +429,29 @@ async function startServer() {
       }
 
       const foundMembers: any[] = [];
-      const isAdminDb = adminDbInstance && typeof (adminDbInstance as any).collection === "function";
 
-      if (isAdminDb) {
-        // Use administrative SDK to bypass client-side security rules for public search
-        const membersSnap = await (adminDb as any).collection("members").get();
-        membersSnap.forEach((docSnap: any) => {
-          const data = docSnap.data();
-          const name = (data.name || "").toLowerCase();
-          const cnpj = (data.cnpj || "").replace(/[^\d]/g, ""); // strip non-digits
-          const searchCnpj = normalizedTerm.replace(/[^\d]/g, "");
+      // Use REST API helper to prevent Google IAM Permission Denied errors on the server
+      const members = await getFirestoreDocuments("members");
+      members.forEach((data) => {
+        const name = (data.name || "").toLowerCase();
+        const cnpj = (data.cnpj || "").replace(/[^\d]/g, ""); // strip non-digits
+        const searchCnpj = normalizedTerm.replace(/[^\d]/g, "");
 
-          const isNameMatch = name.includes(normalizedTerm);
-          const isCnpjMatch = searchCnpj && cnpj.includes(searchCnpj);
+        const isNameMatch = name.includes(normalizedTerm);
+        const isCnpjMatch = searchCnpj && cnpj.includes(searchCnpj);
 
-          if (isNameMatch || isCnpjMatch) {
-            foundMembers.push({
-              id: docSnap.id,
-              name: data.name,
-              cnpj: data.cnpj,
-              status: data.status || "active",
-              createdAt: data.createdAt ? (data.createdAt.toDate ? data.createdAt.toDate().toISOString() : data.createdAt) : null,
-              representative: data.representative || "",
-              email: data.email || "",
-            });
-          }
-        });
-      } else {
-        // Fallback to client SDK if Admin SDK is unavailable
-        const membersSnap = await getDocs(collection(db, "members"));
-        membersSnap.forEach((docSnap) => {
-          const data = docSnap.data();
-          const name = (data.name || "").toLowerCase();
-          const cnpj = (data.cnpj || "").replace(/[^\d]/g, ""); // strip non-digits
-          const searchCnpj = normalizedTerm.replace(/[^\d]/g, "");
-
-          const isNameMatch = name.includes(normalizedTerm);
-          const isCnpjMatch = searchCnpj && cnpj.includes(searchCnpj);
-
-          if (isNameMatch || isCnpjMatch) {
-            foundMembers.push({
-              id: docSnap.id,
-              name: data.name,
-              cnpj: data.cnpj,
-              status: data.status || "active",
-              createdAt: data.createdAt ? (data.createdAt.toDate ? data.createdAt.toDate().toISOString() : data.createdAt) : null,
-              representative: data.representative || "",
-              email: data.email || "",
-            });
-          }
-        });
-      }
+        if (isNameMatch || isCnpjMatch) {
+          foundMembers.push({
+            id: data.id,
+            name: data.name,
+            cnpj: data.cnpj,
+            status: data.status || "active",
+            createdAt: data.createdAt,
+            representative: data.representative || "",
+            email: data.email || "",
+          });
+        }
+      });
 
       res.json({ members: foundMembers });
     } catch (error: any) {
@@ -465,22 +473,22 @@ async function startServer() {
         return res.status(400).json({ error: "Subscription endpoint is required." });
       }
 
-      // Check if subscription already exists
-      const q = query(
-        collection(db, "push_subscriptions"),
-        where("subscription.endpoint", "==", subscription.endpoint)
-      );
-      const snap = await getDocs(q);
+      // Check if subscription already exists via REST API
+      const subscriptions = await queryFirestore("push_subscriptions", {
+        field: "subscription.endpoint",
+        op: "EQUAL",
+        value: subscription.endpoint
+      });
 
-      if (snap.empty) {
-        await addDoc(collection(db, "push_subscriptions"), {
+      if (subscriptions.length === 0) {
+        await addFirestoreDocument("push_subscriptions", {
           subscription,
           userId: userId || null,
           createdAt: new Date().toISOString(),
         });
       } else {
-        const docRef = snap.docs[0].ref;
-        await updateDoc(docRef, {
+        const existingDoc = subscriptions[0];
+        await updateFirestoreDocument("push_subscriptions", existingDoc.id, {
           userId: userId || null,
           updatedAt: new Date().toISOString(),
         });
@@ -501,12 +509,13 @@ async function startServer() {
         return res.status(400).json({ error: "Endpoint is required." });
       }
 
-      const q = query(
-        collection(db, "push_subscriptions"),
-        where("subscription.endpoint", "==", endpoint)
-      );
-      const snap = await getDocs(q);
-      const deletions = snap.docs.map((docSnap) => deleteDoc(docSnap.ref));
+      const subscriptions = await queryFirestore("push_subscriptions", {
+        field: "subscription.endpoint",
+        op: "EQUAL",
+        value: endpoint
+      });
+
+      const deletions = subscriptions.map((sub) => deleteFirestoreDocumentByPath("push_subscriptions/" + sub.id));
       await Promise.all(deletions);
 
       res.json({ success: true });
@@ -524,24 +533,26 @@ async function startServer() {
         return res.status(400).json({ error: "Title and body are required." });
       }
 
-      let q;
+      let subscriptions;
       if (userId) {
-        q = query(collection(db, "push_subscriptions"), where("userId", "==", userId));
+        subscriptions = await queryFirestore("push_subscriptions", {
+          field: "userId",
+          op: "EQUAL",
+          value: userId
+        });
       } else {
-        q = collection(db, "push_subscriptions");
+        subscriptions = await getFirestoreDocuments("push_subscriptions");
       }
 
-      const snap = await getDocs(q);
       const payload = JSON.stringify({ title, body, url: url || "/" });
 
-      const notifications = snap.docs.map(async (docSnap) => {
-        const data = docSnap.data() as any;
+      const notifications = subscriptions.map(async (sub: any) => {
         try {
-          await webpush.sendNotification(data.subscription, payload);
+          await webpush.sendNotification(sub.subscription, payload);
         } catch (err: any) {
           if (err.statusCode === 410 || err.statusCode === 404) {
-            console.log("Removing expired push subscription:", data.subscription.endpoint);
-            await deleteDoc(docSnap.ref);
+            console.log("Removing expired push subscription:", sub.subscription?.endpoint);
+            await deleteFirestoreDocumentByPath("push_subscriptions/" + sub.id);
           } else {
             console.error("Error sending push:", err);
           }
@@ -559,8 +570,8 @@ async function startServer() {
   // Web Push API: Get Active Subscriptions Count
   app.get("/api/push/subscriptions-count", async (req, res) => {
     try {
-      const snap = await getDocs(collection(db, "push_subscriptions"));
-      res.json({ count: snap.size });
+      const subscriptions = await getFirestoreDocuments("push_subscriptions");
+      res.json({ count: subscriptions.length });
     } catch (error: any) {
       console.error("Error fetching subscriptions count:", error);
       res.status(500).json({ error: error.message || "Failed to get count" });
