@@ -82,6 +82,7 @@ import {
   Key,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { PartnerContractModals } from "./components/PartnerContractModals";
 import { GoogleGenAI } from "@google/genai";
 import { QRCodeCanvas } from "qrcode.react";
 import {
@@ -103,6 +104,8 @@ import {
   PieChart as RechartsPieChart,
   Pie,
   Legend,
+  LineChart,
+  Line,
 } from "recharts";
 import {
   auth,
@@ -1679,6 +1682,53 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
 
   const [members, setMembers] = useState<any[]>([]);
   const [isFetchingMembers, setIsFetchingMembers] = useState(false);
+  const [selectedMemberForAnalysis, setSelectedMemberForAnalysis] = useState<string>("");
+  const [isAnalyzingFinance, setIsAnalyzingFinance] = useState(false);
+  const [financeAnalysisResult, setFinanceAnalysisResult] = useState<any | null>(null);
+
+  const handleAnalyzeFinancialBehavior = async (memberId: string) => {
+    if (!memberId) return;
+    const selectedMember = members.find((m) => m.id === memberId);
+    if (!selectedMember) return;
+
+    setIsAnalyzingFinance(true);
+    setFinanceAnalysisResult(null);
+
+    // Filter boletos for this member
+    const memberBillings = allBillings
+      .filter((b) => b.memberId === memberId)
+      .map((b) => ({
+        id: b.id,
+        title: b.title,
+        amount: b.amount,
+        dueDate: b.dueDate,
+        status: b.status,
+      }));
+
+    try {
+      const response = await fetch("/api/finance/analyze-behavior", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          member: selectedMember,
+          billings: memberBillings,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Erro na comunicação com o servidor.");
+      }
+
+      const data = await response.json();
+      setFinanceAnalysisResult(data);
+      showNotification("success", "Análise de comportamento financeiro gerada com sucesso!");
+    } catch (error: any) {
+      console.warn("Could not analyze finance", error);
+      showNotification("error", "Erro ao realizar análise financeira com o Gemini.");
+    } finally {
+      setIsAnalyzingFinance(false);
+    }
+  };
 
   const fetchMembers = async () => {
     setIsFetchingMembers(true);
@@ -2069,6 +2119,81 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
 
   const [showAddPartnerModal, setShowAddPartnerModal] = useState(false);
   const [partnerFilter, setPartnerFilter] = useState<string>("todos");
+  const [partnerSubTab, setPartnerSubTab] = useState<"list" | "contracts">("list");
+  
+  // States for partner contract generation and history
+  const [partnerContracts, setPartnerContracts] = useState<any[]>(() => {
+    return [
+      {
+        id: "CONTR-UNIMED-2026",
+        partnerId: "1",
+        partnerName: "Unimed Regional",
+        partnerCnpj: "04.567.890/0001-12",
+        partnerRepresentative: "Dra. Sandra Regina Silveira",
+        partnerRepresentativeRole: "Diretora de Relacionamento",
+        partnerAddress: "Av. ACM, 456, Ed. Unimed, Salvador - BA",
+        sinpaName: "SINPA BA - SINDICATO PATRONAL",
+        sinpaCnpj: "12.345.678/0001-90",
+        sinpaRepresentative: "Dr. Clécio Melo",
+        sinpaRepresentativeRole: "Presidente",
+        sinpaAddress: "Av. Tancredo Neves, 1234, Caminho das Árvores, Salvador - BA",
+        contractObject: "Parceria comercial para concessão de plano de saúde empresarial com carência zero e desconto especial de 20% para associados do SINPA BA.",
+        discountValue: "20%",
+        startDate: "2026-01-01",
+        endDate: "2027-01-01",
+        forumCity: "Salvador",
+        forumState: "BA",
+        status: "signed",
+        createdAt: "2026-01-01T10:00:00.000Z"
+      },
+      {
+        id: "CONTR-IMPACTO-2026",
+        partnerId: "2",
+        partnerName: "Faculdade Impacto",
+        partnerCnpj: "08.123.456/0001-78",
+        partnerRepresentative: "Prof. Marcos Antonio Souza",
+        partnerRepresentativeRole: "Diretor Geral de Expansão",
+        partnerAddress: "Rua das Bandeiras, 89, Pituba, Salvador - BA",
+        sinpaName: "SINPA BA - SINDICATO PATRONAL",
+        sinpaCnpj: "12.345.678/0001-90",
+        sinpaRepresentative: "Dr. Clécio Melo",
+        sinpaRepresentativeRole: "Presidente",
+        sinpaAddress: "Av. Tancredo Neves, 1234, Caminho das Árvores, Salvador - BA",
+        contractObject: "Convênio educacional para concessão de desconto de 35% nos cursos de graduação e pós-graduação oferecidos pela instituição aos associados.",
+        discountValue: "35%",
+        startDate: "2026-02-15",
+        endDate: "2027-02-15",
+        forumCity: "Salvador",
+        forumState: "BA",
+        status: "signed",
+        createdAt: "2026-02-15T14:30:00.000Z"
+      }
+    ];
+  });
+  const [showContractModal, setShowContractModal] = useState(false);
+  const [selectedPartnerForContract, setSelectedPartnerForContract] = useState<Partner | null>(null);
+  const [showContractPreview, setShowContractPreview] = useState(false);
+  const [selectedContractForView, setSelectedContractForView] = useState<any | null>(null);
+  const [contractForm, setContractForm] = useState({
+    partnerName: "",
+    partnerCnpj: "",
+    partnerRepresentative: "",
+    partnerRepresentativeRole: "Diretor Geral",
+    partnerAddress: "",
+    sinpaName: "SINPA BA - SINDICATO PATRONAL",
+    sinpaCnpj: "12.345.678/0001-90",
+    sinpaRepresentative: "Dr. Clécio Melo",
+    sinpaRepresentativeRole: "Presidente",
+    sinpaAddress: "Av. Tancredo Neves, 1234, Caminho das Árvores, Salvador - BA",
+    contractObject: "",
+    discountValue: "",
+    startDate: new Date().toISOString().split("T")[0],
+    endDate: "",
+    forumCity: "Salvador",
+    forumState: "BA",
+    status: "signed" as "signed" | "pending"
+  });
+
   const [showAgreementModal, setShowAgreementModal] = useState(false);
   const [agreementType, setAgreementType] = useState<"avista" | "parcelado">(
     "avista",
@@ -4490,6 +4615,57 @@ Para corrigir:
   const [publicSearchResult, setPublicSearchResult] = useState<any[] | null>(
     null,
   );
+  const [publicStats, setPublicStats] = useState<{
+    membersCount: number;
+    totalPaidAmount: number;
+    totalPendingAmount: number;
+    totalBoletos: number;
+    approvalRate: number;
+  } | null>(null);
+  const [isSearchingPublicMember, setIsSearchingPublicMember] = useState(false);
+
+  const fetchPublicStats = async () => {
+    try {
+      const res = await fetch("/api/public/stats");
+      if (res.ok) {
+        const data = await res.json();
+        setPublicStats(data);
+      }
+    } catch (err) {
+      console.warn("Could not fetch public stats", err);
+    }
+  };
+
+  const handlePublicSearch = async () => {
+    if (!publicSearchTerm.trim()) {
+      showNotification("info", "Por favor, digite o nome da empresa ou CNPJ para busca.");
+      return;
+    }
+    if (publicSearchTerm.trim().length < 3) {
+      showNotification("info", "Digite pelo menos 3 caracteres para a busca pública.");
+      return;
+    }
+    setIsSearchingPublicMember(true);
+    try {
+      const res = await fetch(`/api/public/search-member?term=${encodeURIComponent(publicSearchTerm)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPublicSearchResult(data.members || []);
+      } else {
+        setPublicSearchResult([]);
+      }
+    } catch (err) {
+      console.error("Erro na busca pública:", err);
+      showNotification("error", "Erro ao realizar busca pública.");
+      setPublicSearchResult([]);
+    } finally {
+      setIsSearchingPublicMember(false);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchPublicStats();
+  }, []);
 
   const sectorData = [
     { name: "Jan", value: 400 },
@@ -4928,6 +5104,242 @@ Para corrigir:
       expiresAt: "",
       website: "",
     });
+  };
+
+  const handleOpenContractModal = (partner: Partner) => {
+    setSelectedPartnerForContract(partner);
+    setSelectedContractForView(null);
+    const defaultEndDate = partner.expiresAt || new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split("T")[0];
+    
+    // Check if we already have an existing contract for this partner to load it as default!
+    const existingContract = partnerContracts.find(c => c.partnerId === partner.id);
+    if (existingContract) {
+      setContractForm({
+        partnerName: existingContract.partnerName,
+        partnerCnpj: existingContract.partnerCnpj,
+        partnerRepresentative: existingContract.partnerRepresentative,
+        partnerRepresentativeRole: existingContract.partnerRepresentativeRole,
+        partnerAddress: existingContract.partnerAddress,
+        sinpaName: existingContract.sinpaName,
+        sinpaCnpj: existingContract.sinpaCnpj,
+        sinpaRepresentative: existingContract.sinpaRepresentative,
+        sinpaRepresentativeRole: existingContract.sinpaRepresentativeRole,
+        sinpaAddress: existingContract.sinpaAddress,
+        contractObject: existingContract.contractObject,
+        discountValue: existingContract.discountValue,
+        startDate: existingContract.startDate,
+        endDate: existingContract.endDate,
+        forumCity: existingContract.forumCity,
+        forumState: existingContract.forumState,
+        status: existingContract.status
+      });
+    } else {
+      setContractForm({
+        partnerName: partner.name,
+        partnerCnpj: partner.id === "3" ? "15.987.654/0001-32" : "",
+        partnerRepresentative: partner.id === "3" ? "Roberto Carlos Marinho" : "",
+        partnerRepresentativeRole: partner.id === "3" ? "Gerente Geral" : "Diretor Geral",
+        partnerAddress: partner.id === "3" ? "Orla Marítima, Km 12, Salvador - BA" : "",
+        sinpaName: "SINPA BA - SINDICATO PATRONAL",
+        sinpaCnpj: "12.345.678/0001-90",
+        sinpaRepresentative: "Dr. Clécio Melo",
+        sinpaRepresentativeRole: "Presidente",
+        sinpaAddress: "Av. Tancredo Neves, 1234, Caminho das Árvores, Salvador - BA",
+        contractObject: `Instrumento de convênio e parceria comercial que tem como objeto a concessão de desconto exclusivo de ${partner.discount} nos serviços e produtos da categoria ${partner.category} oferecidos pela CONTRATADA aos associados regularmente vinculados ao SINPA BA e seus respectivos dependentes e colaboradores.`,
+        discountValue: partner.discount,
+        startDate: new Date().toISOString().split("T")[0],
+        endDate: defaultEndDate,
+        forumCity: "Salvador",
+        forumState: "BA",
+        status: "signed"
+      });
+    }
+    setShowContractPreview(false);
+    setShowContractModal(true);
+  };
+
+  const handleViewContract = (contract: any) => {
+    setSelectedPartnerForContract(null);
+    setSelectedContractForView(contract);
+    setContractForm({
+      partnerName: contract.partnerName,
+      partnerCnpj: contract.partnerCnpj,
+      partnerRepresentative: contract.partnerRepresentative,
+      partnerRepresentativeRole: contract.partnerRepresentativeRole,
+      partnerAddress: contract.partnerAddress,
+      sinpaName: contract.sinpaName,
+      sinpaCnpj: contract.sinpaCnpj,
+      sinpaRepresentative: contract.sinpaRepresentative,
+      sinpaRepresentativeRole: contract.sinpaRepresentativeRole,
+      sinpaAddress: contract.sinpaAddress,
+      contractObject: contract.contractObject,
+      discountValue: contract.discountValue,
+      startDate: contract.startDate,
+      endDate: contract.endDate,
+      forumCity: contract.forumCity,
+      forumState: contract.forumState,
+      status: contract.status
+    });
+    setShowContractPreview(true);
+    setShowContractModal(true);
+  };
+
+  const handleSaveContract = (e: React.FormEvent) => {
+    e.preventDefault();
+    const isEditing = !!selectedContractForView;
+    const contractId = isEditing ? selectedContractForView.id : `CONTR-${contractForm.partnerName.replace(/\s+/g, "").toUpperCase()}-${Date.now().toString().substring(8)}`;
+    
+    const newContract = {
+      id: contractId,
+      partnerId: selectedPartnerForContract?.id || selectedContractForView?.partnerId || "custom",
+      ...contractForm,
+      createdAt: isEditing ? selectedContractForView.createdAt : new Date().toISOString()
+    };
+
+    if (isEditing) {
+      setPartnerContracts(partnerContracts.map(c => c.id === selectedContractForView.id ? newContract : c));
+      showNotification("success", "Contrato atualizado com sucesso no sistema!");
+    } else {
+      setPartnerContracts([newContract, ...partnerContracts]);
+      showNotification("success", "Contrato gerado e salvo no sistema com sucesso!");
+    }
+    
+    setSelectedContractForView(newContract);
+    setShowContractPreview(true);
+  };
+
+  const generatePartnerContractPDF = async (form: typeof contractForm) => {
+    try {
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+      });
+
+      const margin = 20;
+      const width = 170;
+      let y = 25;
+
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, 210, 15, "F");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      doc.text("SINPA BA - SINDICATO PATRONAL DA INDÚSTRIA DE PANIFICAÇÃO E CONFEITARIA", 105, 9, { align: "center" });
+
+      y = 30;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42);
+      doc.text("INSTRUMENTO PARTICULAR DE CONVÊNIO E PARCERIA COMERCIAL", 105, y, { align: "center" });
+
+      y += 12;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(30, 41, 59);
+
+      const introText = 
+        `Pelo presente instrumento particular de parceria e convênio comercial, as partes qualificadas a seguir têm, entre si, justo e acordado o presente ajuste, mediante as cláusulas e condições descritas adiante:\n\n` +
+        `CONTRATANTE: ${form.sinpaName.toUpperCase()}, pessoa jurídica de direito privado, cadastrada no CNPJ sob o nº ${form.sinpaCnpj}, com sede na ${form.sinpaAddress}, neste ato representada por seu ${form.sinpaRepresentativeRole}, o Sr. ${form.sinpaRepresentative}.\n\n` +
+        `CONTRATADA: ${form.partnerName.toUpperCase()}, pessoa jurídica de direito privado, cadastrada no CNPJ sob o nº ${form.partnerCnpj || "N/A"}, com sede em ${form.partnerAddress || "N/A"}, neste ato representada por seu ${form.partnerRepresentativeRole}, o Sr. ${form.partnerRepresentative || "N/A"}.\n\n` +
+        `As partes, de comum acordo, resolvem estabelecer esta parceria comercial sob as seguintes condições jurídicas:`;
+
+      const introSplit = doc.splitTextToSize(introText, width);
+      doc.text(introSplit, margin, y);
+      y += (introSplit.length * 5) + 8;
+
+      const printClause = (title: string, content: string) => {
+        if (y > 240) {
+          doc.addPage();
+          y = 25;
+        }
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.text(title, margin, y);
+        y += 6;
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9.5);
+        const contentSplit = doc.splitTextToSize(content, width);
+        doc.text(contentSplit, margin, y);
+        y += (contentSplit.length * 4.8) + 8;
+      };
+
+      printClause(
+        "CLÁUSULA PRIMEIRA - DO OBJETO",
+        form.contractObject
+      );
+
+      printClause(
+        "CLÁUSULA SEGUNDA - DAS OBRIGAÇÕES DA CONTRATANTE",
+        "I. Divulgar ativamente os termos desta parceria, tabelas de preço especiais e cupons de benefício em todos os canais de comunicação interna do SINPA BA, incluindo o Portal do Associado, informativos por e-mail, assembleias e quadros de aviso físicos;\n" +
+        "II. Disponibilizar de maneira simplificada a emissão de carteirinhas de associados e certidões de quitação que comprovem o direito dos filiados aos descontos conveniados;\n" +
+        "III. Apoiar as ações de divulgação promovidas pela CONTRATADA junto às empresas associadas."
+      );
+
+      printClause(
+        "CLÁUSULA TERCEIRA - DAS OBRIGAÇÕES DA CONTRATADA",
+        `I. Conceder o desconto real de ${form.discountValue} sobre o valor de tabela praticado em todos os seus serviços ou produtos aplicáveis aos associados do Sindicato;\n` +
+        "II. Exigir para a concessão do benefício a apresentação da carteirinha digital de associado SINPA BA emitida pelo Portal Oficial, ou declaração física de filiação vigentes;\n" +
+        "III. Manter canal ágil de atendimento para dirimir eventuais dúvidas dos associados e colaboradores."
+      );
+
+      printClause(
+        "CLÁUSULA QUARTA - DA VIGÊNCIA E RESCISÃO",
+        `O presente convênio entra em vigor na data de sua assinatura, com validade estabelecida no período de ${form.startDate.split("-").reverse().join("/")} até ${form.endDate.split("-").reverse().join("/")}.\n` +
+        "Parágrafo Único: Qualquer das partes poderá rescindir o presente ajuste sem qualquer ônus financeiro ou penalidade, mediante comunicação escrita com antecedência prévia mínima de 30 (trinta) dias úteis."
+      );
+
+      printClause(
+        "CLÁUSULA QUINTA - DO FORO",
+        `As partes elegem o Foro da Comarca de ${form.forumCity}/${form.forumState} como o único competente para dirimir quaisquer dúvidas ou controvérsias decorrentes da execução deste contrato de parceria, renunciando a qualquer outro por mais privilegiado que seja.`
+      );
+
+      if (y > 220) {
+        doc.addPage();
+        y = 30;
+      } else {
+        y += 10;
+      }
+
+      const dateStr = `${form.forumCity}, ${new Date().toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" })}.`;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.text(dateStr, margin, y);
+      y += 25;
+
+      doc.setDrawColor(148, 163, 184);
+      doc.setLineWidth(0.3);
+
+      doc.line(margin, y, margin + 70, y);
+      doc.line(margin + 80, y, margin + 150, y);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.text(form.sinpaName, margin, y + 5);
+      doc.text(form.partnerName.toUpperCase(), margin + 80, y + 5);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.text(`Representante: ${form.sinpaRepresentative}`, margin, y + 9);
+      doc.text(`Representante: ${form.partnerRepresentative || "Representante Legal"}`, margin + 80, y + 9);
+      doc.text(`Cargo: ${form.sinpaRepresentativeRole}`, margin, y + 13);
+      doc.text(`Cargo: ${form.partnerRepresentativeRole || "Representante"}`, margin + 80, y + 13);
+
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text("Documento gerado pelo Portal Oficial do Sindicato Patronal SINPA BA. Autenticidade eletrônica garantida.", 105, 287, { align: "center" });
+
+      doc.save(`Contrato_Convenio_${form.partnerName.replace(/\s+/g, "_")}.pdf`);
+      showNotification("success", "Contrato em PDF gerado e baixado com sucesso!");
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao gerar PDF do contrato.");
+    }
   };
 
   const handleInitiateAgreement = (
@@ -10886,6 +11298,158 @@ Para corrigir:
                                   transition={{ duration: 0.3 }}
                                   className="space-y-8"
                                 >
+                                  {/* Gráfico de Linha: Evolução Financeira (Faturamento vs Despesas) */}
+                                  {(() => {
+                                    const last12Months: any[] = [];
+                                    const today = new Date();
+                                    
+                                    for (let i = 11; i >= 0; i--) {
+                                      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+                                      const rawLabel = d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
+                                      const formattedLabel = rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1) + "/" + String(d.getFullYear()).slice(-2);
+                                      last12Months.push({
+                                        month: d.getMonth(),
+                                        year: d.getFullYear(),
+                                        name: formattedLabel,
+                                        faturamento: 0,
+                                        despesas: 0,
+                                      });
+                                    }
+
+                                    // Aggregate billings (Faturamento)
+                                    allBillings.forEach((bill) => {
+                                      let billDate: Date | null = null;
+                                      if (bill.dueDate) {
+                                        if (bill.dueDate.toDate) {
+                                          billDate = bill.dueDate.toDate();
+                                        } else {
+                                          billDate = new Date(bill.dueDate);
+                                        }
+                                      }
+                                      if (!billDate || isNaN(billDate.getTime())) return;
+                                      
+                                      const m = billDate.getMonth();
+                                      const y = billDate.getFullYear();
+                                      
+                                      const match = last12Months.find((item) => item.month === m && item.year === y);
+                                      if (match) {
+                                        match.faturamento += Number(bill.amount) || 150.0;
+                                      }
+                                    });
+
+                                    // Aggregate expenses (Despesas)
+                                    expenses.forEach((exp) => {
+                                      let expDate: Date | null = null;
+                                      if (exp.date) {
+                                        if (typeof exp.date === "string") {
+                                          const parts = exp.date.split("/");
+                                          if (parts.length === 3) {
+                                            const day = parseInt(parts[0], 10);
+                                            const month = parseInt(parts[1], 10) - 1;
+                                            const year = parseInt(parts[2], 10);
+                                            expDate = new Date(year, month, day);
+                                          } else {
+                                            expDate = new Date(exp.date);
+                                          }
+                                        } else if (exp.date instanceof Date) {
+                                          expDate = exp.date;
+                                        } else if (exp.date.toDate) {
+                                          expDate = exp.date.toDate();
+                                        } else {
+                                          expDate = new Date(exp.date);
+                                        }
+                                      }
+                                      if (!expDate || isNaN(expDate.getTime())) return;
+                                      
+                                      const m = expDate.getMonth();
+                                      const y = expDate.getFullYear();
+                                      
+                                      const match = last12Months.find((item) => item.month === m && item.year === y);
+                                      if (match) {
+                                        match.despesas += Number(exp.value) || 0;
+                                      }
+                                    });
+
+                                    return (
+                                      <div className="bg-white border border-gray-100 rounded-[40px] p-6 lg:p-8 shadow-xl relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-50/20 rounded-full blur-3xl pointer-events-none" />
+                                        
+                                        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                                          <div>
+                                            <h4 className="text-lg font-black text-blue-950 uppercase tracking-tight">
+                                              Evolução Financeira (Últimos 12 Meses)
+                                            </h4>
+                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                                              Faturamento Mensal (Boletos Emitidos) vs Despesas Registradas
+                                            </p>
+                                          </div>
+                                          <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-wider">
+                                            <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full border border-emerald-100">
+                                              <span className="w-2 h-2 rounded-full bg-emerald-500 block" />
+                                              <span>Faturamento</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 bg-rose-50 text-rose-700 px-3 py-1.5 rounded-full border border-rose-100">
+                                              <span className="w-2 h-2 rounded-full bg-rose-500 block" />
+                                              <span>Despesas</span>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="w-full h-72">
+                                          <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart
+                                              data={last12Months}
+                                              margin={{ top: 10, right: 10, left: -5, bottom: 0 }}
+                                            >
+                                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                              <XAxis
+                                                dataKey="name"
+                                                tickLine={false}
+                                                axisLine={false}
+                                                tick={{ fill: "#94a3b8", fontSize: 10, fontWeight: "bold" }}
+                                              />
+                                              <YAxis
+                                                tickLine={false}
+                                                axisLine={false}
+                                                tick={{ fill: "#94a3b8", fontSize: 10, fontWeight: "bold" }}
+                                                tickFormatter={(value) => `R$ ${value}`}
+                                              />
+                                              <ChartTooltip
+                                                contentStyle={{
+                                                  backgroundColor: "#ffffff",
+                                                  border: "1px solid #f1f5f9",
+                                                  borderRadius: "20px",
+                                                  boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)",
+                                                }}
+                                                labelStyle={{ fontWeight: "black", color: "#1e3a8a", marginBottom: "4px" }}
+                                                formatter={(value: any, name: string) => [
+                                                  `R$ ${Number(value).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                                                  name === "faturamento" ? "Faturamento" : "Despesas"
+                                                ]}
+                                              />
+                                              <Line
+                                                type="monotone"
+                                                dataKey="faturamento"
+                                                stroke="#10b981"
+                                                strokeWidth={3}
+                                                dot={{ r: 4, stroke: "#10b981", strokeWidth: 2, fill: "#fff" }}
+                                                activeDot={{ r: 7 }}
+                                              />
+                                              <Line
+                                                type="monotone"
+                                                dataKey="despesas"
+                                                stroke="#f43f5e"
+                                                strokeWidth={3}
+                                                dot={{ r: 4, stroke: "#f43f5e", strokeWidth: 2, fill: "#fff" }}
+                                                activeDot={{ r: 7 }}
+                                              />
+                                            </LineChart>
+                                          </ResponsiveContainer>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+
                                   {/* Gráfico de Rosca: Saúde da Arrecadação (Boletos pagos vs pendentes) */}
                                   {(() => {
                                     let totalPaidAmount = 0;
@@ -11956,8 +12520,8 @@ Para corrigir:
                                     );
                                   })()}
                                   
-                                  <div className="grid xl:grid-cols-12 gap-8">
-                                    <div className="xl:col-span-4 space-y-8">
+                                  <div className="grid grid-cols-1 2xl:grid-cols-12 gap-8">
+                                    <div className="2xl:col-span-4 space-y-8">
                                       <div className="bg-white border border-gray-100 rounded-[40px] p-6 lg:p-8 shadow-xl overflow-hidden relative">
                                         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50/50 rounded-bl-[100px] pointer-events-none" />
                                         <div className="flex items-center gap-4 mb-10 relative z-10">
@@ -12091,12 +12655,203 @@ Para corrigir:
                                           </button>
                                         </div>
                                       </div>
+
+                                      {/* Card de Análise de Comportamento Financeiro (IA Gemini) */}
+                                      <div className="bg-white border border-gray-100 rounded-[40px] p-6 lg:p-8 shadow-xl overflow-hidden relative">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50/50 rounded-bl-[100px] pointer-events-none" />
+                                        <div className="flex items-center gap-4 mb-6 relative z-10">
+                                          <div className="w-14 h-14 bg-blue-900 text-white rounded-2xl flex items-center justify-center shadow-xl shadow-blue-900/20 shrink-0">
+                                            <Sparkles className="w-7 h-7 text-amber-400" />
+                                          </div>
+                                          <div>
+                                            <h4 className="text-lg font-black text-blue-900 italic font-display">
+                                              Comportamento Financeiro
+                                            </h4>
+                                            <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">
+                                              Análise Preditiva IA Gemini
+                                            </p>
+                                          </div>
+                                        </div>
+
+                                        <p className="text-xs text-gray-500 font-medium mb-6">
+                                          Selecione um associado para analisar seu histórico de pagamentos e gerar ações de retenção ou cobrança personalizada.
+                                        </p>
+
+                                        <div className="space-y-6 relative z-10">
+                                          <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] px-2">
+                                              Associado para Análise
+                                            </label>
+                                            <select
+                                              value={selectedMemberForAnalysis}
+                                              onChange={(e) => {
+                                                setSelectedMemberForAnalysis(e.target.value);
+                                                setFinanceAnalysisResult(null);
+                                              }}
+                                              className="w-full bg-gray-50 border border-gray-100 px-4 py-3 rounded-2xl text-xs font-black focus:bg-white focus:border-blue-300 transition-all outline-none text-blue-900"
+                                            >
+                                              <option value="">Selecione um associado...</option>
+                                              {members.map((m, idx) => (
+                                                <option key={`opt-mem-${m.id || idx}-${idx}`} value={m.id}>
+                                                  {m.name} - {m.cnpj ? m.cnpj : "S/ CNPJ"}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+
+                                          {selectedMemberForAnalysis && (() => {
+                                            const memberBillings = allBillings.filter(b => b.memberId === selectedMemberForAnalysis);
+                                            const total = memberBillings.length;
+                                            const paid = memberBillings.filter(b => b.status === 'paid').length;
+                                            const pending = memberBillings.filter(b => b.status === 'pending').length;
+                                            
+                                            return (
+                                              <div className="bg-gray-50/70 border border-gray-100 p-4 rounded-3xl space-y-3">
+                                                <p className="text-[10px] font-black text-blue-950 uppercase tracking-wider">
+                                                  Histórico de Mensalidades
+                                                </p>
+                                                <div className="grid grid-cols-3 gap-2 text-center">
+                                                  <div className="bg-white border border-gray-100 p-2.5 rounded-2xl">
+                                                    <p className="text-[10px] font-bold text-gray-400 uppercase">Total</p>
+                                                    <p className="text-base font-black text-gray-800 font-mono mt-0.5">{total}</p>
+                                                  </div>
+                                                  <div className="bg-white border border-gray-100 p-2.5 rounded-2xl">
+                                                    <p className="text-[10px] font-bold text-emerald-500 uppercase">Pagas</p>
+                                                    <p className="text-base font-black text-emerald-600 font-mono mt-0.5">{paid}</p>
+                                                  </div>
+                                                  <div className="bg-white border border-gray-100 p-2.5 rounded-2xl">
+                                                    <p className="text-[10px] font-bold text-amber-500 uppercase">A vencer</p>
+                                                    <p className="text-base font-black text-amber-600 font-mono mt-0.5">{pending}</p>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            );
+                                          })()}
+
+                                          <button
+                                            onClick={() => handleAnalyzeFinancialBehavior(selectedMemberForAnalysis)}
+                                            disabled={!selectedMemberForAnalysis || isAnalyzingFinance}
+                                            className={`w-full py-5 rounded-[28px] font-black text-[10px] uppercase tracking-[0.3em] transition-all shadow-xl flex items-center justify-center gap-3 ${
+                                              !selectedMemberForAnalysis
+                                                ? "bg-gray-100 text-gray-400 cursor-not-allowed shadow-none"
+                                                : isAnalyzingFinance
+                                                  ? "bg-blue-800 text-white cursor-wait"
+                                                  : "bg-gradient-to-r from-blue-900 to-indigo-900 hover:from-blue-950 hover:to-indigo-950 text-white shadow-blue-900/20 active:scale-[0.98] duration-200"
+                                            }`}
+                                          >
+                                            {isAnalyzingFinance ? (
+                                              <>
+                                                <RefreshCw className="w-4 h-4 animate-spin" />
+                                                Analisando com Gemini...
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Sparkles className="w-4 h-4 text-amber-400" />
+                                                Analisar com Gemini IA
+                                              </>
+                                            )}
+                                          </button>
+
+                                          {financeAnalysisResult && (
+                                            <motion.div
+                                              initial={{ opacity: 0, y: 10 }}
+                                              animate={{ opacity: 1, y: 0 }}
+                                              className="space-y-5 pt-4 border-t border-gray-100"
+                                            >
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-xl text-[10px] font-black uppercase tracking-wider border border-blue-100 shadow-sm">
+                                                  {financeAnalysisResult.profile}
+                                                </span>
+                                                <span className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider border shadow-sm ${
+                                                  financeAnalysisResult.riskLevel === "Baixo"
+                                                    ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                                                    : financeAnalysisResult.riskLevel === "Médio"
+                                                      ? "bg-amber-50 text-amber-600 border-amber-100"
+                                                      : "bg-rose-50 text-rose-600 border-rose-100"
+                                                }`}>
+                                                  Risco {financeAnalysisResult.riskLevel}
+                                                </span>
+                                              </div>
+
+                                              <div className="space-y-1.5">
+                                                <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">
+                                                  Análise de Comportamento
+                                                </h5>
+                                                <p className="text-xs text-gray-700 leading-relaxed font-semibold bg-gray-50/50 p-3.5 rounded-2xl border border-gray-100/50">
+                                                  {financeAnalysisResult.analysis}
+                                                </p>
+                                              </div>
+
+                                              <div className="space-y-1.5">
+                                                <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">
+                                                  Estratégia Sugerida
+                                                </h5>
+                                                <p className="text-xs text-gray-700 leading-relaxed font-semibold bg-gray-50/50 p-3.5 rounded-2xl border border-gray-100/50">
+                                                  {financeAnalysisResult.retentionStrategy}
+                                                </p>
+                                              </div>
+
+                                              <div className="space-y-2">
+                                                <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">
+                                                  Ações Recomendadas
+                                                </h5>
+                                                <div className="space-y-2">
+                                                  {financeAnalysisResult.suggestedActions?.map((action: string, idx: number) => (
+                                                    <div key={idx} className="flex items-start gap-2.5 bg-blue-50/30 p-2.5 rounded-xl border border-blue-50/50">
+                                                      <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                                                      <span className="text-[11px] text-gray-700 font-bold">{action}</span>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </div>
+
+                                              <div className="space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                  <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">
+                                                    Mensagem para o Associado
+                                                  </h5>
+                                                  <button
+                                                    onClick={() => {
+                                                      navigator.clipboard.writeText(financeAnalysisResult.personalizedMessage);
+                                                      showNotification("success", "Mensagem copiada para a área de transferência!");
+                                                    }}
+                                                    className="text-[9px] font-black text-blue-700 uppercase tracking-wider hover:underline"
+                                                  >
+                                                    Copiar
+                                                  </button>
+                                                </div>
+                                                <textarea
+                                                  readOnly
+                                                  value={financeAnalysisResult.personalizedMessage}
+                                                  className="w-full bg-gray-50 border border-gray-100 p-3 rounded-2xl text-xs font-mono text-gray-600 h-32 resize-none focus:outline-none"
+                                                />
+                                                {(() => {
+                                                  const selectedM = members.find(m => m.id === selectedMemberForAnalysis);
+                                                  if (!selectedM || !selectedM.phone) return null;
+                                                  const cleanP = selectedM.phone.replace(/\D/g, "");
+                                                  const whatsappUrl = `https://api.whatsapp.com/send?phone=55${cleanP}&text=${encodeURIComponent(financeAnalysisResult.personalizedMessage)}`;
+                                                  return (
+                                                    <a
+                                                      href={whatsappUrl}
+                                                      target="_blank"
+                                                      rel="noopener noreferrer"
+                                                      className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-wider text-center flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/15"
+                                                    >
+                                                      <MessageSquare className="w-4 h-4" /> Enviar por WhatsApp
+                                                    </a>
+                                                  );
+                                                })()}
+                                              </div>
+                                            </motion.div>
+                                          )}
+                                        </div>
+                                      </div>
                                     </div>
 
-                                    <div className="xl:col-span-8 space-y-8">
+                                    <div className="2xl:col-span-8 space-y-8">
                                       <div className="bg-white border border-gray-100 rounded-[40px] p-6 lg:p-10 shadow-xl overflow-hidden relative">
                                         <div className="absolute top-0 right-0 w-48 h-48 bg-blue-50/30 rounded-bl-[160px] pointer-events-none" />
-                                        <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 pb-8 border-b border-gray-200 relative z-10 gap-6">
+                                        <div className="flex flex-col xl:flex-row xl:items-center justify-between mb-10 pb-8 border-b border-gray-200 relative z-10 gap-6">
                                           <div>
                                             <h4 className="text-3xl font-black text-blue-950 font-display tracking-tight uppercase italic leading-none">
                                               Faturamento Digital
@@ -12106,11 +12861,11 @@ Para corrigir:
                                               CNAB
                                             </p>
                                           </div>
-                                          <div className="flex flex-wrap gap-4">
+                                          <div className="flex flex-wrap gap-2.5 sm:gap-3 lg:gap-4 justify-start xl:justify-end flex-grow md:flex-grow-0 xl:flex-grow-0">
                                             <button
                                               onClick={generateAccountingReport}
                                               disabled={isGeneratingReport}
-                                              className="bg-emerald-50 border border-emerald-100 text-emerald-600 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-3 group shadow-sm"
+                                              className="bg-emerald-50 border border-emerald-100 text-emerald-600 px-4 py-2.5 sm:px-6 sm:py-3.5 xl:px-8 xl:py-4 rounded-xl sm:rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 sm:gap-3 group shadow-sm shrink-0"
                                             >
                                               {isGeneratingReport ? (
                                                 <RefreshCw className="w-4 h-4 animate-spin" />
@@ -12126,7 +12881,7 @@ Para corrigir:
                                               disabled={
                                                 isGeneratingDelinquencyReport
                                               }
-                                              className="bg-rose-50 border border-rose-100 text-rose-600 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all flex items-center gap-3 group shadow-sm disabled:opacity-50"
+                                              className="bg-rose-50 border border-rose-100 text-rose-600 px-4 py-2.5 sm:px-6 sm:py-3.5 xl:px-8 xl:py-4 rounded-xl sm:rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all flex items-center gap-2 sm:gap-3 group shadow-sm disabled:opacity-50 shrink-0"
                                             >
                                               {isGeneratingDelinquencyReport ? (
                                                 <RefreshCw className="w-4 h-4 animate-spin" />
@@ -12138,7 +12893,7 @@ Para corrigir:
                                             <button
                                               onClick={generateRemittance}
                                               disabled={isGeneratingRemittance}
-                                              className="bg-amber-50 border border-amber-100 text-amber-600 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 hover:text-white transition-all flex items-center gap-3 group shadow-sm"
+                                              className="bg-amber-50 border border-amber-100 text-amber-600 px-4 py-2.5 sm:px-6 sm:py-3.5 xl:px-8 xl:py-4 rounded-xl sm:rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 hover:text-white transition-all flex items-center gap-2 sm:gap-3 group shadow-sm shrink-0"
                                             >
                                               {isGeneratingRemittance ? (
                                                 <RefreshCw className="w-4 h-4 animate-spin" />
@@ -12147,7 +12902,7 @@ Para corrigir:
                                               )}
                                               Arquivo Remessa
                                             </button>
-                                            <button className="bg-blue-900 text-white px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-2xl shadow-blue-900/20">
+                                            <button className="bg-blue-900 text-white px-4 py-2.5 sm:px-6 sm:py-3.5 xl:px-8 xl:py-4 rounded-xl sm:rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-2xl shadow-blue-900/20 shrink-0">
                                               Faturar Mês
                                             </button>
                                           </div>
@@ -12674,169 +13429,305 @@ Para corrigir:
                                       </button>
                                     </div>
 
-                                    <div className="grid gap-6">
-                                      {partners.map((partner, idx) => (
-                                        <div
-                                          key={`partner-admin-${partner.id || idx}-${idx}`}
-                                          className="p-8 rounded-[32px] border border-gray-100 bg-gray-50/30 flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:bg-white hover:shadow-xl transition-all"
-                                        >
-                                          <div className="flex items-center gap-6">
-                                            <img
-                                              src={partner.logo}
-                                              alt={partner.name}
-                                              className="w-20 h-20 rounded-2xl object-cover border border-gray-100 shadow-sm shrink-0"
-                                              referrerPolicy="no-referrer"
-                                            />
-                                            <div>
-                                              <h5 className="text-xl font-bold text-blue-950 mb-1">
-                                                {partner.name}
-                                              </h5>
-                                              {partner.website && (
-                                                <a
-                                                  href={partner.website}
-                                                  target="_blank"
-                                                  rel="noopener noreferrer"
-                                                  className="text-[11px] font-bold text-blue-900 flex items-center gap-1.5 hover:underline mt-1 mb-1"
-                                                >
-                                                  <Globe className="w-3.5 h-3.5" />{" "}
-                                                  {partner.website}
-                                                </a>
-                                              )}
-                                              <div className="flex items-center gap-4">
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
-                                                  {partner.category}
-                                                </span>
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 font-mono tracking-tighter">
-                                                  {partner.discount} OFF
-                                                </span>
-                                              </div>
-                                              {partner.expiresAt ? (
-                                                (() => {
-                                                  const expDate = new Date(
-                                                    partner.expiresAt +
-                                                      "T00:00:00",
-                                                  );
-                                                  const today = new Date();
-                                                  today.setHours(0, 0, 0, 0);
-                                                  expDate.setHours(0, 0, 0, 0);
-                                                  const diffTime =
-                                                    expDate.getTime() -
-                                                    today.getTime();
-                                                  const diffDays = Math.ceil(
-                                                    diffTime /
-                                                      (1000 * 60 * 60 * 24),
-                                                  );
+                                    {/* Sub-Tabs: Parceiros vs Contratos */}
+                                    <div className="flex gap-4 mb-8 border-b border-gray-100 pb-4">
+                                      <button
+                                        onClick={() => setPartnerSubTab("list")}
+                                        className={`flex items-center gap-2 pb-2 px-4 font-bold text-sm transition-all relative ${
+                                          partnerSubTab === "list"
+                                            ? "text-blue-900"
+                                            : "text-gray-400 hover:text-blue-900"
+                                        }`}
+                                      >
+                                        <Briefcase className="w-4 h-4" />
+                                        Parceiros Ativos
+                                        {partnerSubTab === "list" && (
+                                          <motion.div
+                                            layoutId="partnerAdminSubTabIndicator"
+                                            className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-900"
+                                          />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => setPartnerSubTab("contracts")}
+                                        className={`flex items-center gap-2 pb-2 px-4 font-bold text-sm transition-all relative ${
+                                          partnerSubTab === "contracts"
+                                            ? "text-blue-900"
+                                            : "text-gray-400 hover:text-blue-900"
+                                        }`}
+                                      >
+                                        <FileCheck className="w-4 h-4" />
+                                        Contratos de Parceria
+                                        <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full">
+                                          {partnerContracts.length}
+                                        </span>
+                                        {partnerSubTab === "contracts" && (
+                                          <motion.div
+                                            layoutId="partnerAdminSubTabIndicator"
+                                            className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-900"
+                                          />
+                                        )}
+                                      </button>
+                                    </div>
 
-                                                  if (diffDays < 0) {
-                                                    return (
-                                                      <p className="text-xs text-rose-600 font-bold mt-3 flex items-center gap-1.5 bg-rose-50 border border-rose-100/50 px-3 py-1.5 rounded-xl w-fit">
-                                                        <AlertCircle className="w-3.5 h-3.5" />{" "}
-                                                        Expirou em{" "}
-                                                        {expDate.toLocaleDateString(
-                                                          "pt-BR",
-                                                        )}{" "}
-                                                        (Ação Requerida)
-                                                      </p>
+                                    {partnerSubTab === "list" ? (
+                                      <div className="grid gap-6">
+                                        {partners.map((partner, idx) => (
+                                          <div
+                                            key={`partner-admin-${partner.id || idx}-${idx}`}
+                                            className="p-8 rounded-[32px] border border-gray-100 bg-gray-50/30 flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:bg-white hover:shadow-xl transition-all"
+                                          >
+                                            <div className="flex items-center gap-6">
+                                              <img
+                                                src={partner.logo}
+                                                alt={partner.name}
+                                                className="w-20 h-20 rounded-2xl object-cover border border-gray-100 shadow-sm shrink-0"
+                                                referrerPolicy="no-referrer"
+                                              />
+                                              <div>
+                                                <h5 className="text-xl font-bold text-blue-950 mb-1">
+                                                  {partner.name}
+                                                </h5>
+                                                {partner.website && (
+                                                  <a
+                                                    href={partner.website}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-[11px] font-bold text-blue-900 flex items-center gap-1.5 hover:underline mt-1 mb-1"
+                                                  >
+                                                    <Globe className="w-3.5 h-3.5" />{" "}
+                                                    {partner.website}
+                                                  </a>
+                                                )}
+                                                <div className="flex items-center gap-4">
+                                                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
+                                                    {partner.category}
+                                                  </span>
+                                                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 font-mono tracking-tighter">
+                                                    {partner.discount} OFF
+                                                  </span>
+                                                </div>
+                                                {partner.expiresAt ? (
+                                                  (() => {
+                                                    const expDate = new Date(
+                                                      partner.expiresAt +
+                                                        "T00:00:00",
                                                     );
-                                                  } else if (diffDays <= 30) {
-                                                    return (
-                                                      <p className="text-xs text-amber-600 font-bold mt-3 flex items-center gap-1.5 bg-amber-50 border border-amber-100/50 px-3 py-1.5 rounded-xl w-fit">
-                                                        <Clock className="w-3.5 h-3.5" />{" "}
-                                                        Expira em {diffDays}{" "}
-                                                        dias (
-                                                        {expDate.toLocaleDateString(
-                                                          "pt-BR",
-                                                        )}
-                                                        )
-                                                      </p>
+                                                    const today = new Date();
+                                                    today.setHours(0, 0, 0, 0);
+                                                    expDate.setHours(0, 0, 0, 0);
+                                                    const diffTime =
+                                                      expDate.getTime() -
+                                                      today.getTime();
+                                                    const diffDays = Math.ceil(
+                                                      diffTime /
+                                                        (1000 * 60 * 60 * 24),
                                                     );
-                                                  } else {
-                                                    return (
-                                                      <p className="text-xs text-emerald-600 font-semibold mt-3 flex items-center gap-1.5 bg-emerald-50 border border-emerald-100/50 px-3 py-1.5 rounded-xl w-fit">
-                                                        <CheckCircle className="w-3.5 h-3.5" />{" "}
-                                                        Válido até{" "}
-                                                        {expDate.toLocaleDateString(
-                                                          "pt-BR",
-                                                        )}
-                                                      </p>
+
+                                                    if (diffDays < 0) {
+                                                      return (
+                                                        <p className="text-xs text-rose-600 font-bold mt-3 flex items-center gap-1.5 bg-rose-50 border border-rose-100/50 px-3 py-1.5 rounded-xl w-fit">
+                                                          <AlertCircle className="w-3.5 h-3.5" />{" "}
+                                                          Expirou em{" "}
+                                                          {expDate.toLocaleDateString(
+                                                            "pt-BR",
+                                                          )}{" "}
+                                                          (Ação Requerida)
+                                                        </p>
+                                                      );
+                                                    } else if (diffDays <= 30) {
+                                                      return (
+                                                        <p className="text-xs text-amber-600 font-bold mt-3 flex items-center gap-1.5 bg-amber-50 border border-amber-100/50 px-3 py-1.5 rounded-xl w-fit">
+                                                          <Clock className="w-3.5 h-3.5" />{" "}
+                                                          Expira em {diffDays}{" "}
+                                                          dias (
+                                                          {expDate.toLocaleDateString(
+                                                            "pt-BR",
+                                                          )}
+                                                          )
+                                                        </p>
+                                                      );
+                                                    } else {
+                                                      return (
+                                                        <p className="text-xs text-emerald-600 font-semibold mt-3 flex items-center gap-1.5 bg-emerald-50 border border-emerald-100/50 px-3 py-1.5 rounded-xl w-fit">
+                                                          <CheckCircle className="w-3.5 h-3.5" />{" "}
+                                                          Válido até{" "}
+                                                          {expDate.toLocaleDateString(
+                                                            "pt-BR",
+                                                          )}
+                                                        </p>
+                                                      );
+                                                    }
+                                                  })()
+                                                ) : (
+                                                  <p className="text-xs text-gray-400 italic mt-3 bg-gray-50 border border-gray-100 px-3 py-1.5 rounded-xl w-fit">
+                                                    Sem data de validade definida
+                                                  </p>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center gap-3 w-full md:w-auto">
+                                              <button
+                                                onClick={() => handleOpenContractModal(partner)}
+                                                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-blue-50 text-blue-700 rounded-2xl font-bold text-xs hover:bg-blue-100 hover:text-blue-800 transition-all font-display shadow-sm"
+                                              >
+                                                <FileText className="w-4 h-4" />{" "}
+                                                Contrato
+                                              </button>
+                                              <button
+                                                onClick={() => {
+                                                  const newDiscount = prompt(
+                                                    "Alterar desconto para:",
+                                                    partner.discount,
+                                                  );
+                                                  const newDate = prompt(
+                                                    "Alterar data de expiração (AAAA-MM-DD):",
+                                                    partner.expiresAt || "",
+                                                  );
+                                                  if (
+                                                    newDiscount !== null ||
+                                                    newDate !== null
+                                                  ) {
+                                                    setPartners(
+                                                      partners.map((p) => {
+                                                        if (p.id === partner.id) {
+                                                          const updated = {
+                                                            ...p,
+                                                          };
+                                                          if (
+                                                            newDiscount !== null
+                                                          )
+                                                            updated.discount =
+                                                              newDiscount;
+                                                          if (newDate !== null)
+                                                            updated.expiresAt =
+                                                              newDate;
+                                                          return updated;
+                                                        }
+                                                        return p;
+                                                      }),
+                                                    );
+                                                    showNotification(
+                                                      "success",
+                                                      "Convênio atualizado com sucesso!",
                                                     );
                                                   }
-                                                })()
-                                              ) : (
-                                                <p className="text-xs text-gray-400 italic mt-3 bg-gray-50 border border-gray-100 px-3 py-1.5 rounded-xl w-fit">
-                                                  Sem data de validade definida
-                                                </p>
-                                              )}
+                                                }}
+                                                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-white border border-gray-100 text-gray-500 rounded-2xl font-bold text-xs hover:text-blue-600 hover:border-blue-200 transition-all font-display"
+                                              >
+                                                <Settings className="w-4 h-4" />{" "}
+                                                Editar
+                                              </button>
+                                              <button
+                                                onClick={() => {
+                                                  if (
+                                                    confirm(
+                                                      `Remover permanentemente ${partner.name}?`,
+                                                    )
+                                                  ) {
+                                                    setPartners(
+                                                      partners.filter(
+                                                        (p) =>
+                                                          p.id !== partner.id,
+                                                      ),
+                                                    );
+                                                  }
+                                                }}
+                                                className="p-4 bg-white border border-gray-100 text-rose-400 rounded-2xl hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm"
+                                              >
+                                                <X className="w-5 h-5" />
+                                              </button>
                                             </div>
                                           </div>
-                                          <div className="flex items-center gap-3 w-full md:w-auto">
-                                            <button
-                                              onClick={() => {
-                                                const newDiscount = prompt(
-                                                  "Alterar desconto para:",
-                                                  partner.discount,
-                                                );
-                                                const newDate = prompt(
-                                                  "Alterar data de expiração (AAAA-MM-DD):",
-                                                  partner.expiresAt || "",
-                                                );
-                                                if (
-                                                  newDiscount !== null ||
-                                                  newDate !== null
-                                                ) {
-                                                  setPartners(
-                                                    partners.map((p) => {
-                                                      if (p.id === partner.id) {
-                                                        const updated = {
-                                                          ...p,
-                                                        };
-                                                        if (
-                                                          newDiscount !== null
-                                                        )
-                                                          updated.discount =
-                                                            newDiscount;
-                                                        if (newDate !== null)
-                                                          updated.expiresAt =
-                                                            newDate;
-                                                        return updated;
-                                                      }
-                                                      return p;
-                                                    }),
-                                                  );
-                                                  showNotification(
-                                                    "success",
-                                                    "Convênio atualizado com sucesso!",
-                                                  );
-                                                }
-                                              }}
-                                              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-white border border-gray-100 text-gray-500 rounded-2xl font-bold text-xs hover:text-blue-600 hover:border-blue-200 transition-all font-display"
-                                            >
-                                              <Settings className="w-4 h-4" />{" "}
-                                              Editar
-                                            </button>
-                                            <button
-                                              onClick={() => {
-                                                if (
-                                                  confirm(
-                                                    `Remover permanentemente ${partner.name}?`,
-                                                  )
-                                                ) {
-                                                  setPartners(
-                                                    partners.filter(
-                                                      (p) =>
-                                                        p.id !== partner.id,
-                                                    ),
-                                                  );
-                                                }
-                                              }}
-                                              className="p-4 bg-white border border-gray-100 text-rose-400 rounded-2xl hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm"
-                                            >
-                                              <X className="w-5 h-5" />
-                                            </button>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-6">
+                                        <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-gray-50/50 p-6 rounded-3xl border border-gray-100 mb-6">
+                                          <div className="text-sm font-medium text-gray-500">
+                                            Histórico de contratos de parceria e convênios comerciais gerados no portal.
+                                          </div>
+                                          <div className="text-xs text-gray-400 font-mono">
+                                            Total: {partnerContracts.length} documento(s)
                                           </div>
                                         </div>
-                                      ))}
-                                    </div>
+
+                                        {partnerContracts.length === 0 ? (
+                                          <div className="text-center py-16 bg-gray-50/30 rounded-3xl border border-dashed border-gray-200">
+                                            <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                                            <h5 className="text-lg font-bold text-gray-700">Nenhum contrato gerado</h5>
+                                            <p className="text-sm text-gray-400 max-w-md mx-auto mt-1">
+                                              Acesse a aba "Parceiros Ativos" e clique no botão "Contrato" de qualquer parceiro para preencher os dados e gerar um novo termo de parceria oficial.
+                                            </p>
+                                          </div>
+                                        ) : (
+                                          <div className="grid gap-6">
+                                            {partnerContracts.map((contract, idx) => (
+                                              <div
+                                                key={`contract-history-${contract.id || idx}-${idx}`}
+                                                className="p-8 rounded-[32px] border border-gray-100 bg-gray-50/30 flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:bg-white hover:shadow-xl transition-all"
+                                              >
+                                                <div className="flex items-center gap-6">
+                                                  <div className="w-16 h-16 bg-blue-50 border border-blue-100 text-blue-700 rounded-2xl flex items-center justify-center shrink-0">
+                                                    <FileCheck className="w-8 h-8" />
+                                                  </div>
+                                                  <div>
+                                                    <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+                                                      <span className="font-mono text-xs font-bold text-gray-400">
+                                                        {contract.id}
+                                                      </span>
+                                                      <span className="bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-lg">
+                                                        Ativo / Vigente
+                                                      </span>
+                                                    </div>
+                                                    <h5 className="text-xl font-bold text-blue-950 mb-1">
+                                                      Parceria com {contract.partnerName}
+                                                    </h5>
+                                                    <div className="flex flex-wrap items-center gap-y-1 gap-x-4 text-xs text-gray-500 font-medium">
+                                                      <span className="flex items-center gap-1.5">
+                                                        <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                                                        Vigência: {contract.startDate.split("-").reverse().join("/")} até {contract.endDate.split("-").reverse().join("/")}
+                                                      </span>
+                                                      <span className="flex items-center gap-1.5">
+                                                        <Users className="w-3.5 h-3.5 text-gray-400" />
+                                                        Rep. Parceiro: {contract.partnerRepresentative || "N/A"}
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                                <div className="flex items-center gap-3 w-full md:w-auto">
+                                                  <button
+                                                    onClick={() => handleViewContract(contract)}
+                                                    className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-white border border-gray-100 text-gray-500 rounded-2xl font-bold text-xs hover:text-blue-600 hover:border-blue-200 transition-all font-display"
+                                                  >
+                                                    <Eye className="w-4 h-4" />{" "}
+                                                    Visualizar
+                                                  </button>
+                                                  <button
+                                                    onClick={() => generatePartnerContractPDF(contract)}
+                                                    className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-white border border-gray-100 text-gray-500 rounded-2xl font-bold text-xs hover:text-blue-600 hover:border-blue-200 transition-all font-display"
+                                                  >
+                                                    <Download className="w-4 h-4" />{" "}
+                                                    PDF
+                                                  </button>
+                                                  <button
+                                                    onClick={() => {
+                                                      if (confirm(`Excluir registro do contrato ${contract.id} de sua lista histórica?`)) {
+                                                        setPartnerContracts(partnerContracts.filter(c => c.id !== contract.id));
+                                                        showNotification("success", "Contrato removido do histórico.");
+                                                      }
+                                                    }}
+                                                    className="p-4 bg-white border border-gray-100 text-rose-400 rounded-2xl hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm"
+                                                  >
+                                                    <Trash2 className="w-5 h-5" />
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 </motion.div>
                               )}
@@ -16969,10 +17860,32 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                   className="grid grid-cols-2 gap-4 lg:gap-6"
                 >
                   {[
-                    { label: "Associados", value: "+1.200", icon: Users },
-                    { label: "Aprovação", value: "98%", icon: CheckCircle2 },
-                    { label: "Movimentação", value: "R$ 2M", icon: BarChart3 },
-                    { label: "Portal Online", value: "24h", icon: Clock },
+                    { 
+                      label: "Associados", 
+                      value: publicStats 
+                        ? (publicStats.membersCount > 0 ? `+${publicStats.membersCount}` : "0") 
+                        : "+1.200", 
+                      icon: Users 
+                    },
+                    { 
+                      label: "Aprovação", 
+                      value: publicStats ? `${publicStats.approvalRate}%` : "98%", 
+                      icon: CheckCircle2 
+                    },
+                    { 
+                      label: "Movimentação", 
+                      value: publicStats 
+                        ? (publicStats.totalPaidAmount > 0 
+                            ? `R$ ${(publicStats.totalPaidAmount).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` 
+                            : "R$ 0") 
+                        : "R$ 2M", 
+                      icon: BarChart3 
+                    },
+                    { 
+                      label: "Portal Online", 
+                      value: "24h", 
+                      icon: Clock 
+                    },
                   ].map((stat, i) => (
                     <div
                       key={i}
@@ -18405,14 +19318,18 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                           onChange={(e) => setPublicSearchTerm(e.target.value)}
                           placeholder="Nome da empresa ou CNPJ..."
                           className="flex-1 bg-transparent px-4 py-3 outline-none text-white placeholder:text-white/30 font-medium"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              handlePublicSearch();
+                            }
+                          }}
                         />
                         <button
-                          onClick={() =>
-                            setPublicSearchResult(["Ind. Metalurgica Ltda"])
-                          }
-                          className="bg-amber-400 text-blue-900 px-6 py-3 rounded-xl font-bold hover:bg-amber-300 transition-all"
+                          onClick={handlePublicSearch}
+                          disabled={isSearchingPublicMember}
+                          className="bg-amber-400 text-blue-900 px-6 py-3 rounded-xl font-bold hover:bg-amber-300 transition-all disabled:opacity-50"
                         >
-                          Consultar
+                          {isSearchingPublicMember ? "Buscando..." : "Consultar"}
                         </button>
                       </div>
                     </div>
@@ -18432,36 +19349,73 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                               registro.
                             </p>
                           </motion.div>
-                        ) : (
+                        ) : publicSearchResult.length === 0 ? (
                           <motion.div
-                            key="result"
+                            key="not-found"
                             initial={{ opacity: 0, scale: 0.9 }}
                             animate={{ opacity: 1, scale: 1 }}
-                            className="bg-white text-blue-900 p-8 rounded-[32px] w-full shadow-2xl relative"
+                            className="bg-white text-blue-900 p-8 rounded-[32px] w-full shadow-2xl relative text-center"
                           >
-                            <div className="absolute -top-4 -right-4 bg-emerald-500 text-white p-2 rounded-full shadow-lg">
-                              <CheckCircle className="w-6 h-6" />
+                            <div className="absolute -top-4 -right-4 bg-red-500 text-white p-2 rounded-full shadow-lg">
+                              <AlertTriangle className="w-6 h-6" />
                             </div>
-                            <h4 className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-4">
-                              Empresa Associada
+                            <h4 className="text-[10px] font-bold text-red-600 uppercase tracking-widest mb-4">
+                              Não Localizado / Irregular
                             </h4>
-                            <p className="text-2xl font-bold mb-2">
-                              INDUSTRIA METALURGICA LTDA
+                            <p className="text-xl font-bold mb-2 text-gray-800">
+                              Nenhuma empresa ativa localizada com este termo
                             </p>
-                            <p className="text-sm text-gray-500 mb-8">
-                              Filiado em: Janeiro/2021
+                            <p className="text-xs text-gray-500">
+                              Verifique se digitou a Razão Social ou CNPJ corretamente. Apenas associados regulares aparecem na consulta pública.
                             </p>
-                            <div className="bg-blue-50 p-4 rounded-2xl flex items-center justify-center gap-3">
-                              <QRCodeCanvas value="VERIFIED-CO" size={80} />
-                              <div className="text-left">
-                                <p className="text-xs font-bold text-blue-900 uppercase">
-                                  Selo de Regularidade
+                          </motion.div>
+                        ) : (
+                          <motion.div
+                            key="results-wrapper"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="space-y-4 w-full overflow-y-auto max-h-[350px]"
+                          >
+                            {publicSearchResult.map((member, idx) => (
+                              <motion.div
+                                key={`${member.id || "member"}-${idx}`}
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className="bg-white text-blue-900 p-6 rounded-[24px] w-full shadow-2xl relative text-left border border-blue-50"
+                              >
+                                <div className="absolute top-4 right-4">
+                                  {member.status === "active" ? (
+                                    <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                                      <CheckCircle className="w-3.5 h-3.5" /> regular
+                                    </span>
+                                  ) : (
+                                    <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                                      <AlertTriangle className="w-3.5 h-3.5" /> {member.status}
+                                    </span>
+                                  )}
+                                </div>
+                                <h4 className="text-[9px] font-bold text-blue-600 uppercase tracking-widest mb-1">
+                                  Empresa Filiada
+                                </h4>
+                                <p className="text-lg font-black leading-tight mb-1 uppercase text-gray-900">
+                                  {member.name}
                                 </p>
-                                <p className="text-[10px] text-blue-900/60 font-mono">
-                                  HASH: FD992384
+                                <p className="text-xs text-gray-500 font-mono mb-4">
+                                  CNPJ: {member.cnpj}
                                 </p>
-                              </div>
-                            </div>
+                                <div className="bg-blue-50/50 p-3 rounded-xl flex items-center justify-between gap-3">
+                                  <div className="text-left">
+                                    <p className="text-[10px] font-bold text-blue-900 uppercase">
+                                      Selo de Regularidade Sindical
+                                    </p>
+                                    <p className="text-[9px] text-blue-900/60 font-mono">
+                                      SIND: {member.id?.substring(0, 8).toUpperCase() || "REGULAR"}
+                                    </p>
+                                  </div>
+                                  <QRCodeCanvas value={`VERIFIED-CO-${member.cnpj}`} size={48} />
+                                </div>
+                              </motion.div>
+                            ))}
                           </motion.div>
                         )}
                       </AnimatePresence>
@@ -19552,6 +20506,21 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
         )}
       </AnimatePresence>
 
+      {/* Partner Contract Generation and Preview Modals */}
+      <PartnerContractModals
+        showContractModal={showContractModal}
+        setShowContractModal={setShowContractModal}
+        showContractPreview={showContractPreview}
+        setShowContractPreview={setShowContractPreview}
+        selectedPartnerForContract={selectedPartnerForContract}
+        contractForm={contractForm}
+        setContractForm={setContractForm}
+        selectedContractForView={selectedContractForView}
+        setSelectedContractForView={setSelectedContractForView}
+        handleSaveContract={handleSaveContract}
+        generatePartnerContractPDF={generatePartnerContractPDF}
+      />
+
       <AnimatePresence>
         {/* Modal Recibo/Termo de Acordo */}
         {showAgreementModal && (
@@ -19898,8 +20867,8 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
                         {teamMembers && teamMembers
                           .filter((m) => m.category === "presidencia" || m.category === "diretoria")
                           .slice(0, 4)
-                          .map((member) => (
-                            <div key={member.id} className="flex items-center gap-3 bg-white p-3.5 rounded-2xl border border-gray-100 shadow-sm">
+                          .map((member, idx) => (
+                            <div key={`sig-board-${member.id || idx}-${idx}`} className="flex items-center gap-3 bg-white p-3.5 rounded-2xl border border-gray-100 shadow-sm">
                               <div className="w-10 h-10 bg-gray-50 rounded-xl shadow-inner flex items-center justify-center overflow-hidden border border-gray-100 shrink-0">
                                 {member.photo ? (
                                   <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />
@@ -21053,9 +22022,9 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
                   {(() => {
                     const filtered = publishedDocs?.filter((d: any) => d.category === selectedDocCategoryForModal) || [];
                     if (filtered.length > 0) {
-                      return filtered.map((docItem: any) => (
+                      return filtered.map((docItem: any, idx: number) => (
                         <div
-                          key={docItem.id}
+                          key={`doc-modal-${docItem.id || idx}-${idx}`}
                           className="bg-gray-50 border border-gray-100 p-5 rounded-3xl flex items-center justify-between hover:bg-white hover:border-blue-200 transition-all shadow-sm"
                         >
                           <div className="flex items-center gap-4 min-w-0">
@@ -21185,8 +22154,8 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
                       {teamMembers && teamMembers
                         .filter((m) => m.category === "presidencia" || m.category === "diretoria")
                         .slice(0, 4)
-                        .map((member) => (
-                          <div key={member.id} className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-gray-100 shadow-sm animate-fade-in">
+                        .map((member, idx) => (
+                          <div key={`sig-pub-${member.id || idx}-${idx}`} className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-gray-100 shadow-sm animate-fade-in">
                             <div className="w-10 h-10 bg-gray-50 rounded-xl shadow-inner flex items-center justify-center overflow-hidden border border-gray-100 shrink-0">
                               {member.photo ? (
                                 <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />

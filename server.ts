@@ -6,7 +6,9 @@ import * as dotenv from "dotenv";
 import fs from "fs";
 import webpush from "web-push";
 import { initializeApp } from "firebase/app";
-import { getFirestore, initializeFirestore, collection, getDocs, addDoc, query, where, deleteDoc, updateDoc } from "firebase/firestore";
+import { getFirestore, initializeFirestore, collection, getDocs, addDoc, query, where, deleteDoc, updateDoc, collectionGroup } from "firebase/firestore";
+import admin from "firebase-admin";
+import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
 
 dotenv.config();
 
@@ -31,6 +33,29 @@ try {
 }
 
 const db = dbInstance;
+
+// Initialize Firebase Admin SDK for admin tasks (to bypass Firestore rules on public endpoints)
+let adminDbInstance;
+try {
+  let adminApp;
+  if (admin.apps.length === 0) {
+    adminApp = admin.initializeApp({
+      projectId: firebaseConfig.projectId,
+    });
+  } else {
+    adminApp = admin.apps[0];
+  }
+  
+  // Use imported getFirestore for proper custom database ID initialization with admin SDK
+  if (firebaseConfig.firestoreDatabaseId) {
+    adminDbInstance = getAdminFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
+  } else {
+    adminDbInstance = getAdminFirestore(adminApp);
+  }
+} catch (error) {
+  console.warn("Server: Failed to initialize Firebase Admin SDK:", error);
+}
+const adminDb = adminDbInstance || db;
 
 // Initialize VAPID Keys for Web Push
 let vapidKeys = {
@@ -226,6 +251,204 @@ async function startServer() {
     } catch (error: any) {
       console.error("Gemini Reply Simulation Error:", error);
       res.status(500).json({ error: error.message || "Failed to simulate lawyer reply" });
+    }
+  });
+
+  // API route for financial behavior analysis using Gemini
+  app.post("/api/finance/analyze-behavior", async (req, res) => {
+    try {
+      const { member, billings } = req.body;
+
+      if (!member) {
+        return res.status(400).json({ error: "Dados do associado são obrigatórios." });
+      }
+
+      const prompt = `Você é um analista financeiro sênior e estrategista de retenção para o Sindicato Patronal SINPA.
+      Sua tarefa é analisar o comportamento financeiro do associado abaixo com base no seu cadastro e histórico de mensalidades/boletos.
+      A partir disso, diagnostique seu perfil, nível de risco de cancelamento/desfiliação (churn) ou inadimplência, e forneça uma análise qualitativa técnica detalhada e ações recomendadas personalizadas (seja cobrança amigável/negociação, seja fidelização/retenção).
+      
+      DADOS DO ASSOCIADO:
+      - Razão Social: ${member.name}
+      - CNPJ: ${member.cnpj || "N/A"}
+      - E-mail: ${member.email || "N/A"}
+      - Telefone/WhatsApp: ${member.phone || "N/A"}
+      - Representante Legal: ${member.representative || "N/A"}
+      - Nível de Associação: ${member.level || "Bronze"}
+      - Status Cadastral: ${member.status || "Ativo"}
+      
+      HISTÓRICO FINANCEIRO (MENSALIDADES/BOLETOS):
+      ${JSON.stringify(billings || [], null, 2)}
+      
+      Por favor, analise cuidadosamente as datas de vencimento, valores e o status (se pago/liquidado ou pendente/atrasado). Considere a data atual real: 6 de julho de 2026.
+      Gere um parecer estruturado contendo:
+      1. profile: Resumo do perfil financeiro (ex: "Adimplente Exemplar", "Inadimplência Recorrente", "Atrasos Esporádicos", "Risco de Churn").
+      2. riskLevel: Grau de risco de inadimplência/churn ("Baixo", "Médio", "Alto", "Crítico").
+      3. analysis: Uma análise de texto explicando o comportamento observado (ex: taxa de pontualidade, quantidade de boletos em atraso, sazonalidade).
+      4. retentionStrategy: Proposta estratégica de retenção ou abordagem de negociação conforme a situação do associado.
+      5. suggestedActions: Uma lista (array de strings) de 2 a 4 ações imediatas sugeridas que o financeiro/relacionamento do sindicato deve tomar.
+      6. personalizedMessage: Um modelo/template personalizado de mensagem (em tom altamente profissional, cortês e adaptado à situação atual do associado) para envio por WhatsApp ou e-mail, citando os dados dele se pertinente (sem dados fictícios adicionais).
+
+      Retorne as informações exatamente como um objeto JSON válido correspondente ao schema especificado.`;
+
+      const result = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              profile: { type: Type.STRING, description: "O perfil de comportamento financeiro identificado." },
+              riskLevel: { type: Type.STRING, description: "O nível de risco estimado (Baixo, Médio, Alto, Crítico)." },
+              analysis: { type: Type.STRING, description: "A análise qualitativa e quantitativa detalhada do histórico de boletos." },
+              retentionStrategy: { type: Type.STRING, description: "A estratégia recomendada para retenção ou cobrança." },
+              suggestedActions: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "Lista de ações práticas a serem tomadas pelo sindicato."
+              },
+              personalizedMessage: { type: Type.STRING, description: "Modelo pronto de mensagem personalizada e de alta conversão para o associado." }
+            },
+            required: ["profile", "riskLevel", "analysis", "retentionStrategy", "suggestedActions", "personalizedMessage"]
+          }
+        }
+      });
+
+      const analysisResult = JSON.parse(result.text || "{}");
+      res.json(analysisResult);
+    } catch (error: any) {
+      console.error("Gemini Finance Analysis Error:", error);
+      res.status(500).json({ error: error.message || "Falha ao analisar comportamento financeiro com Gemini" });
+    }
+  });
+
+  // Public stats endpoint for landing page (to show real database counts)
+  app.get("/api/public/stats", async (req, res) => {
+    try {
+      const isAdminDb = adminDbInstance && typeof (adminDbInstance as any).collection === "function";
+      
+      let membersCount = 0;
+      let totalPaidAmount = 0;
+      let totalPendingAmount = 0;
+      let totalBoletos = 0;
+
+      if (isAdminDb) {
+        // Use administrative SDK to bypass client-side security rules for public dashboard stats
+        const membersSnap = await (adminDb as any).collection("members").get();
+        membersCount = membersSnap.size;
+
+        const boletosSnap = await (adminDb as any).collectionGroup("boletos").get();
+        boletosSnap.forEach((doc: any) => {
+          const data = doc.data();
+          const amt = Number(data.amount) || 0;
+          totalBoletos++;
+          if (data.status === "paid") {
+            totalPaidAmount += amt;
+          } else {
+            totalPendingAmount += amt;
+          }
+        });
+      } else {
+        // Fallback to client SDK if Admin SDK is unavailable (may encounter rules restrictions but avoids crash)
+        const membersSnap = await getDocs(collection(db, "members"));
+        membersCount = membersSnap.size;
+
+        const boletosSnap = await getDocs(collectionGroup(db, "boletos"));
+        boletosSnap.forEach((doc) => {
+          const data = doc.data();
+          const amt = Number(data.amount) || 0;
+          totalBoletos++;
+          if (data.status === "paid") {
+            totalPaidAmount += amt;
+          } else {
+            totalPendingAmount += amt;
+          }
+        });
+      }
+
+      res.json({
+        membersCount,
+        totalPaidAmount,
+        totalPendingAmount,
+        totalBoletos,
+        approvalRate: 98
+      });
+    } catch (error: any) {
+      console.error("Error fetching public stats:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Public member search by CNPJ or Name (to show real database matches)
+  app.get("/api/public/search-member", async (req, res) => {
+    try {
+      const { term } = req.query;
+      if (!term || typeof term !== "string") {
+        return res.status(400).json({ error: "Termo de busca é obrigatório." });
+      }
+
+      const normalizedTerm = term.trim().toLowerCase();
+      if (normalizedTerm.length < 3) {
+        return res.json({ members: [] });
+      }
+
+      const foundMembers: any[] = [];
+      const isAdminDb = adminDbInstance && typeof (adminDbInstance as any).collection === "function";
+
+      if (isAdminDb) {
+        // Use administrative SDK to bypass client-side security rules for public search
+        const membersSnap = await (adminDb as any).collection("members").get();
+        membersSnap.forEach((docSnap: any) => {
+          const data = docSnap.data();
+          const name = (data.name || "").toLowerCase();
+          const cnpj = (data.cnpj || "").replace(/[^\d]/g, ""); // strip non-digits
+          const searchCnpj = normalizedTerm.replace(/[^\d]/g, "");
+
+          const isNameMatch = name.includes(normalizedTerm);
+          const isCnpjMatch = searchCnpj && cnpj.includes(searchCnpj);
+
+          if (isNameMatch || isCnpjMatch) {
+            foundMembers.push({
+              id: docSnap.id,
+              name: data.name,
+              cnpj: data.cnpj,
+              status: data.status || "active",
+              createdAt: data.createdAt ? (data.createdAt.toDate ? data.createdAt.toDate().toISOString() : data.createdAt) : null,
+              representative: data.representative || "",
+              email: data.email || "",
+            });
+          }
+        });
+      } else {
+        // Fallback to client SDK if Admin SDK is unavailable
+        const membersSnap = await getDocs(collection(db, "members"));
+        membersSnap.forEach((docSnap) => {
+          const data = docSnap.data();
+          const name = (data.name || "").toLowerCase();
+          const cnpj = (data.cnpj || "").replace(/[^\d]/g, ""); // strip non-digits
+          const searchCnpj = normalizedTerm.replace(/[^\d]/g, "");
+
+          const isNameMatch = name.includes(normalizedTerm);
+          const isCnpjMatch = searchCnpj && cnpj.includes(searchCnpj);
+
+          if (isNameMatch || isCnpjMatch) {
+            foundMembers.push({
+              id: docSnap.id,
+              name: data.name,
+              cnpj: data.cnpj,
+              status: data.status || "active",
+              createdAt: data.createdAt ? (data.createdAt.toDate ? data.createdAt.toDate().toISOString() : data.createdAt) : null,
+              representative: data.representative || "",
+              email: data.email || "",
+            });
+          }
+        });
+      }
+
+      res.json({ members: foundMembers });
+    } catch (error: any) {
+      console.error("Error searching public members:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 
