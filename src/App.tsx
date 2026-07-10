@@ -38,6 +38,10 @@ import {
   Palette,
   Save,
   Camera,
+  Heart,
+  GraduationCap,
+  Coffee,
+  ShoppingBag,
   Upload,
   MapPin,
   Building,
@@ -337,6 +341,94 @@ function AnimatedCounter({ value, duration = 1000, isCurrency = false }: Animate
   return <>{Math.round(count).toLocaleString("pt-BR")}</>;
 }
 
+interface Benefit {
+  id: string;
+  title: string;
+  desc: string;
+  icon: any;
+  color: string;
+  expiresInDays: number;
+  featured: boolean;
+}
+
+interface BenefitCardProps {
+  key?: any;
+  benefit: Benefit;
+}
+
+function BenefitCard({ benefit }: BenefitCardProps) {
+  const days = benefit.expiresInDays || 30;
+  let statusColorText = "text-emerald-600";
+  let statusColorBg = "bg-emerald-500";
+  let statusText = `Renovação em ${days} dias`;
+  if (days <= 7) {
+    statusColorText = "text-rose-600";
+    statusColorBg = "bg-rose-500";
+    statusText = `Expira em ${days} dias (Crítico)`;
+  } else if (days <= 30) {
+    statusColorText = "text-amber-600";
+    statusColorBg = "bg-amber-500";
+    statusText = `Renovação em ${days} dias (Atenção)`;
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      className={`group relative ${benefit.featured ? 'bg-amber-50/20 border-amber-200' : 'bg-white border-gray-100'} border rounded-[32px] p-8 hover:shadow-2xl hover:shadow-blue-900/5 hover:scale-105 transition-all duration-300 cursor-pointer flex flex-col justify-between`}
+    >
+      <div>
+        {/* Badges do Card */}
+        <div className="absolute top-6 right-6 flex flex-col items-end gap-1.5 select-none">
+          {benefit.featured && (
+            <span className="text-[8px] font-black uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-2.5 py-1">
+              ★ Destaque
+            </span>
+          )}
+          <div className="flex items-center gap-1 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-1">
+            <Check className="w-3 h-3 text-emerald-600" />
+            <span className="text-[8px] font-black uppercase tracking-wider text-emerald-700">
+              Parceiro Verificado
+            </span>
+          </div>
+        </div>
+
+        <div
+          className={`w-14 h-14 bg-${benefit.color}-50 text-${benefit.color}-600 rounded-2xl flex items-center justify-center mb-8 group-hover:bg-blue-900 group-hover:text-white transition-colors`}
+        >
+          {React.createElement(benefit.icon, { className: "w-7 h-7" })}
+        </div>
+        <h3 className="text-xl font-bold mb-4 group-hover:text-blue-900 transition-colors uppercase tracking-tight">
+          {benefit.title}
+        </h3>
+        <p className="text-gray-500 text-sm leading-relaxed mb-6">
+          {benefit.desc}
+        </p>
+      </div>
+
+      {/* Indicador de Status de Renovação Dinâmica */}
+      <div className="pt-4 border-t border-gray-100 flex flex-col gap-2">
+        <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
+          <span className="text-gray-400 flex items-center gap-1">
+            <Clock className="w-3.5 h-3.5" />
+            Vencimento do Convênio
+          </span>
+          <span className={statusColorText}>
+            {statusText}
+          </span>
+        </div>
+        <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+          <div 
+            className={`${statusColorBg} h-full rounded-full transition-all duration-500`}
+            style={{ width: `${Math.min(100, (days / 365) * 100)}%` }}
+          />
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 function LandingPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -357,6 +449,10 @@ function LandingPage() {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [whatsappNumber] = useState("5500000000000"); // Configure o número aqui
   const [showNotifications, setShowNotifications] = useState(false);
+  const [selectedPublicCategory, setSelectedPublicCategory] = useState<string>("all");
+  const [publicPartnerSearch, setPublicPartnerSearch] = useState("");
+  const [benefitsSearch, setBenefitsSearch] = useState("");
+  const [selectedPartnerForRedeem, setSelectedPartnerForRedeem] = useState<Partner | null>(null);
 
   const [certRequests, setCertRequests] = useState<CertificateRequest[]>([
     {
@@ -419,6 +515,31 @@ function LandingPage() {
     ];
   });
 
+  const publicCategoryMap: { [key: string]: { label: string; icon: any; color: string; bg: string; text: string; ring: string } } = {
+    all: { label: "Todos", icon: LayoutGrid, color: "blue", bg: "bg-blue-50 border-blue-100", text: "text-blue-900", ring: "focus:ring-blue-500" },
+    saude: { label: "Saúde & Bem-estar", icon: Heart, color: "rose", bg: "bg-rose-50 border-rose-100", text: "text-rose-600", ring: "focus:ring-rose-500" },
+    educacao: { label: "Educação & Cursos", icon: GraduationCap, color: "blue", bg: "bg-blue-50 border-blue-100", text: "text-blue-600", ring: "focus:ring-blue-500" },
+    lazer: { label: "Lazer & Hotelaria", icon: Coffee, color: "amber", bg: "bg-amber-50 border-amber-100", text: "text-amber-600", ring: "focus:ring-amber-500" },
+    servicos: { label: "Serviços & Consultoria", icon: Shield, color: "emerald", bg: "bg-emerald-50 border-emerald-100", text: "text-emerald-600", ring: "focus:ring-emerald-500" },
+    comercio: { label: "Comércio & Varejo", icon: ShoppingBag, color: "purple", bg: "bg-purple-50 border-purple-100", text: "text-purple-600", ring: "focus:ring-purple-500" },
+  };
+
+  const filteredPublicPartners = partners.filter((p) => {
+    if (selectedPublicCategory !== "all" && p.category !== selectedPublicCategory) {
+      return false;
+    }
+    if (publicPartnerSearch.trim()) {
+      const term = publicPartnerSearch.toLowerCase();
+      return (
+        p.name.toLowerCase().includes(term) ||
+        p.discount.toLowerCase().includes(term) ||
+        p.description.toLowerCase().includes(term) ||
+        (p.category && p.category.toLowerCase().includes(term))
+      );
+    }
+    return true;
+  });
+
   const [editingPartnerId, setEditingPartnerId] = useState<string | null>(null);
 
   const getPartnerRenewalStatus = (expiresAtStr?: string) => {
@@ -433,8 +554,8 @@ function LandingPage() {
       days: diffDays,
       isExpired: diffDays < 0,
       isExpiringToday: diffDays === 0,
-      isExpiringSoon: diffDays > 0 && diffDays <= 30,
-      isCloseToRenewal: diffDays >= -10 && diffDays <= 30,
+      isExpiringSoon: diffDays > 0 && diffDays <= renewalAlertDays,
+      isCloseToRenewal: diffDays >= -10 && diffDays <= renewalAlertDays,
     };
   };
 
@@ -852,8 +973,12 @@ function LandingPage() {
 
   // --- LGPD & PRIVACY POLICY STATES & QUERY ---
   const [systemTab, setSystemTab] = useState<
-    "general" | "lgpd" | "production" | "audit" | "push"
+    "general" | "lgpd" | "production" | "audit" | "push" | "renovacao"
   >("general");
+
+  // --- RENEWAL ALERT SETTINGS STATES ---
+  const [renewalAlertDays, setRenewalAlertDays] = useState(30);
+  const [isSavingRenewalAlertDays, setIsSavingRenewalAlertDays] = useState(false);
 
   // --- PUSH NOTIFICATION STATES ---
   const [pushSubscribed, setPushSubscribed] = useState(false);
@@ -938,6 +1063,30 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       setLgpdPolicyInput(lgpdConfig.fullPolicy || "");
     }
   }, [lgpdConfig]);
+
+  const { data: renewalConfig, refetch: refetchRenewalConfig } = useQuery<any>({
+    queryKey: ["renewalConfig"],
+    queryFn: async () => {
+      try {
+        const docRef = doc(db, "settings", "convenios_renewal");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          return docSnap.data();
+        }
+      } catch (err) {
+        console.error("Erro ao buscar configurações de alertas de renovação:", err);
+      }
+      return {
+        daysInAdvance: 30,
+      };
+    },
+  });
+
+  React.useEffect(() => {
+    if (renewalConfig && typeof renewalConfig.daysInAdvance === "number") {
+      setRenewalAlertDays(renewalConfig.daysInAdvance);
+    }
+  }, [renewalConfig]);
 
   // Fetch subscriptions count for admin
   const fetchSubscriptionsCount = async () => {
@@ -1102,6 +1251,33 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       );
     } finally {
       setIsSavingLgpd(false);
+    }
+  };
+
+  const handleSaveRenewalAlertDays = async () => {
+    if (renewalAlertDays < 1 || isNaN(renewalAlertDays)) {
+      showNotification("error", "Os dias de antecedência devem ser pelo menos 1.");
+      return;
+    }
+    setIsSavingRenewalAlertDays(true);
+    try {
+      await setDoc(doc(db, "settings", "convenios_renewal"), {
+        daysInAdvance: renewalAlertDays,
+        updatedAt: new Date().toISOString(),
+      });
+      showNotification(
+        "success",
+        "Configurações de alerta de renovação salvas com sucesso!",
+      );
+      refetchRenewalConfig();
+    } catch (err: any) {
+      console.error("Erro ao salvar dias de renovação:", err);
+      showNotification(
+        "error",
+        "Erro ao salvar as configurações no banco de dados: " + err.message,
+      );
+    } finally {
+      setIsSavingRenewalAlertDays(false);
     }
   };
 
@@ -7833,7 +8009,7 @@ Para corrigir:
                               {notifications.length > 0 ? (
                                 notifications.map((n, i) => (
                                   <div
-                                    key={`notif-${n.id || i}-${i}`}
+                                    key={`notif-${n.id}`}
                                     onClick={() => {
                                       markAsRead(n.id);
                                       // Optionally close or perform action
@@ -8224,7 +8400,7 @@ Para corrigir:
                                         .slice(0, 2)
                                         .map((n: any, i: number) => (
                                           <div
-                                            key={`notif-slice-${n.id || i}-${i}`}
+                                            key={`notif-slice-${n.id}`}
                                             className="flex gap-4 p-3 rounded-xl bg-gray-50 border border-gray-100"
                                           >
                                             <div className="w-2 h-2 rounded-full bg-blue-500 mt-2 flex-shrink-0 animate-pulse"></div>
@@ -8402,7 +8578,7 @@ Para corrigir:
                               {userSuggestions && userSuggestions.length > 0 ? (
                                 userSuggestions.map((s: any, idx: number) => (
                                   <div
-                                    key={`sug-${s.id || idx}-${idx}`}
+                                    key={`sug-${s.id}`}
                                     className="p-8 rounded-[32px] bg-gray-50 border border-gray-100 hover:border-blue-200 transition-all group"
                                   >
                                     <div className="flex justify-between items-start mb-6">
@@ -9076,7 +9252,7 @@ Para corrigir:
                                   <div className="grid gap-4">
                                     {certRequests.map((req, i) => (
                                       <div
-                                        key={`cert-req-${req.id || i}-${i}`}
+                                        key={`cert-req-${req.id}`}
                                         className="p-8 rounded-[32px] border border-gray-50 bg-gray-50/30 hover:bg-white hover:border-gray-100 hover:shadow-xl transition-all group flex flex-col md:flex-row md:items-center justify-between gap-6"
                                       >
                                         <div className="flex items-center gap-6">
@@ -9312,7 +9488,7 @@ Para corrigir:
                                     .slice(0, 2)
                                     .map((proc, idx) => (
                                       <div
-                                        key={`proc-slice-${proc.id || idx}-${idx}`}
+                                        key={`proc-slice-${proc.id}`}
                                         className="p-6 rounded-[32px] border border-gray-50 bg-gray-50/30 hover:bg-white hover:border-emerald-100 transition-all group flex flex-col gap-4"
                                       >
                                         <div className="flex items-center justify-between">
@@ -10086,7 +10262,7 @@ Para corrigir:
                                                     : holidayDate;
                                                 return (
                                                   <span
-                                                    key={`holiday-${holidayDate}-${index}`}
+                                                    key={`holiday-${holidayDate}`}
                                                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white border border-gray-200 text-[10px] font-bold text-gray-600 hover:border-rose-200 hover:text-rose-600 transition-all cursor-pointer group"
                                                     onClick={() => {
                                                       setBillingConfig(
@@ -10509,7 +10685,7 @@ Para corrigir:
                                     <div className="space-y-6">
                                       {legalQueries.map((query, idx) => (
                                         <div
-                                          key={`query-tab-${query.id || idx}-${idx}`}
+                                          key={`query-tab-${query.id}`}
                                           className="border border-gray-100 rounded-3xl p-6 hover:border-blue-200 hover:shadow-lg transition-all space-y-4 relative overflow-hidden"
                                         >
                                           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -11452,7 +11628,7 @@ Para corrigir:
                                               .slice(0, 5)
                                               .map((log: any, idx: number) => (
                                                 <div
-                                                  key={`audit-slice-${log.id || idx}-${idx}`}
+                                                  key={`audit-slice-${log.id}`}
                                                   className="text-xs p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-2"
                                                 >
                                                   <div className="flex items-center justify-between text-[10px] font-black text-gray-400">
@@ -12056,7 +12232,7 @@ Para corrigir:
                                     <div className="space-y-2">
                                       {expenses.map((exp, i) => (
                                         <div
-                                          key={`expense-${exp.id || i}-${i}`}
+                                          key={`expense-${exp.id}`}
                                           className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-2xl"
                                         >
                                           <span className="font-bold text-xs text-gray-800">
@@ -12181,7 +12357,7 @@ Para corrigir:
                                             {delinquentCompanies.map(
                                               (company, i) => (
                                                 <tr
-                                                  key={`company-${company.id || i}-${i}`}
+                                                  key={`company-${company.id}`}
                                                   className="group hover:bg-gray-50/50 transition-all"
                                                 >
                                                   <td className="py-6">
@@ -12267,7 +12443,7 @@ Para corrigir:
                                         ) : (
                                           agreements.map((acc, i) => (
                                             <div
-                                              key={`agreement-${acc.id || i}-${i}`}
+                                              key={`agreement-${acc.id}`}
                                               className="p-4 bg-gray-50 rounded-2xl border border-gray-100 relative overflow-hidden group"
                                             >
                                               <div className="absolute top-0 right-0 p-2">
@@ -13444,7 +13620,7 @@ Para corrigir:
                                                 allBillings.map(
                                                   (bill, index) => (
                                                     <tr
-                                                      key={`bill-${bill.id || index}-${index}`}
+                                                      key={`bill-${bill.id}`}
                                                       className="group hover:bg-gray-50/70 transition-all"
                                                     >
                                                       <td className="py-7 px-4 w-12">
@@ -13724,7 +13900,7 @@ Para corrigir:
                                           <div className="space-y-3">
                                             {adminList?.map((admin, i) => (
                                               <div
-                                                key={`admin-list-${admin.id || i}-${i}`}
+                                                key={`admin-list-${admin.id || admin.email}`}
                                                 className="flex items-center justify-between p-5 bg-white rounded-2xl border border-gray-100 group hover:border-rose-200 shadow-sm transition-all"
                                               >
                                                 <div className="flex items-center gap-4">
@@ -14151,7 +14327,7 @@ Para corrigir:
                                     </div>
 
                                     {/* Tab Switcher */}
-                                    <div className="flex bg-gray-50 p-1.5 rounded-2xl border border-gray-100 w-full max-w-2xl mb-10 overflow-x-auto shrink-0">
+                                    <div className="flex bg-gray-50 p-1.5 rounded-2xl border border-gray-100 w-full max-w-4xl mb-10 overflow-x-auto shrink-0">
                                       <button
                                         onClick={() => setSystemTab("general")}
                                         className={`flex-1 px-5 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
@@ -14203,6 +14379,16 @@ Para corrigir:
                                         }`}
                                       >
                                         Notificações Push
+                                      </button>
+                                      <button
+                                        onClick={() => setSystemTab("renovacao")}
+                                        className={`flex-1 px-5 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                          systemTab === "renovacao"
+                                            ? "bg-blue-900 text-white shadow-md shadow-blue-900/10"
+                                            : "text-gray-400 hover:text-gray-700 hover:bg-gray-100/50"
+                                        }`}
+                                      >
+                                        Alertas de Renovação
                                       </button>
                                     </div>
 
@@ -14578,7 +14764,7 @@ Para corrigir:
                                                 adminList.length > 0 ? (
                                                   adminList.map((admin, i) => (
                                                     <div
-                                                      key={`admin-sys-${admin.id || i}-${i}`}
+                                                      key={`admin-sys-${admin.id || admin.email}`}
                                                       className="flex items-center justify-between p-3 bg-white rounded-xl border border-purple-100"
                                                     >
                                                       <span className="text-xs font-bold text-purple-900 truncate max-w-[150px]">
@@ -14932,6 +15118,85 @@ Para corrigir:
                                         )}
                                       </div>
                                     )}
+                                  </div>
+                                </motion.div>
+                              )}
+
+                              {systemTab === "renovacao" && (
+                                <motion.div
+                                  key="admin_renewal_settings"
+                                  initial={{ opacity: 0, y: 15 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className="space-y-8"
+                                >
+                                  <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-8 space-y-6">
+                                    <div className="flex items-center gap-4 mb-2">
+                                      <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600">
+                                        <Bell className="w-6 h-6 animate-pulse" />
+                                      </div>
+                                      <div>
+                                        <h5 className="font-bold text-blue-950 text-lg leading-tight">
+                                          Configuração de Alertas de Renovação de Convênios
+                                        </h5>
+                                        <p className="text-[10px] uppercase tracking-widest text-gray-400 font-black">
+                                          Gestão de Prazos de Parceiros & Clubes de Benefícios
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-4 max-w-xl">
+                                      <div>
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                          Dias de antecedência para alertas de vencimento *
+                                        </label>
+                                        <p className="text-xs text-gray-500 font-semibold mb-4 leading-relaxed ml-1">
+                                          Defina o intervalo (em dias) que precede o término da validade do convênio para que os alertas automáticos fiquem visíveis no painel do parceiro e no Clube de Vantagens dos associados.
+                                        </p>
+                                        <div className="flex items-center gap-4">
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            max="365"
+                                            value={renewalAlertDays}
+                                            onChange={(e) => setRenewalAlertDays(Number(e.target.value))}
+                                            disabled={isSavingRenewalAlertDays}
+                                            className="w-32 bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-center shadow-inner text-sm"
+                                          />
+                                          <span className="font-bold text-xs text-gray-500 uppercase tracking-wider">dias de antecedência para disparo</span>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Info panel */}
+                                    <div className="bg-blue-50/60 rounded-[24px] p-6 border border-blue-100 flex gap-4 max-w-2xl">
+                                      <Clock className="w-6 h-6 text-blue-600 shrink-0 mt-0.5" />
+                                      <div className="space-y-1.5">
+                                        <p className="text-xs font-black text-blue-900 uppercase tracking-wider">
+                                          Como funciona esta regra
+                                        </p>
+                                        <p className="text-xs font-medium text-blue-800/80 leading-relaxed">
+                                          Os parceiros com contratos a expirar dentro do limite que você definir receberão alertas automáticos em seu dashboard de parceiro. Os associados também serão notificados no Clube de Vantagens caso o convênio de um parceiro esteja prestes a vencer, incentivando a renovação e garantindo a continuidade dos benefícios de desconto.
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="pt-2 max-w-xl">
+                                      <button
+                                        onClick={handleSaveRenewalAlertDays}
+                                        disabled={isSavingRenewalAlertDays}
+                                        className="w-full bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+                                      >
+                                        {isSavingRenewalAlertDays ? (
+                                          <>
+                                            <Loader2 className="w-4 h-4 animate-spin" /> Salvando...
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Save className="w-4 h-4" /> Salvar Configurações de Renovação
+                                          </>
+                                        )}
+                                      </button>
+                                    </div>
                                   </div>
                                 </motion.div>
                               )}
@@ -16081,7 +16346,7 @@ Para corrigir:
                                         <tbody className="divide-y divide-gray-50">
                                           {jucebProcesses.map((proc, idx) => (
                                             <tr
-                                              key={`proc-${proc.id || idx}-${idx}`}
+                                              key={`proc-${proc.id}`}
                                               className="hover:bg-blue-50/30 transition-all group"
                                             >
                                               <td className="px-10 py-8">
@@ -16415,7 +16680,7 @@ Para corrigir:
                                         <div className="space-y-6">
                                           {legalQueries.map((query, idx) => (
                                             <div
-                                              key={`query-admin-${query.id || idx}-${idx}`}
+                                              key={`query-admin-${query.id}`}
                                               className="border border-gray-100 bg-gray-50/50 p-8 rounded-[32px] hover:bg-white hover:border-blue-100 transition-all shadow-sm"
                                             >
                                               {/* Meta */}
@@ -16801,7 +17066,7 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                             },
                                           ]).map((company, i) => (
                                             <tr
-                                              key={company.id || i}
+                                              key={`member-company-${company.id || i}-${i}`}
                                               className="group hover:bg-gray-50/50 transition-colors"
                                             >
                                               <td className="py-6">
@@ -18798,54 +19063,298 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-                  {[
+                {/* Campo de Busca em Tempo Real para Benefícios */}
+                <div className="mb-12 max-w-xl mx-auto relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Buscar benefício ou palavra-chave (ex: saúde, energia, contabilidade)..."
+                    value={benefitsSearch}
+                    onChange={(e) => setBenefitsSearch(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-12 py-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-900 focus:bg-white transition-all shadow-inner"
+                  />
+                  {benefitsSearch && (
+                    <button
+                      onClick={() => setBenefitsSearch("")}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 font-bold text-xs cursor-pointer"
+                    >
+                      Limpar
+                    </button>
+                  )}
+                </div>
+
+                {(() => {
+                  const filteredBenefits = [
                     {
+                      id: "saude",
                       title: "Planos de Saúde",
                       desc: "Desconto de até 40% em convênios empresariais para colaboradores e sócios.",
                       icon: ShieldCheck,
                       color: "blue",
+                      expiresInDays: 340,
+                      featured: true,
                     },
                     {
+                      id: "energia",
                       title: "Consumíveis & Energia",
                       desc: "Parcerias com distribuidoras para redução de custos fixos operacionais.",
                       icon: Zap,
                       color: "amber",
+                      expiresInDays: 15,
+                      featured: false,
                     },
                     {
+                      id: "contabilidade",
                       title: "Contabilidade & Jurídico",
                       desc: "Consultoria gratuita mensal para dúvidas trabalhistas e fiscais.",
                       icon: FileText,
                       color: "emerald",
+                      expiresInDays: 6,
+                      featured: true,
                     },
                     {
+                      id: "ead",
                       title: "Capacitação EAD",
                       desc: "Acesso liberado a cursos de gestão e treinamentos técnicos do setor.",
                       icon: LayoutDashboard,
                       color: "purple",
+                      expiresInDays: 95,
+                      featured: false,
                     },
-                  ].map((benefit, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, y: 20 }}
-                      whileInView={{ opacity: 1, y: 0 }}
-                      viewport={{ once: true }}
-                      transition={{ delay: i * 0.1 }}
-                      className="group relative bg-white border border-gray-100 rounded-[32px] p-8 hover:shadow-2xl hover:shadow-blue-900/5 hover:-translate-y-2 transition-all cursor-pointer"
-                    >
-                      <div
-                        className={`w-14 h-14 bg-${benefit.color}-50 text-${benefit.color}-600 rounded-2xl flex items-center justify-center mb-8 group-hover:bg-blue-900 group-hover:text-white transition-colors`}
-                      >
-                        <benefit.icon className="w-7 h-7" />
+                  ].filter((b) => {
+                    if (!benefitsSearch.trim()) return true;
+                    const term = benefitsSearch.toLowerCase();
+                    return (
+                      b.title.toLowerCase().includes(term) ||
+                      b.desc.toLowerCase().includes(term)
+                    );
+                  }).sort((a, b) => {
+                    const aFeatured = a.featured ? 1 : 0;
+                    const bFeatured = b.featured ? 1 : 0;
+                    return bFeatured - aFeatured;
+                  });
+
+                  if (filteredBenefits.length === 0) {
+                    return (
+                      <div className="bg-gray-50 border border-gray-100 rounded-[32px] p-16 text-center max-w-xl mx-auto">
+                        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center text-gray-400 mx-auto mb-6">
+                          <Search className="w-8 h-8" />
+                        </div>
+                        <h4 className="font-bold text-lg text-blue-950 mb-2">Nenhum benefício encontrado</h4>
+                        <p className="text-gray-500 text-sm font-medium mb-6">
+                          Não encontramos nenhum benefício ativo que corresponda a "{benefitsSearch}". Tente buscar por outra palavra-chave!
+                        </p>
+                        <button
+                          onClick={() => setBenefitsSearch("")}
+                          className="bg-blue-900 hover:bg-blue-950 text-white font-black px-6 py-3 rounded-2xl text-xs uppercase tracking-wider transition-all cursor-pointer"
+                        >
+                          Limpar Filtro
+                        </button>
                       </div>
-                      <h3 className="text-xl font-bold mb-4 group-hover:text-blue-900 transition-colors uppercase tracking-tight">
-                        {benefit.title}
-                      </h3>
-                      <p className="text-gray-500 text-sm leading-relaxed">
-                        {benefit.desc}
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                      {filteredBenefits.map((benefit) => (
+                        <BenefitCard
+                          key={benefit.id}
+                          benefit={benefit}
+                        />
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* --- SEÇÃO DINÂMICA: DIVULGAR PARCEIROS --- */}
+                <div className="mt-24 pt-16 border-t border-gray-100">
+                  <div className="text-center max-w-3xl mx-auto mb-16">
+                    <span className="text-amber-600 font-black tracking-[0.2em] text-[10px] uppercase mb-3 block">
+                      Vantagens Reais
+                    </span>
+                    <h3 className="text-3xl lg:text-5xl font-black text-blue-950 tracking-tighter mb-4">
+                      Rede de Parceiros Credenciados
+                    </h3>
+                    <p className="text-gray-600 text-sm lg:text-base font-semibold leading-relaxed">
+                      Explore o portfólio completo de empresas e instituições parceiras que oferecem descontos extraordinários para associados do SINPA.
+                    </p>
+                  </div>
+
+                  {/* Search and Category Filter Controls */}
+                  <div className="flex flex-col md:flex-row gap-6 items-center justify-between mb-12 max-w-5xl mx-auto">
+                    {/* Category tabs */}
+                    <div className="flex gap-2 overflow-x-auto pb-2 w-full md:w-auto scrollbar-none shrink-0">
+                      {Object.entries(publicCategoryMap).map(([key, info]) => {
+                        const Icon = info.icon;
+                        const isSelected = selectedPublicCategory === key;
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => setSelectedPublicCategory(key)}
+                            className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                              isSelected
+                                ? "bg-blue-900 text-white shadow-lg shadow-blue-900/10"
+                                : "bg-gray-50 border border-gray-100 text-gray-500 hover:text-gray-800 hover:bg-gray-100/50"
+                            }`}
+                          >
+                            <Icon className="w-4 h-4" />
+                            {info.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Search Input */}
+                    <div className="relative w-full md:w-80">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <input
+                        type="text"
+                        placeholder="Buscar parceiro ou desconto..."
+                        value={publicPartnerSearch}
+                        onChange={(e) => setPublicPartnerSearch(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-6 py-3.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-900 focus:bg-white transition-all shadow-inner"
+                      />
+                      {publicPartnerSearch && (
+                        <button
+                          onClick={() => setPublicPartnerSearch("")}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 font-bold text-xs"
+                        >
+                          Limpar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dynamic Partners Grid */}
+                  {filteredPublicPartners.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                      {filteredPublicPartners.map((p, idx) => {
+                        const info = publicCategoryMap[p.category || "servicos"] || publicCategoryMap.servicos;
+                        return (
+                          <motion.div
+                            key={`public-partner-card-${p.id}`}
+                            initial={{ opacity: 0, y: 20 }}
+                            whileInView={{ opacity: 1, y: 0 }}
+                            viewport={{ once: true }}
+                            transition={{ delay: idx * 0.05 }}
+                            className="group bg-white border border-gray-100 rounded-[32px] p-8 hover:shadow-2xl hover:shadow-blue-900/5 hover:-translate-y-2 transition-all duration-300 flex flex-col justify-between h-full relative text-left"
+                          >
+                            <div>
+                              {/* Logo & Discount badge */}
+                              <div className="flex items-start justify-between gap-4 mb-6">
+                                <div className="w-16 h-16 bg-gray-50/80 rounded-2xl border border-gray-100 flex items-center justify-center overflow-hidden shrink-0 shadow-inner group-hover:scale-105 transition-transform duration-300">
+                                  {p.logo ? (
+                                    <img
+                                      src={p.logo}
+                                      alt={p.name}
+                                      referrerPolicy="no-referrer"
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        (e.target as HTMLElement).style.display = "none";
+                                      }}
+                                    />
+                                  ) : null}
+                                  <span className="font-bold text-lg text-blue-900 uppercase">
+                                    {p.name.slice(0, 2)}
+                                  </span>
+                                </div>
+
+                                <div className="bg-amber-500 text-white font-black text-xs px-4 py-2 rounded-full shadow-md shadow-amber-500/10 flex items-center gap-1.5 select-none animate-pulse">
+                                  <Gift className="w-3.5 h-3.5" />
+                                  {p.discount} OFF
+                                </div>
+                              </div>
+
+                              {/* Title */}
+                              <h4 className="font-bold text-xl text-blue-950 mb-2 leading-tight uppercase tracking-tight group-hover:text-blue-900 transition-colors">
+                                {p.name}
+                              </h4>
+
+                              {/* Category Badge */}
+                              <div className="mb-4 flex flex-wrap items-center gap-2">
+                                <span className={`inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full ${info.bg} ${info.text} border`}>
+                                  {React.createElement(info.icon, { className: "w-3 h-3" })}
+                                  {info.label}
+                                </span>
+                                <span className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-emerald-700 select-none">
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                  Parceiro Verificado
+                                </span>
+                              </div>
+
+                              {/* Description */}
+                              <p className="text-gray-500 text-xs leading-relaxed mb-8 font-medium line-clamp-3">
+                                {p.description}
+                              </p>
+                            </div>
+
+                            {/* Button redemption action */}
+                            <div className="pt-2">
+                              <button
+                                onClick={() => setSelectedPartnerForRedeem(p)}
+                                className="w-full bg-blue-50/50 hover:bg-blue-900 hover:text-white border border-blue-100/50 hover:border-transparent text-blue-900 font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-sm cursor-pointer flex items-center justify-center gap-2 group-hover:shadow-md"
+                              >
+                                {p.website ? (
+                                  <>
+                                    Acessar Desconto <ExternalLink className="w-4 h-4" />
+                                  </>
+                                ) : (
+                                  <>
+                                    Aproveitar Benefício <ChevronRight className="w-4 h-4" />
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+
+                      {/* Seja um Parceiro Callout Card */}
+                      <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        className="border-2 border-dashed border-blue-200 bg-blue-50/10 rounded-[32px] p-8 flex flex-col justify-between items-center text-center h-full min-h-[300px] hover:border-amber-400 hover:bg-amber-50/5 transition-all duration-300"
+                      >
+                        <div className="my-auto space-y-4 py-4">
+                          <div className="w-16 h-16 bg-blue-50 rounded-3xl flex items-center justify-center text-blue-900 mx-auto shadow-inner">
+                            <Plus className="w-8 h-8 text-blue-600" />
+                          </div>
+                          <div className="space-y-2">
+                            <h4 className="font-bold text-xl text-blue-950 uppercase tracking-tight">Sua Empresa Aqui</h4>
+                            <p className="text-gray-500 text-xs leading-relaxed max-w-xs font-medium">
+                              Quer expor sua marca e oferecer descontos ou vantagens exclusivas para centenas de empresas associadas ao SINPA? Proponha um convênio hoje mesmo!
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setIsBecomePartnerModalOpen(true)}
+                          className="w-full bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer"
+                        >
+                          Quero ser Parceiro
+                        </button>
+                      </motion.div>
+                    </div>
+                  ) : (
+                    <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-16 text-center max-w-xl mx-auto">
+                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center text-gray-400 mx-auto mb-6">
+                        <Search className="w-8 h-8" />
+                      </div>
+                      <h4 className="font-bold text-lg text-blue-950 mb-2">Nenhum parceiro encontrado</h4>
+                      <p className="text-gray-500 text-sm font-medium mb-6">
+                        Não encontramos nenhum parceiro ativo na categoria ou termo buscado. Tente mudar o filtro ou pesquisar por outra palavra-chave!
                       </p>
-                    </motion.div>
-                  ))}
+                      <button
+                        onClick={() => {
+                          setSelectedPublicCategory("all");
+                          setPublicPartnerSearch("");
+                        }}
+                        className="bg-blue-900 hover:bg-blue-950 text-white font-black px-6 py-3 rounded-2xl text-xs uppercase tracking-wider transition-all cursor-pointer"
+                      >
+                        Limpar Filtros
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-16 p-8 bg-blue-900 rounded-[40px] flex flex-col lg:flex-row items-center justify-between gap-8 text-white">
@@ -19617,7 +20126,7 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
 
                       {aiChat.map((msg, i) => (
                         <motion.div
-                          key={i}
+                          key={`msg-${i}-${msg.role}-${msg.text.slice(0, 10)}`}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
@@ -20624,6 +21133,140 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                     </button>
                   </div>
                 </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Dynamic Partner Redeem/Detail Modal */}
+      <AnimatePresence>
+        {selectedPartnerForRedeem && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedPartnerForRedeem(null)}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 30 }}
+              transition={{ type: "spring", duration: 0.5 }}
+              className="relative bg-white w-full max-w-lg rounded-[44px] shadow-2xl flex flex-col overflow-hidden max-h-[90vh] text-left"
+            >
+              <div className="p-8 lg:p-10 overflow-y-auto custom-scrollbar">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-8 gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
+                      {selectedPartnerForRedeem.logo ? (
+                        <img
+                          src={selectedPartnerForRedeem.logo}
+                          alt={selectedPartnerForRedeem.name}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : null}
+                      <span className="font-bold text-lg text-blue-900 uppercase">
+                        {selectedPartnerForRedeem.name.slice(0, 2)}
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="text-xl lg:text-2xl font-black text-blue-950 uppercase tracking-tight">
+                        {selectedPartnerForRedeem.name}
+                      </h3>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-amber-600">
+                        {publicCategoryMap[selectedPartnerForRedeem.category || "servicos"]?.label || selectedPartnerForRedeem.category}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedPartnerForRedeem(null)}
+                    className="w-12 h-12 bg-gray-50 flex items-center justify-center rounded-2xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                {/* Content */}
+                <div className="space-y-6">
+                  {/* Discount Banner */}
+                  <div className="bg-amber-50 border border-amber-100 rounded-3xl p-6 text-center">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-1">Desconto Exclusivo</p>
+                    <h4 className="text-3xl lg:text-4xl font-black text-amber-900 tracking-tight flex items-center justify-center gap-2">
+                      <Gift className="w-8 h-8 text-amber-600" />
+                      {selectedPartnerForRedeem.discount} OFF
+                    </h4>
+                    <p className="text-xs text-amber-800/80 font-medium mt-2">
+                      Vantagem exclusiva reservada para associados SINPA ativos.
+                    </p>
+                  </div>
+
+                  {/* Description */}
+                  <div className="space-y-2">
+                    <h5 className="text-[10px] font-black uppercase tracking-widest text-gray-400">Sobre o Convênio</h5>
+                    <p className="text-gray-600 text-sm leading-relaxed font-semibold">
+                      {selectedPartnerForRedeem.description}
+                    </p>
+                  </div>
+
+                  {/* Warning Info */}
+                  <div className="bg-blue-50/60 border border-blue-100 rounded-[24px] p-6 flex gap-4">
+                    <ShieldCheck className="w-6 h-6 text-blue-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <h5 className="text-xs font-black text-blue-900 uppercase tracking-wider">Como Resgatar</h5>
+                      <p className="text-xs font-medium text-blue-800/85 leading-relaxed font-semibold">
+                        Para usufruir desta vantagem, apresente sua Certidão de Regularidade ou Cartão de Associado SINPA no estabelecimento do parceiro ou use os códigos promocionais dentro da nossa Área do Associado.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Call to Actions */}
+                  <div className="space-y-3 pt-2">
+                    {selectedPartnerForRedeem.website ? (
+                      <a
+                        href={selectedPartnerForRedeem.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full bg-blue-900 hover:bg-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer text-center"
+                      >
+                        Acessar Portal do Parceiro <ExternalLink className="w-4 h-4" />
+                      </a>
+                    ) : null}
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <button
+                        onClick={() => {
+                          setSelectedPartnerForRedeem(null);
+                          const portalSection = document.getElementById("certificate-consult");
+                          if (portalSection) {
+                            portalSection.scrollIntoView({ behavior: "smooth" });
+                          }
+                        }}
+                        className="bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl text-xs uppercase tracking-widest transition-all border border-gray-100 cursor-pointer text-center"
+                      >
+                        Área do Associado
+                      </button>
+                      
+                      <button
+                        onClick={() => {
+                          setSelectedPartnerForRedeem(null);
+                          const contactSection = document.getElementById("contato") || document.getElementById("fale-conosco") || document.getElementById("representatividade");
+                          if (contactSection) {
+                            contactSection.scrollIntoView({ behavior: "smooth" });
+                          }
+                        }}
+                        className="bg-amber-400 hover:bg-amber-500 text-blue-950 font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-sm cursor-pointer text-center"
+                      >
+                        Quero me Associar
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </motion.div>
           </div>
