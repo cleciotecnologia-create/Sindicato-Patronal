@@ -29,6 +29,7 @@ import {
   MessageCircle,
   MessageSquare,
   Calculator,
+  Megaphone,
   Gift,
   Briefcase,
   Zap,
@@ -84,6 +85,9 @@ import {
   AlertTriangle,
   Lock,
   Key,
+  ChevronDown,
+  ChevronUp,
+  Filter,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { PartnerContractModals } from "./components/PartnerContractModals";
@@ -560,6 +564,11 @@ function LandingPage() {
   };
 
   // New Modern Features States
+  const [isPublicPopupClosed, setIsPublicPopupClosed] = useState(false);
+  const [auditSearch, setAuditSearch] = useState("");
+  const [auditFilterType, setAuditFilterType] = useState("all");
+  const [selectedAuditLog, setSelectedAuditLog] = useState<any | null>(null);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [showAIAdvisor, setShowAIAdvisor] = useState(false);
   const [aiChat, setAiChat] = useState<AIChatMessage[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
@@ -655,6 +664,19 @@ function LandingPage() {
     qrIncludeValidity: true,
     qrCustomVerificationUrl: "",
     qrCustomFields: "",
+    
+    // PUBLIC POP-UP & TOP BANNER ANNOUNCEMENTS
+    popupEnabled: true,
+    popupTitle: "Portal em Construção & Contribuição",
+    popupMessage: "Seja bem-vindo ao novo portal do Sindicato Patronal (SINPA)! Nosso site encontra-se atualmente em fase de desenvolvimento, construção e contribuição para melhor servir todos os nossos associados e empresas parceiras. Em breve, novos serviços e ferramentas exclusivas estarão totalmente disponíveis!",
+    popupBtnText: "Entendido, Acompanhar",
+    popupVariant: "maintenance", // 'info' | 'warning' | 'error' | 'maintenance' | 'success'
+    
+    bannerEnabled: true,
+    bannerText: "Aviso: Portal em Construção & Contribuição - Desenvolvendo novas soluções e facilidades digitais para o sindicato.",
+    bannerLinkText: "Conhecer Portal",
+    bannerLinkUrl: "#servicos",
+    bannerVariant: "warning", // 'info' | 'warning' | 'error' | 'success'
   });
 
   const [billingConfig, setBillingConfig] = useState({
@@ -1583,6 +1605,16 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       qrIncludeValidity: "Exibir validade no QR Code",
       qrCustomVerificationUrl: "URL de verificação do QR Code",
       qrCustomFields: "Campos personalizados do QR Code",
+      popupEnabled: "Pop-up ativo",
+      popupTitle: "Título do Pop-up",
+      popupMessage: "Mensagem do Pop-up",
+      popupBtnText: "Texto do botão do Pop-up",
+      popupVariant: "Estilo do Pop-up",
+      bannerEnabled: "Banner de aviso ativo",
+      bannerText: "Texto do Banner",
+      bannerLinkText: "Texto do link do Banner",
+      bannerLinkUrl: "URL do link do Banner",
+      bannerVariant: "Estilo do Banner",
     };
 
     const oldVal = oldConfig || {};
@@ -1666,6 +1698,20 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
             : true,
         qrCustomVerificationUrl: siteConfig.qrCustomVerificationUrl || "",
         qrCustomFields: siteConfig.qrCustomFields || "",
+        
+        // PUBLIC POP-UP & TOP BANNER ANNOUNCEMENTS
+        popupEnabled: siteConfig.popupEnabled !== undefined ? siteConfig.popupEnabled : false,
+        popupTitle: siteConfig.popupTitle || "Aviso Importante",
+        popupMessage: siteConfig.popupMessage || "",
+        popupBtnText: siteConfig.popupBtnText || "Entendido",
+        popupVariant: siteConfig.popupVariant || "warning",
+        
+        bannerEnabled: siteConfig.bannerEnabled !== undefined ? siteConfig.bannerEnabled : false,
+        bannerText: siteConfig.bannerText || "",
+        bannerLinkText: siteConfig.bannerLinkText || "",
+        bannerLinkUrl: siteConfig.bannerLinkUrl || "",
+        bannerVariant: siteConfig.bannerVariant || "warning",
+        
         updatedAt: new Date().toISOString(),
       });
 
@@ -2252,7 +2298,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([
     {
       id: "1",
-      name: "Dr. Roberto Santos",
+      name: "Dr. Clécio Melo",
       role: "Presidente",
       category: "presidencia",
     },
@@ -4266,7 +4312,7 @@ Agradecemos o seu pagamento!`;
           const initialTeam: TeamMember[] = [
             {
               id: "1",
-              name: "Dr. Roberto Santos",
+              name: "Dr. Clécio Melo",
               role: "Presidente",
               category: "presidencia",
             },
@@ -4345,8 +4391,20 @@ Agradecemos o seu pagamento!`;
   React.useEffect(() => {
     if (dbTeamMembers !== undefined) {
       setTeamMembers(dbTeamMembers);
+
+      // Auto-correct president's name in Firestore if it is still the old one
+      const president = dbTeamMembers.find(
+        (m) => m.id === "1" || m.role === "Presidente"
+      );
+      if (
+        president &&
+        president.name === "Dr. Roberto Santos" &&
+        currentUser
+      ) {
+        handleUpdateTeamMember(president.id, { name: "Dr. Clécio Melo" });
+      }
     }
-  }, [dbTeamMembers]);
+  }, [dbTeamMembers, currentUser]);
 
   const handleAddTeamMember = async (memberData: Omit<TeamMember, "id">) => {
     try {
@@ -9135,8 +9193,9 @@ Para corrigir:
                                     initial={{ opacity: 0, scale: 0.95 }}
                                     animate={{ opacity: 1, scale: 1 }}
                                     transition={{ delay: i * 0.05 }}
+                                    whileHover={{ y: -8, scale: 1.03, transition: { type: "spring", stiffness: 300, damping: 20, delay: 0 } }}
                                     key={i}
-                                    className="bg-white border border-gray-100 p-10 rounded-[40px] hover:border-blue-900 transition-all group flex flex-col justify-between shadow-sm hover:shadow-2xl h-[320px] relative overflow-hidden"
+                                    className="bg-white border border-gray-100 p-10 rounded-[40px] hover:border-blue-900 transition-all group flex flex-col justify-between shadow-sm hover:shadow-2xl h-[320px] relative overflow-hidden cursor-pointer"
                                   >
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-gray-50 rounded-bl-[100px] pointer-events-none group-hover:bg-blue-50 transition-colors" />
                                     <div className="relative z-10">
@@ -9251,9 +9310,10 @@ Para corrigir:
 
                                   <div className="grid gap-4">
                                     {certRequests.map((req, i) => (
-                                      <div
+                                      <motion.div
                                         key={`cert-req-${req.id}`}
-                                        className="p-8 rounded-[32px] border border-gray-50 bg-gray-50/30 hover:bg-white hover:border-gray-100 hover:shadow-xl transition-all group flex flex-col md:flex-row md:items-center justify-between gap-6"
+                                        whileHover={{ y: -4, scale: 1.01, transition: { type: "spring", stiffness: 300, damping: 20, delay: 0 } }}
+                                        className="p-8 rounded-[32px] border border-gray-50 bg-gray-50/30 hover:bg-white hover:border-gray-100 hover:shadow-xl transition-all group flex flex-col md:flex-row md:items-center justify-between gap-6 cursor-pointer"
                                       >
                                         <div className="flex items-center gap-6">
                                           <div
@@ -9318,7 +9378,7 @@ Para corrigir:
                                             </button>
                                           )}
                                         </div>
-                                      </div>
+                                      </motion.div>
                                     ))}
                                   </div>
 
@@ -9731,8 +9791,8 @@ Para corrigir:
                                 .map((partner, idx) => (
                                   <motion.div
                                     key={`partner-dash-${partner.id || idx}-${idx}`}
-                                    whileHover={{ y: -5 }}
-                                    className="bg-white border border-gray-100 rounded-[32px] overflow-hidden shadow-lg hover:shadow-2xl transition-all group"
+                                    whileHover={{ y: -8, scale: 1.03, transition: { type: "spring", stiffness: 300, damping: 20, delay: 0 } }}
+                                    className="bg-white border border-gray-100 rounded-[32px] overflow-hidden shadow-lg hover:shadow-2xl transition-all group cursor-pointer"
                                   >
                                     <div className="h-48 bg-gray-100 relative overflow-hidden">
                                       <img
@@ -14044,9 +14104,10 @@ Para corrigir:
                                     {partnerSubTab === "list" ? (
                                       <div className="grid gap-6">
                                         {partners.map((partner, idx) => (
-                                          <div
+                                          <motion.div
                                             key={`partner-admin-${partner.id || idx}-${idx}`}
-                                            className="p-8 rounded-[32px] border border-gray-100 bg-gray-50/30 flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:bg-white hover:shadow-xl transition-all"
+                                            whileHover={{ y: -4, scale: 1.01, transition: { type: "spring", stiffness: 300, damping: 20, delay: 0 } }}
+                                            className="p-8 rounded-[32px] border border-gray-100 bg-gray-50/30 flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:bg-white hover:shadow-xl transition-all cursor-pointer"
                                           >
                                             <div className="flex items-center gap-6">
                                               <img
@@ -14209,7 +14270,7 @@ Para corrigir:
                                                 <X className="w-5 h-5" />
                                               </button>
                                             </div>
-                                          </div>
+                                          </motion.div>
                                         ))}
                                       </div>
                                     ) : (
@@ -14233,13 +14294,54 @@ Para corrigir:
                                           </div>
                                         ) : (
                                           <div className="grid gap-6">
-                                            {partnerContracts.map((contract, idx) => (
-                                              <div
-                                                key={`contract-history-${contract.id || idx}-${idx}`}
-                                                className="p-8 rounded-[32px] border border-gray-100 bg-gray-50/30 flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:bg-white hover:shadow-xl transition-all"
-                                              >
+                                            {partnerContracts.map((contract, idx) => {
+                                              const endStr = contract.endDate || "";
+                                              let statusBgClass = "bg-emerald-50 border-emerald-100 text-emerald-700";
+                                              let statusBorderClass = "border-l-emerald-500";
+                                              let statusText = "Ativo / Vigente";
+                                              let indicatorColor = "bg-emerald-500";
+                                              let iconClass = "text-emerald-600 bg-emerald-50 border border-emerald-100";
+                                              let daysLeftText = "";
+
+                                              if (endStr) {
+                                                const expDate = new Date(endStr + "T00:00:00");
+                                                const today = new Date();
+                                                today.setHours(0, 0, 0, 0);
+                                                expDate.setHours(0, 0, 0, 0);
+                                                const diffTime = expDate.getTime() - today.getTime();
+                                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                                                if (diffDays < 0) {
+                                                  statusBgClass = "bg-rose-50 border-rose-100 text-rose-700";
+                                                  statusBorderClass = "border-l-rose-500";
+                                                  statusText = "Expirado";
+                                                  indicatorColor = "bg-rose-500";
+                                                  iconClass = "text-rose-600 bg-rose-50 border border-rose-100";
+                                                  daysLeftText = `Expirou há ${Math.abs(diffDays)} dia(s)`;
+                                                } else if (diffDays <= 30) {
+                                                  statusBgClass = "bg-amber-50 border-amber-100 text-amber-700";
+                                                  statusBorderClass = "border-l-amber-500";
+                                                  statusText = "Vencimento Próximo";
+                                                  indicatorColor = "bg-amber-500";
+                                                  iconClass = "text-amber-600 bg-amber-50 border border-amber-100";
+                                                  daysLeftText = `Expira em ${diffDays} dia(s)`;
+                                                } else {
+                                                  statusBgClass = "bg-emerald-50 border-emerald-100 text-emerald-700";
+                                                  statusBorderClass = "border-l-emerald-500";
+                                                  statusText = "Ativo / Vigente";
+                                                  indicatorColor = "bg-emerald-500";
+                                                  iconClass = "text-emerald-600 bg-emerald-50 border border-emerald-100";
+                                                  daysLeftText = `Válido por mais ${diffDays} dias`;
+                                                }
+                                              }
+
+                                              return (
+                                                <div
+                                                  key={`contract-history-${contract.id || idx}-${idx}`}
+                                                  className={`p-8 rounded-[32px] border border-gray-100 border-l-4 ${statusBorderClass} bg-gray-50/30 flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:bg-white hover:shadow-xl transition-all`}
+                                                >
                                                 <div className="flex items-center gap-6">
-                                                  <div className="w-16 h-16 bg-blue-50 border border-blue-100 text-blue-700 rounded-2xl flex items-center justify-center shrink-0">
+                                                  <div className={`w-16 h-16 ${iconClass} rounded-2xl flex items-center justify-center shrink-0`}>
                                                     <FileCheck className="w-8 h-8" />
                                                   </div>
                                                   <div>
@@ -14247,9 +14349,15 @@ Para corrigir:
                                                       <span className="font-mono text-xs font-bold text-gray-400">
                                                         {contract.id}
                                                       </span>
-                                                      <span className="bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-lg">
-                                                        Ativo / Vigente
+                                                      <span className={`flex items-center gap-1.5 ${statusBgClass} border text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-lg`}>
+                                                        <span className={`w-1.5 h-1.5 rounded-full ${indicatorColor} animate-pulse`} />
+                                                        {statusText}
                                                       </span>
+                                                      {daysLeftText && (
+                                                        <span className="text-[10px] text-gray-400 font-bold font-mono">
+                                                          ({daysLeftText})
+                                                        </span>
+                                                      )}
                                                     </div>
                                                     <h5 className="text-xl font-bold text-blue-950 mb-1">
                                                       Parceria com {contract.partnerName}
@@ -14294,7 +14402,8 @@ Para corrigir:
                                                   </button>
                                                 </div>
                                               </div>
-                                            ))}
+                                            );
+                                          })}
                                           </div>
                                         )}
                                       </div>
@@ -15031,93 +15140,313 @@ Para corrigir:
                                   animate={{ opacity: 1, y: 0 }}
                                   className="space-y-8 animate-fadeIn"
                                 >
+                                  {/* Header Info Banner */}
                                   <div className="bg-blue-50/50 border border-blue-100 rounded-[32px] p-6 flex items-start gap-4">
                                     <div className="w-10 h-10 bg-blue-100 text-blue-800 rounded-xl flex items-center justify-center shrink-0">
                                       <Sliders className="w-5 h-5 text-blue-700" />
                                     </div>
                                     <div>
                                       <h5 className="font-black text-blue-950 text-sm">
-                                        Logs de Auditoria de Configurações
+                                        Auditoria Detalhada de Configurações do Portal
                                       </h5>
                                       <p className="text-xs text-blue-800/80 mt-1 leading-relaxed font-semibold">
-                                        Histórico em tempo real de todas as
-                                        modificações de cores, logotipo e textos
-                                        do portal realizadas por administradores
-                                        logados.
+                                        Histórico detalhado e comparativo das alterações realizadas na identidade visual, avisos, pop-ups, banners e informações estruturais do site.
                                       </p>
                                     </div>
                                   </div>
 
-                                  <div className="bg-white border border-gray-100 rounded-[32px] p-6 shadow-sm space-y-6">
-                                    <div className="flex items-center justify-between">
-                                      <h6 className="font-black text-sm text-gray-900 uppercase tracking-wider">
-                                        Histórico de Alterações
-                                      </h6>
-                                      <button
-                                        onClick={() => refetchAuditLogs()}
-                                        className="px-4 py-2 text-xs font-bold bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100 rounded-xl transition-all cursor-pointer"
-                                      >
-                                        Atualizar Log
-                                      </button>
+                                  {/* Stats Row */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                                    <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm flex items-center gap-4">
+                                      <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center font-bold">
+                                        <History className="w-5 h-5" />
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total de Alterações</p>
+                                        <p className="text-xl font-black text-blue-950">{(auditLogs || []).length}</p>
+                                      </div>
                                     </div>
 
-                                    {!auditLogs || auditLogs.length === 0 ? (
-                                      <div className="text-center py-12 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                                        <p className="text-sm text-gray-400 font-bold">
-                                          Nenhuma alteração registrada ainda.
-                                        </p>
-                                        <p className="text-xs text-gray-400 mt-1">
-                                          Altere o logotipo, cores ou textos do
-                                          portal para registrar a primeira
-                                          auditoria.
+                                    <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm flex items-center gap-4">
+                                      <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center font-bold">
+                                        <Clock className="w-5 h-5" />
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Última Modificação</p>
+                                        <p className="text-xs font-black text-gray-700">
+                                          {(auditLogs || []).length > 0 
+                                            ? new Date(auditLogs[0].timestamp).toLocaleDateString("pt-BR") + " às " + new Date(auditLogs[0].timestamp).toLocaleTimeString("pt-BR", {hour: '2-digit', minute:'2-digit'})
+                                            : "Sem registros"
+                                          }
                                         </p>
                                       </div>
-                                    ) : (
-                                      <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
-                                        {auditLogs.map(
-                                          (log: any, index: number) => (
-                                            <div
-                                              key={`audit-full-${log.id || index}-${index}`}
-                                              className="p-5 bg-gray-50 rounded-2xl border border-gray-100 space-y-3 shadow-inner"
-                                            >
-                                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-200 pb-2.5">
-                                                <div className="flex items-center gap-2">
-                                                  <div className="w-7 h-7 bg-blue-900 text-white rounded-full flex items-center justify-center text-xs font-black">
-                                                    {log.adminEmail
-                                                      ? log.adminEmail[0].toUpperCase()
-                                                      : "A"}
+                                    </div>
+
+                                    <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm flex items-center gap-4">
+                                      <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-bold">
+                                        <UserCheck className="w-5 h-5" />
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Administradores Únicos</p>
+                                        <p className="text-xl font-black text-blue-950">
+                                          {Array.from(new Set((auditLogs || []).map((l: any) => l.adminEmail).filter(Boolean))).length}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Filter and Content Card */}
+                                  <div className="bg-white border border-gray-100 rounded-[32px] p-6 shadow-sm space-y-6">
+                                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+                                      <div>
+                                        <h6 className="font-black text-sm text-gray-900 uppercase tracking-wider">
+                                          Registro Cronológico
+                                        </h6>
+                                        <p className="text-xs text-gray-400 font-medium mt-0.5">Explore as edições em profundidade aplicando filtros de auditoria</p>
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-3">
+                                        {/* Search Input */}
+                                        <div className="relative">
+                                          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                          <input
+                                            type="text"
+                                            value={auditSearch}
+                                            onChange={(e) => setAuditSearch(e.target.value)}
+                                            placeholder="Buscar administrador..."
+                                            className="pl-9 pr-4 py-2 text-xs font-bold bg-gray-50 border border-gray-200 focus:bg-white focus:border-blue-900 rounded-xl outline-none transition-all w-48"
+                                          />
+                                        </div>
+
+                                        {/* Category Select */}
+                                        <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5">
+                                          <Filter className="w-3.5 h-3.5 text-gray-400" />
+                                          <select
+                                            value={auditFilterType}
+                                            onChange={(e) => setAuditFilterType(e.target.value)}
+                                            className="bg-transparent text-xs font-bold text-gray-600 outline-none cursor-pointer"
+                                          >
+                                            <option value="all">Todas Categorias</option>
+                                            <option value="colors">Identidade Visual (Cores)</option>
+                                            <option value="logo">Logotipos</option>
+                                            <option value="popup">Pop-ups de Alerta</option>
+                                            <option value="banner">Banners de Aviso</option>
+                                            <option value="text">Informações & Textos</option>
+                                          </select>
+                                        </div>
+
+                                        {/* Refresh Button */}
+                                        <button
+                                          onClick={() => refetchAuditLogs()}
+                                          className="p-2 bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100 rounded-xl transition-all cursor-pointer"
+                                          title="Atualizar Logs"
+                                        >
+                                          <RefreshCw className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Logs List Container */}
+                                    {(() => {
+                                      const parseChangeDetail = (changeStr: string) => {
+                                        const split1 = changeStr.split(': alterado de "');
+                                        if (split1.length === 2) {
+                                          const label = split1[0].trim();
+                                          const rest = split1[1];
+                                          const lastParaIdx = rest.lastIndexOf('" para "');
+                                          if (lastParaIdx !== -1) {
+                                            const oldStr = rest.substring(0, lastParaIdx);
+                                            let newStr = rest.substring(lastParaIdx + 8);
+                                            if (newStr.endsWith('"')) {
+                                              newStr = newStr.slice(0, -1);
+                                            }
+                                            return { label, oldStr, newStr };
+                                          }
+                                        }
+                                        return { label: changeStr, oldStr: "", newStr: "" };
+                                      };
+
+                                      const isColorValue = (val: string) => {
+                                        return /^#([0-9A-F]{3}){1,2}$/i.test(val.trim());
+                                      };
+
+                                      const filteredLogsList = (auditLogs || []).filter((log: any) => {
+                                        const emailMatch = log.adminEmail?.toLowerCase().includes(auditSearch.toLowerCase());
+                                        if (auditFilterType === "all") return emailMatch;
+                                        
+                                        return emailMatch && log.changes?.some((change: string) => {
+                                          const lower = change.toLowerCase();
+                                          if (auditFilterType === "colors") {
+                                            return lower.includes("cor primária") || lower.includes("cor de destaque");
+                                          }
+                                          if (auditFilterType === "logo") {
+                                            return lower.includes("logotipo") || lower.includes("largura do logo");
+                                          }
+                                          if (auditFilterType === "popup") {
+                                            return lower.includes("pop-up") || lower.includes("estilo do pop-up");
+                                          }
+                                          if (auditFilterType === "banner") {
+                                            return lower.includes("banner") || lower.includes("estilo do banner");
+                                          }
+                                          if (auditFilterType === "text") {
+                                            return (
+                                              lower.includes("título") ||
+                                              lower.includes("subtítulo") ||
+                                              lower.includes("nome do sindicato") ||
+                                              lower.includes("cnpj") ||
+                                              lower.includes("endereço") ||
+                                              lower.includes("telefone") ||
+                                              lower.includes("e-mail") ||
+                                              lower.includes("missão")
+                                            );
+                                          }
+                                          return false;
+                                        });
+                                      });
+
+                                      if (filteredLogsList.length === 0) {
+                                        return (
+                                          <div className="text-center py-12 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                                            <p className="text-sm text-gray-400 font-bold">
+                                              Nenhum registro de auditoria corresponde aos filtros aplicados.
+                                            </p>
+                                            <p className="text-xs text-gray-400 mt-1">
+                                              Tente limpar o campo de busca ou selecionar outra categoria.
+                                            </p>
+                                          </div>
+                                        );
+                                      }
+
+                                      return (
+                                        <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                                          {filteredLogsList.map((log: any, idxOfLog: number) => {
+                                            const isExpanded = expandedLogId === log.id;
+                                            return (
+                                              <div
+                                                key={`audit-full-${log.id || idxOfLog}`}
+                                                className="bg-gray-50/70 border border-gray-100 rounded-2xl overflow-hidden transition-all duration-200 hover:shadow-md"
+                                              >
+                                                {/* Log Card Header */}
+                                                <div 
+                                                  onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                                                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer select-none hover:bg-gray-100/30 transition-colors"
+                                                >
+                                                  <div className="flex items-center gap-3">
+                                                    <div className="w-9 h-9 bg-blue-900 text-white rounded-full flex items-center justify-center text-xs font-black shadow-sm shrink-0">
+                                                      {log.adminEmail ? log.adminEmail[0].toUpperCase() : "A"}
+                                                    </div>
+                                                    <div>
+                                                      <span className="text-xs font-black text-gray-700 block">
+                                                        {log.adminEmail}
+                                                      </span>
+                                                      <span className="text-[10px] text-gray-400 font-bold flex items-center gap-1 mt-0.5">
+                                                        <Clock className="w-3 h-3" />
+                                                        {new Date(log.timestamp).toLocaleString("pt-BR")}
+                                                      </span>
+                                                    </div>
                                                   </div>
-                                                  <span className="text-xs font-black text-gray-700">
-                                                    {log.adminEmail}
-                                                  </span>
+
+                                                  <div className="flex items-center gap-3 self-end sm:self-auto">
+                                                    <span className="text-[10px] font-black text-blue-900 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                                                      {log.changes?.length || 0} {log.changes?.length === 1 ? 'Alteração' : 'Alterações'}
+                                                    </span>
+                                                    <div>
+                                                      {isExpanded ? (
+                                                        <ChevronUp className="w-4 h-4 text-gray-400" />
+                                                      ) : (
+                                                        <ChevronDown className="w-4 h-4 text-gray-400" />
+                                                      )}
+                                                    </div>
+                                                  </div>
                                                 </div>
-                                                <span className="text-[10px] font-black text-gray-400 bg-white border border-gray-100 px-2 py-1 rounded-lg">
-                                                  {new Date(
-                                                    log.timestamp,
-                                                  ).toLocaleString("pt-BR")}
-                                                </span>
-                                              </div>
-                                              <ul className="space-y-1.5 pl-2.5 border-l-2 border-amber-400">
-                                                {log.changes &&
-                                                  log.changes.map(
-                                                    (
-                                                      change: string,
-                                                      idx: number,
-                                                    ) => (
-                                                      <li
-                                                        key={idx}
-                                                        className="text-xs font-semibold text-gray-600 leading-relaxed"
-                                                      >
-                                                        {change}
-                                                      </li>
-                                                    ),
+
+                                                {/* Detailed Changes Table - Displayed when expanded */}
+                                                <AnimatePresence>
+                                                  {isExpanded && (
+                                                    <motion.div
+                                                      initial={{ height: 0, opacity: 0 }}
+                                                      animate={{ height: "auto", opacity: 1 }}
+                                                      exit={{ height: 0, opacity: 0 }}
+                                                      className="border-t border-gray-150 bg-white"
+                                                    >
+                                                      <div className="p-6 space-y-4">
+                                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 border-b border-gray-50 pb-2">
+                                                          Tabela de Comparação de Valores
+                                                        </p>
+
+                                                        <div className="overflow-x-auto rounded-xl border border-gray-100">
+                                                          <table className="w-full text-left border-collapse">
+                                                            <thead>
+                                                              <tr className="bg-gray-50 border-b border-gray-100">
+                                                                <th className="p-3 text-[10px] font-black uppercase text-gray-400 tracking-wider w-1/3">Campo Alterado</th>
+                                                                <th className="p-3 text-[10px] font-black uppercase text-gray-400 tracking-wider w-1/3">Valor Anterior</th>
+                                                                <th className="p-3 text-[10px] font-black uppercase text-gray-400 tracking-wider w-1/3">Novo Valor</th>
+                                                              </tr>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-gray-50">
+                                                              {log.changes && log.changes.map((change: string, cIdx: number) => {
+                                                                const { label, oldStr, newStr } = parseChangeDetail(change);
+                                                                
+                                                                const renderValueCell = (val: string, isNew: boolean) => {
+                                                                  if (!val || val === "não definido" || val === "sem imagem") {
+                                                                    return <span className="text-gray-400 italic text-xs font-semibold">{val || "vazio"}</span>;
+                                                                  }
+                                                                  
+                                                                  if (isColorValue(val)) {
+                                                                    return (
+                                                                      <span className="inline-flex items-center gap-1.5 text-xs font-mono font-bold text-gray-700 bg-gray-50 px-2 py-1 rounded-lg border border-gray-100">
+                                                                        <span 
+                                                                          className="w-3.5 h-3.5 rounded-full border border-gray-200 shrink-0 shadow-inner" 
+                                                                          style={{ backgroundColor: val }} 
+                                                                        />
+                                                                        {val}
+                                                                      </span>
+                                                                    );
+                                                                  }
+
+                                                                  if (val === "true" || val === "false") {
+                                                                    const isActive = val === "true";
+                                                                    return (
+                                                                      <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                                                                        isActive 
+                                                                          ? "bg-emerald-50 text-emerald-700 border border-emerald-100" 
+                                                                          : "bg-rose-50 text-rose-700 border border-rose-100"
+                                                                      }`}>
+                                                                        <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                                                                        {isActive ? "Sim / Ativo" : "Não / Inativo"}
+                                                                      </span>
+                                                                    );
+                                                                  }
+
+                                                                  return (
+                                                                    <span className={`text-xs font-bold leading-relaxed block max-w-xs break-all ${
+                                                                      isNew ? "text-blue-900 bg-blue-50/50" : "text-gray-600 bg-gray-50"
+                                                                    } px-2 py-1.5 rounded-xl border border-gray-100/50`}>
+                                                                      {val}
+                                                                    </span>
+                                                                  );
+                                                                };
+
+                                                                return (
+                                                                  <tr key={cIdx} className="hover:bg-gray-50/30 transition-colors">
+                                                                    <td className="p-3 text-xs font-black text-gray-800 align-top">{label}</td>
+                                                                    <td className="p-3 align-top">{renderValueCell(oldStr, false)}</td>
+                                                                    <td className="p-3 align-top">{renderValueCell(newStr, true)}</td>
+                                                                  </tr>
+                                                                );
+                                                              })}
+                                                            </tbody>
+                                                          </table>
+                                                        </div>
+                                                      </div>
+                                                    </motion.div>
                                                   )}
-                                              </ul>
-                                            </div>
-                                          ),
-                                        )}
-                                      </div>
-                                    )}
+                                                </AnimatePresence>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 </motion.div>
                               )}
@@ -15814,9 +16143,10 @@ Para corrigir:
                                       <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
                                         {publishedDocs && publishedDocs.length > 0 ? (
                                           publishedDocs.map((pub: any, i: number) => (
-                                            <div
+                                            <motion.div
                                               key={`pub-${pub.id || i}-${i}`}
-                                              className="bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden group hover:bg-white hover:border-blue-200 transition-all"
+                                              whileHover={{ scale: 1.02, y: -2, transition: { type: "spring", stiffness: 300, damping: 20, delay: 0 } }}
+                                              className="bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden group hover:bg-white hover:border-blue-200 transition-all cursor-pointer"
                                             >
                                               <div className="p-4 flex items-center justify-between">
                                                 <div className="flex items-center gap-3 min-w-0">
@@ -15859,7 +16189,7 @@ Para corrigir:
                                                   </button>
                                                 </div>
                                               </div>
-                                            </div>
+                                            </motion.div>
                                           ))
                                         ) : (
                                           <div className="text-center py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
@@ -16179,6 +16509,301 @@ Para corrigir:
                                                   Simulação
                                                 </div>
                                               </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Configurações de Pop-up e Banners */}
+                                    <div className="col-span-2 bg-white border border-gray-100 rounded-[44px] p-8 lg:p-12 shadow-xl space-y-10">
+                                      <div className="flex items-center gap-6 border-b border-gray-50 pb-8">
+                                        <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-3xl flex items-center justify-center shadow-inner">
+                                          <Megaphone className="w-8 h-8" />
+                                        </div>
+                                        <div>
+                                          <h4 className="text-2xl font-black text-blue-950 font-display">
+                                            Avisos, Comunicados e Banners
+                                          </h4>
+                                          <p className="text-sm font-bold text-gray-400 uppercase tracking-widest leading-none mt-2">
+                                            Gerenciamento de Alertas e Pop-ups Públicos
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      <div className="grid md:grid-cols-2 gap-12">
+                                        {/* Pop-up de Aviso */}
+                                        <div className="space-y-6">
+                                          <div className="flex items-center justify-between">
+                                            <div className="space-y-1">
+                                              <h5 className="font-bold text-blue-950 text-sm uppercase tracking-wider">
+                                                Pop-up de Aviso (Modal)
+                                              </h5>
+                                              <p className="text-xs text-gray-400 font-medium">
+                                                Exibe uma mensagem flutuante ao carregar o site.
+                                              </p>
+                                            </div>
+                                            <label className="relative inline-flex items-center cursor-pointer select-none">
+                                              <input
+                                                type="checkbox"
+                                                checked={siteConfig.popupEnabled || false}
+                                                onChange={(e) =>
+                                                  setSiteConfig({
+                                                    ...siteConfig,
+                                                    popupEnabled: e.target.checked,
+                                                  })
+                                                }
+                                                className="sr-only peer"
+                                              />
+                                              <div className="w-14 h-8 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
+                                            </label>
+                                          </div>
+
+                                          <div className="space-y-4 pt-4 border-t border-gray-50">
+                                            <div className="space-y-2">
+                                              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
+                                                Título do Pop-up
+                                              </label>
+                                              <input
+                                                type="text"
+                                                value={siteConfig.popupTitle || ""}
+                                                onChange={(e) =>
+                                                  setSiteConfig({
+                                                    ...siteConfig,
+                                                    popupTitle: e.target.value,
+                                                  })
+                                                }
+                                                placeholder="ex: Aviso Importante, Manutenção Programada"
+                                                className="w-full bg-gray-50 border border-gray-100 p-5 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
+                                              />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
+                                                Mensagem de Aviso (Conteúdo)
+                                              </label>
+                                              <textarea
+                                                rows={4}
+                                                value={siteConfig.popupMessage || ""}
+                                                onChange={(e) =>
+                                                  setSiteConfig({
+                                                    ...siteConfig,
+                                                    popupMessage: e.target.value,
+                                                  })
+                                                }
+                                                placeholder="Descreva o comunicado ou o estado de manutenção..."
+                                                className="w-full bg-gray-50 border border-gray-100 p-5 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm leading-relaxed"
+                                              />
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-4">
+                                              <div className="space-y-2">
+                                                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
+                                                  Texto do Botão
+                                                </label>
+                                                <input
+                                                  type="text"
+                                                  value={siteConfig.popupBtnText || ""}
+                                                  onChange={(e) =>
+                                                    setSiteConfig({
+                                                      ...siteConfig,
+                                                      popupBtnText: e.target.value,
+                                                    })
+                                                  }
+                                                  className="w-full bg-gray-50 border border-gray-100 p-5 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
+                                                />
+                                              </div>
+
+                                              <div className="space-y-2">
+                                                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
+                                                  Estilo / Variante
+                                                </label>
+                                                <select
+                                                  value={siteConfig.popupVariant || "warning"}
+                                                  onChange={(e) =>
+                                                    setSiteConfig({
+                                                      ...siteConfig,
+                                                      popupVariant: e.target.value,
+                                                    })
+                                                  }
+                                                  className="w-full bg-gray-50 border border-gray-100 p-5 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm cursor-pointer"
+                                                >
+                                                  <option value="info">Informação (Azul)</option>
+                                                  <option value="warning">Alerta (Laranja)</option>
+                                                  <option value="error">Crítico / Erro (Vermelho)</option>
+                                                  <option value="maintenance">Manutenção (Cinza/Vermelho)</option>
+                                                  <option value="success">Sucesso (Verde)</option>
+                                                </select>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Banner de Aviso Superior */}
+                                        <div className="space-y-6">
+                                          <div className="flex items-center justify-between">
+                                            <div className="space-y-1">
+                                              <h5 className="font-bold text-blue-950 text-sm uppercase tracking-wider">
+                                                Faixa de Alerta Superior (Banner)
+                                              </h5>
+                                              <p className="text-xs text-gray-400 font-medium">
+                                                Exibe uma faixa de comunicado fixa no topo de todo o site.
+                                              </p>
+                                            </div>
+                                            <label className="relative inline-flex items-center cursor-pointer select-none">
+                                              <input
+                                                type="checkbox"
+                                                checked={siteConfig.bannerEnabled || false}
+                                                onChange={(e) =>
+                                                  setSiteConfig({
+                                                    ...siteConfig,
+                                                    bannerEnabled: e.target.checked,
+                                                  })
+                                                }
+                                                className="sr-only peer"
+                                              />
+                                              <div className="w-14 h-8 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
+                                            </label>
+                                          </div>
+
+                                          <div className="space-y-4 pt-4 border-t border-gray-50">
+                                            <div className="space-y-2">
+                                              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
+                                                Texto da Faixa
+                                              </label>
+                                              <input
+                                                type="text"
+                                                value={siteConfig.bannerText || ""}
+                                                onChange={(e) =>
+                                                  setSiteConfig({
+                                                    ...siteConfig,
+                                                    bannerText: e.target.value,
+                                                  })
+                                                }
+                                                placeholder="ex: Estamos realizando atualizações nos boletos hoje..."
+                                                className="w-full bg-gray-50 border border-gray-100 p-5 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
+                                              />
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-4">
+                                              <div className="space-y-2">
+                                                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
+                                                  Texto do Link (Opcional)
+                                                </label>
+                                                <input
+                                                  type="text"
+                                                  value={siteConfig.bannerLinkText || ""}
+                                                  onChange={(e) =>
+                                                    setSiteConfig({
+                                                      ...siteConfig,
+                                                      bannerLinkText: e.target.value,
+                                                    })
+                                                  }
+                                                  placeholder="ex: Saiba mais"
+                                                  className="w-full bg-gray-50 border border-gray-100 p-5 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
+                                                />
+                                              </div>
+
+                                              <div className="space-y-2">
+                                                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
+                                                  Link URL (Opcional)
+                                                </label>
+                                                <input
+                                                  type="text"
+                                                  value={siteConfig.bannerLinkUrl || ""}
+                                                  onChange={(e) =>
+                                                    setSiteConfig({
+                                                      ...siteConfig,
+                                                      bannerLinkUrl: e.target.value,
+                                                    })
+                                                  }
+                                                  placeholder="ex: #servicos ou URL externa"
+                                                  className="w-full bg-gray-50 border border-gray-100 p-5 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm"
+                                                />
+                                              </div>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                              <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
+                                                Estilo / Variante da Faixa
+                                              </label>
+                                              <select
+                                                value={siteConfig.bannerVariant || "warning"}
+                                                onChange={(e) =>
+                                                  setSiteConfig({
+                                                    ...siteConfig,
+                                                    bannerVariant: e.target.value,
+                                                  })
+                                                }
+                                                className="w-full bg-gray-50 border border-gray-100 p-5 rounded-2xl font-bold focus:bg-white focus:border-blue-900 transition-all outline-none text-sm cursor-pointer"
+                                              >
+                                                <option value="info">Informação (Azul)</option>
+                                                <option value="warning">Alerta (Laranja)</option>
+                                                <option value="error">Crítico / Erro (Vermelho)</option>
+                                                <option value="success">Sucesso (Verde)</option>
+                                              </select>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Seção de Demonstração / Visualização em Tempo Real das Configurações dos Comunicados */}
+                                      <div className="bg-gray-50 rounded-[32px] p-8 border border-gray-100 space-y-6">
+                                        <div className="text-center">
+                                          <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                            Visualização em Tempo Real (Demonstração)
+                                          </span>
+                                        </div>
+                                        
+                                        <div className="grid md:grid-cols-2 gap-6 items-start">
+                                          {/* Exemplo de Banner */}
+                                          <div className="space-y-2">
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">
+                                              Banner Superior: {siteConfig.bannerEnabled ? "🟢 Habilitado" : "🔴 Desabilitado"}
+                                            </p>
+                                            <div className={`p-4 rounded-2xl text-xs text-white flex items-center justify-between shadow-md transition-all ${
+                                              siteConfig.bannerVariant === "error" ? "bg-rose-600" :
+                                              siteConfig.bannerVariant === "success" ? "bg-emerald-600" :
+                                              siteConfig.bannerVariant === "info" ? "bg-blue-600" : "bg-amber-500"
+                                            }`}>
+                                              <div className="flex items-center gap-2 font-black uppercase tracking-wider truncate">
+                                                <Megaphone className="w-4 h-4 shrink-0 animate-bounce" />
+                                                <span className="truncate">{siteConfig.bannerText || "Texto de exemplo do banner superior de alertas..."}</span>
+                                                {siteConfig.bannerLinkText && (
+                                                  <span className="underline ml-2">{siteConfig.bannerLinkText} →</span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* Exemplo de Pop-up */}
+                                          <div className="space-y-2">
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">
+                                              Pop-up Modal: {siteConfig.popupEnabled ? "🟢 Habilitado" : "🔴 Desabilitado"}
+                                            </p>
+                                            <div className="bg-white border border-gray-200 rounded-3xl p-6 shadow-xl space-y-4 max-w-md mx-auto">
+                                              <div className="flex items-center gap-4">
+                                                <div className={`p-3 rounded-2xl shrink-0 ${
+                                                  siteConfig.popupVariant === "error" || siteConfig.popupVariant === "maintenance" ? "bg-rose-50 text-rose-600" :
+                                                  siteConfig.popupVariant === "success" ? "bg-emerald-50 text-emerald-600" :
+                                                  siteConfig.popupVariant === "info" ? "bg-blue-50 text-blue-600" : "bg-amber-50 text-amber-600"
+                                                }`}>
+                                                  <AlertTriangle className="w-6 h-6" />
+                                                </div>
+                                                <h6 className="font-black text-blue-950 text-sm leading-tight">
+                                                  {siteConfig.popupTitle || "Título de Exemplo"}
+                                                </h6>
+                                              </div>
+                                              <p className="text-xs text-gray-500 leading-relaxed font-semibold">
+                                                {siteConfig.popupMessage || "Mensagem de exemplo demonstrando como o comunicado ou aviso de manutenção ficará visível para os visitantes ao acessarem o portal."}
+                                              </p>
+                                              <button className={`w-full py-3 rounded-xl font-bold text-[10px] uppercase tracking-wider text-white ${
+                                                siteConfig.popupVariant === "error" || siteConfig.popupVariant === "maintenance" ? "bg-rose-600" :
+                                                siteConfig.popupVariant === "success" ? "bg-emerald-600" :
+                                                siteConfig.popupVariant === "info" ? "bg-blue-600" : "bg-amber-500"
+                                              }`}>
+                                                {siteConfig.popupBtnText || "Confirmar"}
+                                              </button>
                                             </div>
                                           </div>
                                         </div>
@@ -18154,6 +18779,28 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
             exit={{ opacity: 0 }}
             className="min-h-screen bg-gray-50 flex flex-col"
           >
+            {/* Top Announcement Banner */}
+            {siteConfig.bannerEnabled && (
+              <div className={`text-white text-xs py-3.5 px-6 flex items-center justify-between gap-4 select-none relative z-[100] border-b border-white/10 transition-all ${
+                siteConfig.bannerVariant === "error" ? "bg-rose-600" :
+                siteConfig.bannerVariant === "success" ? "bg-emerald-600" :
+                siteConfig.bannerVariant === "info" ? "bg-blue-600" : "bg-amber-500"
+              }`}>
+                <div className="flex-1 flex items-center justify-center gap-2 font-black uppercase tracking-wider text-center">
+                  <Megaphone className="w-4 h-4 shrink-0 animate-bounce" />
+                  <span className="truncate">{siteConfig.bannerText}</span>
+                  {siteConfig.bannerLinkText && siteConfig.bannerLinkUrl && (
+                    <a
+                      href={siteConfig.bannerLinkUrl}
+                      className="underline hover:text-white/80 transition-colors ml-2 font-black shrink-0"
+                    >
+                      {siteConfig.bannerLinkText} →
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Header */}
             <header className="bg-[#004899] text-white sticky top-0 z-50 shadow-md">
               <div className="max-w-[1440px] mx-auto px-4 py-2.5 flex items-center justify-between gap-4">
@@ -19237,7 +19884,8 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                             whileInView={{ opacity: 1, y: 0 }}
                             viewport={{ once: true }}
                             transition={{ delay: idx * 0.05 }}
-                            className="group bg-white border border-gray-100 rounded-[32px] p-8 hover:shadow-2xl hover:shadow-blue-900/5 hover:-translate-y-2 transition-all duration-300 flex flex-col justify-between h-full relative text-left"
+                            whileHover={{ y: -8, scale: 1.03, transition: { type: "spring", stiffness: 300, damping: 20, delay: 0 } }}
+                            className="group bg-white border border-gray-100 rounded-[32px] p-8 hover:shadow-2xl hover:shadow-blue-900/5 flex flex-col justify-between h-full relative text-left cursor-pointer"
                           >
                             <div>
                               {/* Logo & Discount badge */}
@@ -20998,6 +21646,73 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
               </div>
             </footer>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Public Announcement Pop-up */}
+      <AnimatePresence>
+        {siteConfig.popupEnabled && !isPublicPopupClosed && (
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsPublicPopupClosed(true)}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-xl rounded-[44px] shadow-2xl flex flex-col overflow-hidden border border-gray-100 z-10"
+            >
+              <div className="p-8 lg:p-12 space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className={`p-4 rounded-3xl shrink-0 flex items-center justify-center ${
+                    siteConfig.popupVariant === "error" || siteConfig.popupVariant === "maintenance" ? "bg-rose-50 text-rose-600" :
+                    siteConfig.popupVariant === "success" ? "bg-emerald-50 text-emerald-600" :
+                    siteConfig.popupVariant === "info" ? "bg-blue-50 text-blue-600" : "bg-amber-50 text-amber-600"
+                  }`}>
+                    {siteConfig.popupVariant === "error" || siteConfig.popupVariant === "maintenance" ? (
+                      <AlertTriangle className="w-8 h-8 animate-pulse" />
+                    ) : siteConfig.popupVariant === "success" ? (
+                      <CheckCircle2 className="w-8 h-8" />
+                    ) : siteConfig.popupVariant === "info" ? (
+                      <AlertCircle className="w-8 h-8" />
+                    ) : (
+                      <AlertTriangle className="w-8 h-8" />
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setIsPublicPopupClosed(true)}
+                    className="p-3 hover:bg-gray-100 text-gray-400 hover:text-gray-600 rounded-2xl transition-all"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-2xl font-black text-blue-950 tracking-tight font-display">
+                    {siteConfig.popupTitle}
+                  </h3>
+                  <p className="text-gray-600 font-medium text-sm leading-relaxed whitespace-pre-line">
+                    {siteConfig.popupMessage}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setIsPublicPopupClosed(true)}
+                  className={`w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-white shadow-lg transition-all active:scale-95 ${
+                    siteConfig.popupVariant === "error" || siteConfig.popupVariant === "maintenance" ? "bg-rose-600 shadow-rose-600/20 hover:bg-rose-700" :
+                    siteConfig.popupVariant === "success" ? "bg-emerald-600 shadow-emerald-600/20 hover:bg-emerald-700" :
+                    siteConfig.popupVariant === "info" ? "bg-blue-600 shadow-blue-600/20 hover:bg-blue-700" : "bg-amber-500 shadow-amber-500/20 hover:bg-amber-600"
+                  }`}
+                >
+                  {siteConfig.popupBtnText}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
