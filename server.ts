@@ -379,6 +379,80 @@ async function startServer() {
     }
   });
 
+  // API route for automatic monthly financial health summary using Gemini
+  app.post("/api/finance/monthly-summary", async (req, res) => {
+    try {
+      const { expenses, billings } = req.body;
+
+      const prompt = `Você é o Diretor Financeiro Digital e Consultor de Gestão Estratégica do Sindicato Patronal SINPA.
+      Sua tarefa é gerar um Relatório Consolidado de Saúde Financeira Mensal (Resumo Mensal Automático) para a diretoria do sindicato.
+      
+      Você deve analisar as seguintes informações reais fornecidas:
+      1. LISTA DE COBRANÇAS / MENSALIDADES DOS ASSOCIADOS (BOLETOS):
+      ${JSON.stringify(billings || [], null, 2)}
+      
+      2. LISTA DE DESPESAS OPERACIONAIS DO SINDICATO (EXPENSES):
+      ${JSON.stringify(expenses || [], null, 2)}
+      
+      Por favor, analise esses dados minuciosamente considerando a data de referência atual como Julho de 2026.
+      
+      Em sua análise, realize e descreva os seguintes pontos técnicos:
+      - Saúde Geral (executive summary): Diagnóstico macro do fluxo de caixa e equilíbrio financeiro. Atribua um status (Excelente, Estável, Atenção ou Crítico) e uma cor representativa correspondente (emerald, blue, amber ou rose).
+      - Tendências de Inadimplência (delinquency analysis): Calcule e comente a relação entre o faturamento total projetado (soma de todos os boletos) e o faturamento real realizado (boletos com status "paid"). Comente se há riscos ou tendências observadas no pagamento dos associados.
+      - Otimização de Gastos (expense optimization suggestions): Analise a lista de despesas operacionais fornecida. Identifique os maiores gargalos, custos fixos recorrentes, despesas de maior impacto e dê conselhos práticos e específicos sobre como reduzir, renegociar ou reestruturar esses gastos para economizar recursos.
+      - Ações Imediatas (action steps): Liste de 3 a 4 recomendações práticas e acionáveis de curto prazo que a diretoria financeira do sindicato deve executar (ex: renegociação de aluguel, cobrança ativa amigável de inadimplentes de certo nível, etc.).
+      - Métricas Calculadas (metrics): Calcule com precisão matemática os indicadores consolidados com base nos dados fornecidos:
+        - Total de Despesas (soma de todos os valores na lista de despesas).
+        - Receita Realizada (soma dos valores dos boletos pagos).
+        - Receita Projetada (soma de todos os boletos).
+        - Taxa de Inadimplência em % (100 * (Receita Projetada - Receita Realizada) / Receita Projetada, ou 0 se Receita Projetada for 0).
+        - Saldo Líquido Realizado (Receita Realizada - Total de Despesas).
+
+      Retorne as informações exatamente como um objeto JSON válido correspondente ao schema especificado. Seja técnico, preciso, evite jargões promocionais ou fakes adicionais que não constem nos dados informados.`;
+
+      const result = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              healthStatus: { type: Type.STRING, description: "O status consolidado de saúde financeira: Excelente, Estável, Atenção ou Crítico" },
+              healthColor: { type: Type.STRING, description: "A cor correspondente: emerald, blue, amber ou rose" },
+              summary: { type: Type.STRING, description: "Parágrafo com o resumo executivo macro do fluxo de caixa do sindicato." },
+              delinquencyAnalysis: { type: Type.STRING, description: "Análise profunda sobre a taxa de inadimplência, boletos pagos x pendentes e as tendências de pagamento encontradas." },
+              expenseOptimization: { type: Type.STRING, description: "Análise detalhada das despesas da coleção 'expenses', sugerindo formas concretas de reduzir custos ou otimizar recursos." },
+              actionSteps: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "Lista de 3 a 4 ações práticas imediatas de recomendação de curto prazo."
+              },
+              metrics: {
+                type: Type.OBJECT,
+                properties: {
+                  totalExpenses: { type: Type.NUMBER, description: "Soma de todos os valores de despesas." },
+                  totalRevenueRealized: { type: Type.NUMBER, description: "Soma dos boletos com status 'paid'." },
+                  totalRevenueProjected: { type: Type.NUMBER, description: "Soma de todos os boletos emitidos." },
+                  delinquencyRate: { type: Type.NUMBER, description: "Porcentagem de inadimplência calculada sobre o faturamento total." },
+                  netCashFlow: { type: Type.NUMBER, description: "Saldo líquido final entre despesas e receita realizada." }
+                },
+                required: ["totalExpenses", "totalRevenueRealized", "totalRevenueProjected", "delinquencyRate", "netCashFlow"]
+              }
+            },
+            required: ["healthStatus", "healthColor", "summary", "delinquencyAnalysis", "expenseOptimization", "actionSteps", "metrics"]
+          }
+        }
+      });
+
+      const summaryResult = JSON.parse(result.text || "{}");
+      res.json(summaryResult);
+    } catch (error: any) {
+      console.error("Gemini Financial Summary Error:", error);
+      res.status(500).json({ error: error.message || "Falha ao gerar resumo mensal de saúde financeira com Gemini" });
+    }
+  });
+
   // Public stats endpoint for landing page (to show real database counts)
   app.get("/api/public/stats", async (req, res) => {
     try {

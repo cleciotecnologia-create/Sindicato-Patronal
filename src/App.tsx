@@ -589,6 +589,250 @@ function LandingPage() {
   const [partnerProposalPhone, setPartnerProposalPhone] = useState("");
   const [isSubmittingPartnerProposal, setIsSubmittingPartnerProposal] = useState(false);
 
+  // --- BANCO DE VAGAS / OPORTUNIDADES STATES ---
+  interface JobVacancy {
+    id: string;
+    title: string;
+    company: string;
+    location: string;
+    salary: string;
+    description: string;
+    requirements: string;
+    status: "aberta" | "contratado";
+    createdAt: string;
+    contactEmail: string;
+    type: "CLT" | "PJ" | "Estágio";
+  }
+
+  const [showJobsModal, setShowJobsModal] = useState(false);
+  const [showAddJobModal, setShowAddJobModal] = useState(false);
+  const [jobSearch, setJobSearch] = useState("");
+  const [jobTypeFilter, setJobTypeFilter] = useState("all");
+  const [jobStatusFilter, setJobStatusFilter] = useState("all");
+
+  const [vacancies, setVacancies] = useState<JobVacancy[]>([]);
+  const [newJobTitle, setNewJobTitle] = useState("");
+  const [newJobCompany, setNewJobCompany] = useState("");
+  const [newJobLocation, setNewJobLocation] = useState("");
+  const [newJobSalary, setNewJobSalary] = useState("");
+  const [newJobType, setNewJobType] = useState<"CLT" | "PJ" | "Estágio">("CLT");
+  const [newJobDescription, setNewJobDescription] = useState("");
+  const [newJobRequirements, setNewJobRequirements] = useState("");
+  const [newJobEmail, setNewJobEmail] = useState("");
+  const [isSubmittingJob, setIsSubmittingJob] = useState(false);
+
+  // Save vacancies to localStorage
+  React.useEffect(() => {
+    if (vacancies.length > 0) {
+      try {
+        localStorage.setItem("sinpa_vacancies", JSON.stringify(vacancies));
+      } catch (e) {
+        console.warn("Error writing local vacancies", e);
+      }
+    }
+  }, [vacancies]);
+
+  // Load vacancies from Firestore or fallback
+  React.useEffect(() => {
+    const defaultVacancies: JobVacancy[] = [
+      {
+        id: "VAC-001",
+        title: "Assistente Administrativo Financeiro",
+        company: "Indústria Metalúrgica Salvador S/A",
+        location: "Salvador - BA",
+        salary: "R$ 2.400,00",
+        description: "Auxílio nas contas a pagar e receber, conciliação bancária, faturamento de notas fiscais de serviços e produtos e organização de documentos contábeis.",
+        requirements: "Ensino médio completo ou superior em andamento (Administração, Ciências Contábeis). Conhecimento em Excel intermediário.",
+        status: "aberta",
+        createdAt: "10/05/2026",
+        contactEmail: "rh@metalurgicasalvador.com.br",
+        type: "CLT"
+      },
+      {
+        id: "VAC-002",
+        title: "Técnico de Manutenção Mecânica Industrial",
+        company: "MetalBahia S/A",
+        location: "Camaçari - BA (Polo Petroquímico)",
+        salary: "R$ 3.800,00 + Benefícios",
+        description: "Realizar manutenção corretiva e preventiva de máquinas e equipamentos industriais pesados, leitura de esquemas hidráulicos e mecânicos.",
+        requirements: "Curso Técnico em Mecânica ou Eletromecânica completo. Registro ativo no CFT. Experiência mínima de 2 anos no Polo.",
+        status: "aberta",
+        createdAt: "12/05/2026",
+        contactEmail: "talentos@metalbahia.com.br",
+        type: "CLT"
+      },
+      {
+        id: "VAC-003",
+        title: "Auxiliar de Almoxarifado / Estoque",
+        company: "Bahia Peças & Fundição S/A",
+        location: "Lauro de Freitas - BA",
+        salary: "R$ 1.650,00",
+        description: "Recebimento e conferência de materiais, estocagem, organização de inventário e separação de insumos para a linha de produção metalúrgica.",
+        requirements: "Ensino médio completo. Conhecimento de informática básica. Desejável curso de Operação de Empilhadeira.",
+        status: "contratado",
+        createdAt: "08/05/2026",
+        contactEmail: "curriculo@bahiapecas.com.br",
+        type: "CLT"
+      },
+      {
+        id: "VAC-004",
+        title: "Coordenador de Logística e Expedição",
+        company: "Fundição Nordeste Ltda",
+        location: "Simões Filho - BA",
+        salary: "R$ 6.200,00",
+        description: "Coordenação de equipes de almoxarifado, planejamento de rotas de entrega de peças industriais pesadas, gestão de contratos com transportadoras e indicadores de expedição.",
+        requirements: "Ensino Superior completo em Logística, Administração ou Engenharia. Experiência sólida em liderança no setor industrial.",
+        status: "aberta",
+        createdAt: "14/05/2026",
+        contactEmail: "rh@fundicaonordeste.com.br",
+        type: "PJ"
+      },
+      {
+        id: "VAC-005",
+        title: "Estagiário de Engenharia de Produção",
+        company: "Simoes & Filhos Metalurgia",
+        location: "Salvador - BA",
+        salary: "R$ 1.200,00 (Bolsa)",
+        description: "Apoiar no mapeamento de processos produtivos, cronoanálise de tempos e movimentos na fábrica, elaboração de planilhas de indicadores de perdas e apoio ao PCP.",
+        requirements: "Estudantes a partir do 6º semestre de Engenharia de Produção ou Engenharia Mecânica. Excel avançado.",
+        status: "aberta",
+        createdAt: "15/05/2026",
+        contactEmail: "estagio@simoesmetalurgia.com.br",
+        type: "Estágio"
+      }
+    ];
+
+    const fetchVagas = async () => {
+      try {
+        const snap = await getDocs(collection(db, "vagas"));
+        if (!snap.empty) {
+          const list = snap.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as JobVacancy[];
+          setVacancies(list);
+        } else {
+          // If Firestore is completely empty, write the defaults to it
+          const list: JobVacancy[] = [];
+          for (const dv of defaultVacancies) {
+            const { id, ...rest } = dv;
+            const docRef = await addDoc(collection(db, "vagas"), rest);
+            list.push({ id: docRef.id, ...rest });
+          }
+          setVacancies(list);
+        }
+      } catch (err) {
+        console.warn("Firestore collection 'vagas' not available. Falling back to localStorage/defaults.", err);
+        // Fallback to localStorage or defaults
+        try {
+          const stored = localStorage.getItem("sinpa_vacancies");
+          if (stored) {
+            setVacancies(JSON.parse(stored));
+          } else {
+            setVacancies(defaultVacancies);
+          }
+        } catch (e) {
+          setVacancies(defaultVacancies);
+        }
+      }
+    };
+
+    fetchVagas();
+  }, []);
+
+  const handleCreateJob = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newJobTitle || !newJobCompany || !newJobLocation || !newJobEmail) {
+      showNotification("error", "Por favor, preencha todos os campos obrigatórios (*).");
+      return;
+    }
+
+    setIsSubmittingJob(true);
+    const newJobData = {
+      title: newJobTitle,
+      company: newJobCompany,
+      location: newJobLocation,
+      salary: newJobSalary || "A combinar",
+      type: newJobType,
+      description: newJobDescription || "Nenhuma descrição fornecida.",
+      requirements: newJobRequirements || "Sem requisitos específicos informados.",
+      status: "aberta" as const,
+      createdAt: new Date().toLocaleDateString("pt-BR"),
+      contactEmail: newJobEmail
+    };
+
+    try {
+      const docRef = await addDoc(collection(db, "vagas"), newJobData);
+      const createdJob = { id: docRef.id, ...newJobData };
+      setVacancies(prev => [createdJob, ...prev]);
+      showNotification("success", "Vaga publicada com sucesso no Banco de Oportunidades!");
+      
+      // Reset form
+      setNewJobTitle("");
+      setNewJobCompany("");
+      setNewJobLocation("");
+      setNewJobSalary("");
+      setNewJobDescription("");
+      setNewJobRequirements("");
+      setNewJobEmail("");
+      setShowAddJobModal(false);
+      setShowJobsModal(true); // Open vacancies list so they can see it!
+    } catch (err) {
+      console.error("Erro ao salvar vaga no Firestore:", err);
+      // Local fallback
+      const localJob = { id: `VAC-LOCAL-${Date.now()}`, ...newJobData };
+      setVacancies(prev => [localJob, ...prev]);
+      showNotification("success", "Vaga publicada localmente com sucesso!");
+      
+      setNewJobTitle("");
+      setNewJobCompany("");
+      setNewJobLocation("");
+      setNewJobSalary("");
+      setNewJobDescription("");
+      setNewJobRequirements("");
+      setNewJobEmail("");
+      setShowAddJobModal(false);
+      setShowJobsModal(true);
+    } finally {
+      setIsSubmittingJob(false);
+    }
+  };
+
+  const handleUpdateJobStatus = async (id: string, newStatus: "aberta" | "contratado") => {
+    try {
+      // Find item
+      const job = vacancies.find(v => v.id === id);
+      if (!job) return;
+
+      // Update in state
+      setVacancies(prev => prev.map(v => v.id === id ? { ...v, status: newStatus } : v));
+
+      // Try updating in Firestore
+      if (!id.startsWith("VAC-LOCAL-")) {
+        await updateDoc(doc(db, "vagas", id), { status: newStatus });
+      }
+      showNotification("success", `Status alterado para "${newStatus === 'contratado' ? 'Contratado' : 'Aberta'}"!`);
+    } catch (err) {
+      console.error("Erro ao atualizar status da vaga:", err);
+      showNotification("error", "Erro ao atualizar status da vaga no banco.");
+    }
+  };
+
+  const handleDeleteJob = async (id: string) => {
+    if (!window.confirm("Tem certeza que deseja remover esta vaga do banco?")) return;
+
+    try {
+      setVacancies(prev => prev.filter(v => v.id !== id));
+      if (!id.startsWith("VAC-LOCAL-")) {
+        await deleteDoc(doc(db, "vagas", id));
+      }
+      showNotification("success", "Vaga removida com sucesso!");
+    } catch (err) {
+      console.error("Erro ao remover vaga:", err);
+      showNotification("error", "Erro ao remover a vaga do banco.");
+    }
+  };
+
   const [activeDashboardTab, setActiveDashboardTab] = useState<
     | "overview"
     | "boletos"
@@ -1921,6 +2165,69 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
   const [isAnalyzingFinance, setIsAnalyzingFinance] = useState(false);
   const [financeAnalysisResult, setFinanceAnalysisResult] = useState<any | null>(null);
 
+  // Gemini Monthly Summary State and handler
+  const [isGeneratingMonthlySummary, setIsGeneratingMonthlySummary] = useState(false);
+  const [monthlySummaryResult, setMonthlySummaryResult] = useState<any | null>(null);
+  const [monthlySummaryError, setMonthlySummaryError] = useState<string | null>(null);
+
+  // Deletion confirmation modal states
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    isOpen: boolean;
+    type: "partner" | "publication" | "partnerContract" | null;
+    id: string;
+    title: string;
+  }>({
+    isOpen: false,
+    type: null,
+    id: "",
+    title: "",
+  });
+
+  // Partner Marketing Ads and Smart Suggestions States
+  const [currentAdIndex, setCurrentAdIndex] = useState(0);
+  const [suggestionStep, setSuggestionStep] = useState(0); // 0: intro, 1: goal/need, 2: company size, 3: recommendation
+  const [suggestionGoal, setSuggestionGoal] = useState("");
+  const [suggestionSize, setSuggestionSize] = useState("");
+
+  const executeDeletePartner = (id: string) => {
+    setPartners((prev) => prev.filter((p) => p.id !== id));
+    showNotification("success", "Convênio de parceiro removido com sucesso!");
+  };
+
+  const executeDeletePartnerContract = (id: string) => {
+    setPartnerContracts((prev) => prev.filter((c) => c.id !== id));
+    showNotification("success", "Contrato removido do histórico.");
+  };
+
+  const handleGenerateMonthlySummary = async () => {
+    setIsGeneratingMonthlySummary(true);
+    setMonthlySummaryError(null);
+    try {
+      const response = await fetch("/api/finance/monthly-summary", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          expenses,
+          billings: allBillings,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Falha ao se comunicar com o serviço de Inteligência Artificial.");
+      }
+
+      const data = await response.json();
+      setMonthlySummaryResult(data);
+    } catch (error: any) {
+      console.error("Monthly Summary Error:", error);
+      setMonthlySummaryError(error.message || "Ocorreu um erro ao gerar o resumo financeiro.");
+    } finally {
+      setIsGeneratingMonthlySummary(false);
+    }
+  };
+
   const handleAnalyzeFinancialBehavior = async (memberId: string) => {
     if (!memberId) return;
     const selectedMember = members.find((m) => m.id === memberId);
@@ -2127,7 +2434,18 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
     }
   };
 
-  const handleDeletePublishedDoc = async (id: string) => {
+  const handleDeletePublishedDoc = (id: string) => {
+    const docToDelete = publishedDocs?.find((d: any) => d.id === id);
+    const docTitle = docToDelete?.title || docToDelete?.fileName || id;
+    setDeleteConfirm({
+      isOpen: true,
+      type: "publication",
+      id,
+      title: docTitle,
+    });
+  };
+
+  const executeDeletePublishedDoc = async (id: string) => {
     try {
       const docToDelete = publishedDocs?.find((d: any) => d.id === id);
       const docTitle = docToDelete?.title || docToDelete?.fileName || id;
@@ -11915,6 +12233,245 @@ Para corrigir:
                                       </div>
                                     </div>
                                   </div>
+
+                                  {/* Gemini Monthly Financial Summary Widget */}
+                                  <div className="bg-white border border-gray-100 rounded-[40px] p-8 lg:p-12 shadow-xl space-y-8 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 p-8 opacity-5">
+                                      <Bot className="w-48 h-48 text-blue-900" />
+                                    </div>
+                                    
+                                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-gray-100 pb-8 relative z-10">
+                                      <div className="flex items-center gap-5">
+                                        <div className="w-14 h-14 bg-blue-50 text-blue-900 rounded-2xl flex items-center justify-center shadow-inner shrink-0">
+                                          <Sparkles className="w-7 h-7" />
+                                        </div>
+                                        <div>
+                                          <h4 className="text-xl font-black text-blue-950 font-display">
+                                            Resumo Executivo Financeiro (Gemini IA)
+                                          </h4>
+                                          <p className="text-xs font-semibold text-gray-500 mt-1">
+                                            Diagnóstico mensal consolidado, tendências de inadimplência e plano de otimização de gastos ('expenses')
+                                          </p>
+                                        </div>
+                                      </div>
+                                      
+                                      {monthlySummaryResult && !isGeneratingMonthlySummary && (
+                                        <button
+                                          onClick={handleGenerateMonthlySummary}
+                                          className="flex items-center gap-2 px-5 py-3 bg-gray-50 border border-gray-200 hover:bg-gray-100 text-blue-950 font-bold text-xs rounded-2xl transition-all cursor-pointer shadow-sm shrink-0"
+                                        >
+                                          <RefreshCw className="w-4 h-4" />
+                                          Atualizar Análise
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    {monthlySummaryError && (
+                                      <div className="p-5 bg-rose-50 border border-rose-100 rounded-3xl flex items-start gap-4">
+                                        <AlertTriangle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+                                        <div className="space-y-2">
+                                          <p className="text-sm font-bold text-rose-950">Erro ao gerar relatório</p>
+                                          <p className="text-xs font-semibold text-rose-800">{monthlySummaryError}</p>
+                                          <button
+                                            onClick={handleGenerateMonthlySummary}
+                                            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition-all cursor-pointer"
+                                          >
+                                            Tentar Novamente
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {!monthlySummaryResult && !isGeneratingMonthlySummary && !monthlySummaryError && (
+                                      <div className="p-8 bg-blue-50/50 border border-blue-50/60 rounded-[32px] text-center space-y-6 max-w-2xl mx-auto">
+                                        <div className="w-16 h-16 bg-white shadow-md rounded-full flex items-center justify-center mx-auto text-blue-600">
+                                          <Bot className="w-8 h-8 animate-bounce" />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <h5 className="font-bold text-blue-950 text-base">Relatório de Saúde Financeira Pendente</h5>
+                                          <p className="text-xs text-gray-500 max-w-md mx-auto leading-relaxed">
+                                            Para obter um resumo detalhado, o Gemini analisará em tempo real a adimplência dos associados (faturamento projetado vs. realizado) e a planilha de despesas (expenses) para fornecer insights estratégicos e otimização.
+                                          </p>
+                                        </div>
+                                        <button
+                                          onClick={handleGenerateMonthlySummary}
+                                          className="px-8 py-4 bg-blue-900 hover:bg-blue-950 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg hover:shadow-blue-900/10 flex items-center gap-3 mx-auto cursor-pointer"
+                                        >
+                                          <Sparkles className="w-4 h-4" />
+                                          Gerar Relatório de Saúde com IA
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {isGeneratingMonthlySummary && (
+                                      <div className="p-12 text-center space-y-6">
+                                        <div className="relative w-20 h-20 mx-auto">
+                                          <div className="absolute inset-0 rounded-full border-4 border-blue-100"></div>
+                                          <div className="absolute inset-0 rounded-full border-4 border-blue-900 border-t-transparent animate-spin"></div>
+                                          <div className="absolute inset-0 flex items-center justify-center text-blue-900">
+                                            <Sparkles className="w-6 h-6 animate-pulse" />
+                                          </div>
+                                        </div>
+                                        <div className="space-y-2 max-w-sm mx-auto">
+                                          <p className="font-black text-blue-950 text-sm animate-pulse">Inteligência Artificial Analisando...</p>
+                                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-relaxed">
+                                            Cruzando receitas da carteira de boletos com despesas de custeio (expenses)
+                                          </p>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {monthlySummaryResult && !isGeneratingMonthlySummary && (
+                                      <div className="space-y-10 relative z-10">
+                                        {/* Row 1: KPI Metrics */}
+                                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                                          {[
+                                            {
+                                              label: "Receita Projetada",
+                                              value: monthlySummaryResult.metrics.totalRevenueProjected,
+                                              icon: Banknote,
+                                              color: "blue",
+                                              isCurrency: true
+                                            },
+                                            {
+                                              label: "Receita Realizada",
+                                              value: monthlySummaryResult.metrics.totalRevenueRealized,
+                                              icon: CheckCircle2,
+                                              color: "emerald",
+                                              isCurrency: true
+                                            },
+                                            {
+                                              label: "Total de Despesas",
+                                              value: monthlySummaryResult.metrics.totalExpenses,
+                                              icon: CreditCard,
+                                              color: "rose",
+                                              isCurrency: true
+                                            },
+                                            {
+                                              label: "Taxa de Inadimplência",
+                                              value: monthlySummaryResult.metrics.delinquencyRate,
+                                              icon: TrendingUp,
+                                              color: monthlySummaryResult.metrics.delinquencyRate > 20 ? "rose" : "amber",
+                                              isPercentage: true
+                                            },
+                                            {
+                                              label: "Resultado Líquido",
+                                              value: monthlySummaryResult.metrics.netCashFlow,
+                                              icon: PiggyBank,
+                                              color: monthlySummaryResult.metrics.netCashFlow >= 0 ? "emerald" : "rose",
+                                              isCurrency: true
+                                            }
+                                          ].map((metric, i) => {
+                                            const IconComponent = metric.icon;
+                                            return (
+                                              <div
+                                                key={i}
+                                                className="bg-gray-50 border border-gray-100 p-5 rounded-3xl flex flex-col justify-between h-32 hover:border-blue-200 transition-all"
+                                              >
+                                                <div className="flex items-center justify-between">
+                                                  <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400 leading-none">
+                                                    {metric.label}
+                                                  </span>
+                                                  <div className={`p-2 rounded-xl ${
+                                                    metric.color === "emerald" ? "bg-emerald-50 text-emerald-600" :
+                                                    metric.color === "rose" ? "bg-rose-50 text-rose-600" :
+                                                    metric.color === "blue" ? "bg-blue-50 text-blue-600" :
+                                                    "bg-amber-50 text-amber-600"
+                                                  }`}>
+                                                    <IconComponent className="w-4 h-4" />
+                                                  </div>
+                                                </div>
+                                                <div>
+                                                  <p className="text-lg font-black font-mono leading-none text-blue-950 mt-4">
+                                                    {metric.isCurrency && `R$ ${metric.value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                                    {metric.isPercentage && `${metric.value.toFixed(1)}%`}
+                                                  </p>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+
+                                        {/* Row 2: Diagnostics & Badges */}
+                                        <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-6 lg:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                                          <div className="space-y-2">
+                                            <div className="flex items-center gap-3">
+                                              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 leading-none">
+                                                Avaliação de Saúde
+                                              </span>
+                                              <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                                monthlySummaryResult.healthColor === "emerald" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                                                monthlySummaryResult.healthColor === "rose" ? "bg-rose-50 text-rose-600 border-rose-100" :
+                                                monthlySummaryResult.healthColor === "blue" ? "bg-blue-50 text-blue-600 border-blue-100" :
+                                                "bg-amber-50 text-amber-600 border-amber-100"
+                                              } animate-pulse`}>
+                                                {monthlySummaryResult.healthStatus}
+                                              </span>
+                                            </div>
+                                            <p className="text-xs text-gray-600 font-semibold leading-relaxed">
+                                              {monthlySummaryResult.summary}
+                                            </p>
+                                          </div>
+                                        </div>
+
+                                        {/* Row 3: Grid of Detailed Analyses */}
+                                        <div className="grid md:grid-cols-2 gap-8">
+                                          <div className="bg-white border border-gray-100 rounded-[32px] p-6 lg:p-8 shadow-sm space-y-4">
+                                            <div className="flex items-center gap-3 border-b border-gray-50 pb-4">
+                                              <div className="p-2.5 bg-rose-50 text-rose-600 rounded-2xl">
+                                                <TrendingUp className="w-5 h-5" />
+                                              </div>
+                                              <h5 className="font-bold text-sm text-blue-950">
+                                                Tendências de Inadimplência
+                                              </h5>
+                                            </div>
+                                            <p className="text-xs text-gray-600 font-semibold leading-relaxed whitespace-pre-line">
+                                              {monthlySummaryResult.delinquencyAnalysis}
+                                            </p>
+                                          </div>
+
+                                          <div className="bg-white border border-gray-100 rounded-[32px] p-6 lg:p-8 shadow-sm space-y-4">
+                                            <div className="flex items-center gap-3 border-b border-gray-50 pb-4">
+                                              <div className="p-2.5 bg-amber-50 text-amber-600 rounded-2xl">
+                                                <Calculator className="w-5 h-5" />
+                                              </div>
+                                              <h5 className="font-bold text-sm text-blue-950">
+                                                Otimização de Despesas ('expenses')
+                                              </h5>
+                                            </div>
+                                            <p className="text-xs text-gray-600 font-semibold leading-relaxed whitespace-pre-line">
+                                              {monthlySummaryResult.expenseOptimization}
+                                            </p>
+                                          </div>
+                                        </div>
+
+                                        {/* Row 4: Recommended Action Steps */}
+                                        <div className="bg-blue-50/30 border border-blue-50/50 rounded-[32px] p-6 lg:p-8 space-y-4">
+                                          <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-blue-100/60 text-blue-900 rounded-xl">
+                                              <CheckCircle className="w-5 h-5" />
+                                            </div>
+                                            <h5 className="font-bold text-sm text-blue-950">
+                                              Recomendações e Próximos Passos Financeiros
+                                            </h5>
+                                          </div>
+                                          
+                                          <div className="grid sm:grid-cols-2 gap-4 pt-2">
+                                            {monthlySummaryResult.actionSteps.map((step: string, idx: number) => (
+                                              <div key={idx} className="flex gap-3 bg-white p-4 rounded-2xl border border-gray-50 shadow-sm">
+                                                <div className="w-6 h-6 rounded-full bg-blue-50 text-blue-900 flex items-center justify-center font-bold text-[10px] shrink-0">
+                                                  {idx + 1}
+                                                </div>
+                                                <p className="text-xs text-gray-600 font-semibold leading-relaxed">
+                                                  {step}
+                                                </p>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
                                 </motion.div>
                               )}
 
@@ -14252,18 +14809,12 @@ Para corrigir:
                                               </button>
                                               <button
                                                 onClick={() => {
-                                                  if (
-                                                    confirm(
-                                                      `Remover permanentemente ${partner.name}?`,
-                                                    )
-                                                  ) {
-                                                    setPartners(
-                                                      partners.filter(
-                                                        (p) =>
-                                                          p.id !== partner.id,
-                                                      ),
-                                                    );
-                                                  }
+                                                  setDeleteConfirm({
+                                                    isOpen: true,
+                                                    type: "partner",
+                                                    id: partner.id,
+                                                    title: partner.name,
+                                                  });
                                                 }}
                                                 className="p-4 bg-white border border-gray-100 text-rose-400 rounded-2xl hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm"
                                               >
@@ -14391,10 +14942,12 @@ Para corrigir:
                                                   </button>
                                                   <button
                                                     onClick={() => {
-                                                      if (confirm(`Excluir registro do contrato ${contract.id} de sua lista histórica?`)) {
-                                                        setPartnerContracts(partnerContracts.filter(c => c.id !== contract.id));
-                                                        showNotification("success", "Contrato removido do histórico.");
-                                                      }
+                                                      setDeleteConfirm({
+                                                        isOpen: true,
+                                                        type: "partnerContract",
+                                                        id: contract.id,
+                                                        title: `Contrato nº ${contract.id} (Parceria com ${contract.partnerName})`,
+                                                      });
                                                     }}
                                                     className="p-4 bg-white border border-gray-100 text-rose-400 rounded-2xl hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm"
                                                   >
@@ -19817,7 +20370,7 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                 <div className="mt-24 pt-16 border-t border-gray-100">
                   <div className="text-center max-w-3xl mx-auto mb-16">
                     <span className="text-amber-600 font-black tracking-[0.2em] text-[10px] uppercase mb-3 block">
-                      Vantagens Reais
+                      Vantagens Reais & Marketing de Parceiros
                     </span>
                     <h3 className="text-3xl lg:text-5xl font-black text-blue-950 tracking-tighter mb-4">
                       Rede de Parceiros Credenciados
@@ -19825,6 +20378,420 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                     <p className="text-gray-600 text-sm lg:text-base font-semibold leading-relaxed">
                       Explore o portfólio completo de empresas e instituições parceiras que oferecem descontos extraordinários para associados do SINPA.
                     </p>
+                  </div>
+
+                  {/* --- PAINEL DE MARKETING E PUBLICIDADES DE PARCEIROS --- */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-16 max-w-6xl mx-auto text-left">
+                    {/* Painel de Publicidade e Campanhas Patrocinadas */}
+                    <div className="lg:col-span-7 bg-white border border-gray-100 rounded-[32px] p-1 overflow-hidden shadow-sm hover:shadow-xl hover:border-gray-200/80 transition-all duration-300 flex flex-col">
+                      <div className="p-6 pb-2 flex items-center justify-between border-b border-gray-50">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
+                            <Megaphone className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-black text-blue-950 uppercase tracking-tight">
+                              Espaço Publicitário & Destaques
+                            </h4>
+                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none mt-0.5">
+                              Campanhas Ativas SINPA
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setCurrentAdIndex(prev => (prev === 0 ? 2 : prev - 1))}
+                            className="w-8 h-8 rounded-lg bg-gray-50 hover:bg-gray-100 border border-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-900 transition-colors cursor-pointer"
+                          >
+                            <ArrowLeft className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="text-[10px] font-mono font-bold text-gray-400 px-1">
+                            {currentAdIndex + 1}/3
+                          </span>
+                          <button
+                            onClick={() => setCurrentAdIndex(prev => (prev === 2 ? 0 : prev + 1))}
+                            className="w-8 h-8 rounded-lg bg-gray-50 hover:bg-gray-100 border border-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-900 transition-colors cursor-pointer"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Carousel Active Content */}
+                      <div className="p-6 flex-1 flex flex-col justify-between min-h-[320px]">
+                        <AnimatePresence mode="wait">
+                          {(() => {
+                            const ads = [
+                              {
+                                id: "ad-1",
+                                tag: "DESTAQUE EM SAÚDE",
+                                title: "Unimed Regional: Saúde corporativa completa sem carência",
+                                desc: "A Unimed Regional oferece condições exclusivas para as empresas filiadas ao SINPA. Planos de saúde ambulatoriais e hospitalares com descontos de até 20% e cobertura nacional imediata para novas adesões corporativas.",
+                                buttonText: "Ver Detalhes do Convênio",
+                                partnerId: "1",
+                                bgGradient: "from-teal-900 via-emerald-950 to-blue-950",
+                                badgeText: "PATROCINADO",
+                                image: "https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&q=80&w=600"
+                              },
+                              {
+                                id: "ad-2",
+                                tag: "DESENVOLVIMENTO DE EQUIPE",
+                                title: "Faculdade Impacto: Bolsas de até 35% em cursos técnicos e superiores",
+                                desc: "Incentive seus funcionários a se especializarem! A Faculdade Impacto disponibiliza cursos de MBA, especializações de setor e graduações completas com mensalidades reduzidas para todas as empresas contribuintes do SINPA.",
+                                buttonText: "Garantir Bolsa Acadêmica",
+                                partnerId: "2",
+                                bgGradient: "from-indigo-950 via-blue-950 to-slate-900",
+                                badgeText: "MELHOR AVALIAÇÃO",
+                                image: "https://images.unsplash.com/photo-1523050353055-f184e92672ba?auto=format&fit=crop&q=80&w=600"
+                              },
+                              {
+                                id: "ad-3",
+                                tag: "LAZER & EVENTOS",
+                                title: "Hotel Vista Mar: Estrutura premium para eventos com 15% OFF",
+                                desc: "Programe sua convenção anual de vendas ou garanta o descanso merecido aos seus gestores. O Hotel Vista Mar conta com salas de reuniões modernas, buffet corporativo completo e tarifas reduzidas de hospedagem para associados.",
+                                buttonText: "Solicitar Orçamento",
+                                partnerId: "3",
+                                bgGradient: "from-amber-950 via-rose-950 to-blue-950",
+                                badgeText: "BENTO SPOTLIGHT",
+                                image: "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&q=80&w=600"
+                              }
+                            ];
+                            const activeAd = ads[currentAdIndex];
+                            return (
+                              <motion.div
+                                key={activeAd.id}
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -20 }}
+                                transition={{ duration: 0.2 }}
+                                className="space-y-4 flex flex-col justify-between h-full"
+                              >
+                                <div className="space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="bg-blue-50 text-blue-900 border border-blue-100 text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-md">
+                                      {activeAd.tag}
+                                    </span>
+                                    <span className="bg-amber-100 text-amber-800 border border-amber-200 text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-md animate-pulse">
+                                      {activeAd.badgeText}
+                                    </span>
+                                  </div>
+                                  <h5 className="text-lg lg:text-xl font-extrabold text-blue-950 leading-snug">
+                                    {activeAd.title}
+                                  </h5>
+                                  <p className="text-gray-500 text-xs font-medium leading-relaxed">
+                                    {activeAd.desc}
+                                  </p>
+                                </div>
+
+                                <div className="pt-4 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                  <div className="flex items-center gap-2.5">
+                                    <div className="w-9 h-9 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
+                                      <Gift className="w-4 h-4 text-blue-600" />
+                                    </div>
+                                    <div>
+                                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">
+                                        Benefício Especial
+                                      </p>
+                                      <p className="text-xs font-black text-blue-900 mt-0.5 font-display">
+                                        Associados SINPA Ativo
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      const matchedPartner = partners.find(p => p.id === activeAd.partnerId);
+                                      if (matchedPartner) {
+                                        setSelectedPartnerForRedeem(matchedPartner);
+                                      } else {
+                                        showNotification("info", "Esta oferta de publicidade está vinculada a um parceiro ativo. Explore as opções na grade abaixo!");
+                                      }
+                                    }}
+                                    className="px-5 py-3.5 bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                                  >
+                                    {activeAd.buttonText}
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </motion.div>
+                            );
+                          })()}
+                        </AnimatePresence>
+                      </div>
+
+                      {/* Bottom indicator dots */}
+                      <div className="bg-gray-50/50 p-4 border-t border-gray-50 flex items-center justify-center gap-2">
+                        {[0, 1, 2].map(idx => (
+                          <button
+                            key={`ad-dot-${idx}`}
+                            onClick={() => setCurrentAdIndex(idx)}
+                            className={`h-1.5 rounded-full transition-all duration-300 ${
+                              currentAdIndex === idx ? "w-6 bg-blue-900" : "w-1.5 bg-gray-300 hover:bg-gray-400"
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Assistente de Sugestões Inteligentes de Convênios */}
+                    <div className="lg:col-span-5 bg-gradient-to-br from-blue-950 to-indigo-950 text-white rounded-[32px] p-8 shadow-xl flex flex-col justify-between relative overflow-hidden">
+                      {/* Background Ambient Lights */}
+                      <div className="absolute -right-16 -top-16 w-36 h-36 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+                      <div className="absolute -left-16 -bottom-16 w-36 h-36 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+                      {/* Header */}
+                      <div className="relative flex items-center gap-3 border-b border-white/10 pb-4 mb-6">
+                        <div className="w-9 h-9 bg-white/10 text-amber-400 rounded-xl flex items-center justify-center shadow-inner">
+                          <Bot className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black uppercase tracking-tight text-white font-display">
+                            Recomendador Inteligente
+                          </h4>
+                          <p className="text-[9px] font-bold text-blue-300 uppercase tracking-widest leading-none mt-0.5">
+                            Assistente de Vantagens
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Dynamic Assistant Steps */}
+                      <div className="flex-1 flex flex-col justify-center min-h-[200px] relative">
+                        <AnimatePresence mode="wait">
+                          {suggestionStep === 0 && (
+                            <motion.div
+                              key="step-intro"
+                              initial={{ opacity: 0, scale: 0.95 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.95 }}
+                              transition={{ duration: 0.2 }}
+                              className="space-y-4 text-left"
+                            >
+                              <h5 className="text-lg font-extrabold text-amber-400 leading-snug">
+                                Encontre o convênio sob medida para você!
+                              </h5>
+                              <p className="text-blue-100 text-xs font-semibold leading-relaxed">
+                                Responda a 2 perguntas rápidas para que nosso assistente sugira o melhor desconto correspondente entre nossos parceiros verificados.
+                              </p>
+                              <div className="pt-2">
+                                <button
+                                  onClick={() => setSuggestionStep(1)}
+                                  className="w-full py-4 bg-amber-400 hover:bg-amber-300 text-blue-950 font-black text-xs uppercase tracking-widest rounded-2xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                  Começar Diagnóstico
+                                  <ChevronRight className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+
+                          {suggestionStep === 1 && (
+                            <motion.div
+                              key="step-goal"
+                              initial={{ opacity: 0, x: 20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: -20 }}
+                              transition={{ duration: 0.2 }}
+                              className="space-y-4 text-left w-full"
+                            >
+                              <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest">
+                                Passo 1 de 2
+                              </p>
+                              <h5 className="text-md font-extrabold text-white">
+                                O que você ou sua empresa mais precisa no momento?
+                              </h5>
+                              <div className="grid gap-2">
+                                {[
+                                  { id: "saude", label: "Cuidar da saúde dos funcionários", icon: Heart },
+                                  { id: "educacao", label: "Cursos e capacitações técnicas", icon: GraduationCap },
+                                  { id: "lazer", label: "Lazer, convenções e hotelaria", icon: Coffee },
+                                  { id: "servicos", label: "Serviços jurídicos e consultoria", icon: Shield },
+                                  { id: "comercio", label: "Descontos em comércio e compras", icon: ShoppingBag }
+                                ].map((option) => {
+                                  const Icon = option.icon;
+                                  return (
+                                    <button
+                                      key={option.id}
+                                      onClick={() => {
+                                        setSuggestionGoal(option.id);
+                                        setSuggestionStep(2);
+                                      }}
+                                      className="w-full p-3.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-left text-xs font-bold transition-all flex items-center gap-3 cursor-pointer group active:scale-[0.99]"
+                                    >
+                                      <div className="w-7 h-7 bg-white/5 rounded-lg flex items-center justify-center text-blue-300 group-hover:bg-amber-400 group-hover:text-blue-950 transition-colors">
+                                        <Icon className="w-4 h-4" />
+                                      </div>
+                                      <span className="flex-1">{option.label}</span>
+                                      <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-amber-400" />
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </motion.div>
+                          )}
+
+                          {suggestionStep === 2 && (
+                            <motion.div
+                              key="step-size"
+                              initial={{ opacity: 0, x: 20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: -20 }}
+                              transition={{ duration: 0.2 }}
+                              className="space-y-4 text-left w-full"
+                            >
+                              <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest">
+                                Passo 2 de 2
+                              </p>
+                              <h5 className="text-md font-extrabold text-white">
+                                Qual é o porte atual do seu negócio?
+                              </h5>
+                              <div className="grid gap-3">
+                                {[
+                                  { id: "pme", label: "Micro ou Pequena Empresa", desc: "Até 19 funcionários" },
+                                  { id: "media", label: "Média Empresa", desc: "De 20 a 99 funcionários" },
+                                  { id: "grande", label: "Grande Corporação", desc: "Mais de 100 funcionários" }
+                                ].map((option) => (
+                                  <button
+                                    key={option.id}
+                                    onClick={() => {
+                                      setSuggestionSize(option.id);
+                                      setSuggestionStep(3);
+                                    }}
+                                    className="w-full p-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-left transition-all cursor-pointer group active:scale-[0.99]"
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <p className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors">
+                                          {option.label}
+                                        </p>
+                                        <p className="text-[10px] text-blue-200 mt-0.5">
+                                          {option.desc}
+                                        </p>
+                                      </div>
+                                      <ChevronRight className="w-4 h-4 text-white/30 group-hover:text-amber-400 transition-colors" />
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                              <button
+                                onClick={() => setSuggestionStep(1)}
+                                className="text-[10px] font-bold text-blue-300 hover:text-white uppercase tracking-wider flex items-center gap-1 mt-2 cursor-pointer"
+                              >
+                                ← Voltar ao passo anterior
+                              </button>
+                            </motion.div>
+                          )}
+
+                          {suggestionStep === 3 && (
+                            <motion.div
+                              key="step-result"
+                              initial={{ opacity: 0, scale: 0.95 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.95 }}
+                              transition={{ duration: 0.2 }}
+                              className="space-y-4 text-left w-full"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
+                                <span className="text-[10px] text-amber-400 font-bold uppercase tracking-widest">
+                                  Sugestão Personalizada
+                                </span>
+                              </div>
+
+                              {(() => {
+                                // Find a partner matching suggestionGoal
+                                let recommendedPartner = partners.find(p => p.category === suggestionGoal);
+                                if (!recommendedPartner) {
+                                  recommendedPartner = partners.find(p => p.featured) || partners[0];
+                                }
+
+                                if (!recommendedPartner) {
+                                  return (
+                                    <div className="p-4 bg-white/5 rounded-xl border border-white/5">
+                                      <p className="text-xs text-blue-200 font-medium">
+                                        Nenhum parceiro encontrado nesta categoria no momento. Explore nossa listagem geral abaixo!
+                                      </p>
+                                    </div>
+                                  );
+                                }
+
+                                const catInfo = publicCategoryMap[recommendedPartner.category || "servicos"] || publicCategoryMap.servicos;
+                                const CatIcon = catInfo.icon;
+                                return (
+                                  <div className="space-y-4">
+                                    <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-3">
+                                      <div className="flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-2.5">
+                                          <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center font-bold text-xs text-white">
+                                            {recommendedPartner.name.slice(0, 2).toUpperCase()}
+                                          </div>
+                                          <div>
+                                            <h6 className="text-sm font-extrabold text-white">
+                                              {recommendedPartner.name}
+                                            </h6>
+                                            <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase text-amber-400 tracking-wider">
+                                              <CatIcon className="w-2.5 h-2.5" />
+                                              {catInfo.label}
+                                            </span>
+                                          </div>
+                                        </div>
+                                        <div className="bg-amber-400 text-blue-950 font-black text-[10px] px-2.5 py-1 rounded-full shrink-0">
+                                          {recommendedPartner.discount} OFF
+                                        </div>
+                                      </div>
+
+                                      <p className="text-[11px] text-blue-200 leading-relaxed font-semibold">
+                                        {suggestionSize === "pme" && `Para micro e pequenas empresas, o convênio com a ${recommendedPartner.name} é excelente para maximizar o orçamento, reduzir despesas fixas e oferecer incentivos competitivos de retenção aos seus colaboradores.`}
+                                        {suggestionSize === "media" && `Sua média empresa se beneficiará amplamente deste convênio com a ${recommendedPartner.name} para estruturar programas contínuos de desenvolvimento organizacional e bem-estar, com ótima relação custo-benefício.`}
+                                        {suggestionSize === "grande" && `Para grandes corporações, o convênio com a ${recommendedPartner.name} garante alta escala de cobertura e tarifas otimizadas, simplificando a administração de benefícios corporativos e parcerias estratégicas.`}
+                                        {!["pme", "media", "grande"].includes(suggestionSize) && recommendedPartner.description}
+                                      </p>
+                                    </div>
+
+                                    <div className="flex items-center gap-2.5 pt-1">
+                                      <button
+                                        onClick={() => {
+                                          setSuggestionStep(0);
+                                          setSuggestionGoal("");
+                                          setSuggestionSize("");
+                                        }}
+                                        className="flex-1 py-3 border border-white/20 hover:bg-white/5 text-white font-bold text-[10px] uppercase tracking-wider rounded-xl transition-all cursor-pointer text-center"
+                                      >
+                                        Refazer Teste
+                                      </button>
+                                      <button
+                                        onClick={() => setSelectedPartnerForRedeem(recommendedPartner)}
+                                        className="flex-[1.5] py-3 bg-amber-400 hover:bg-amber-300 text-blue-950 font-black text-[10px] uppercase tracking-wider rounded-xl transition-all cursor-pointer text-center flex items-center justify-center gap-1 shadow-md shadow-amber-400/10"
+                                      >
+                                        Resgatar Cupom
+                                        <ChevronRight className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
+                      {/* Step bullets indicator */}
+                      <div className="border-t border-white/5 pt-4 mt-4 flex items-center justify-between text-[10px] font-bold text-blue-200">
+                        <span>Status do Teste</span>
+                        <div className="flex items-center gap-1.5 font-sans">
+                          {[0, 1, 2, 3].map(idx => (
+                            <div
+                              key={`step-dot-${idx}`}
+                              className={`h-1.5 rounded-full transition-all duration-300 ${
+                                idx === suggestionStep
+                                  ? "w-4 bg-amber-400"
+                                  : idx < suggestionStep
+                                  ? "w-1.5 bg-emerald-400"
+                                  : "w-1.5 bg-white/20"
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Search and Category Filter Controls */}
@@ -20005,24 +20972,34 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                   )}
                 </div>
 
-                <div className="mt-16 p-8 bg-blue-900 rounded-[40px] flex flex-col lg:flex-row items-center justify-between gap-8 text-white">
+                <div className="mt-16 p-8 bg-blue-900 rounded-[40px] flex flex-col lg:flex-row items-center justify-between gap-8 text-white shadow-xl shadow-blue-900/15">
                   <div className="flex items-center gap-6">
-                    <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/10">
+                    <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/10 shrink-0">
                       <Briefcase className="w-8 h-8 text-amber-400" />
                     </div>
-                    <div>
+                    <div className="text-left">
                       <h4 className="text-2xl font-bold mb-1 italic font-serif">
                         Banco de Oportunidades
                       </h4>
                       <p className="opacity-70 text-sm font-medium tracking-wide">
-                        Plataforma exclusiva de vagas e currículos integrada
-                        para o setor.
+                        Plataforma exclusiva de vagas e currículos integrada para associados e parceiros do setor.
                       </p>
                     </div>
                   </div>
-                  <button className="bg-white text-blue-900 px-8 py-4 rounded-2xl font-bold hover:bg-amber-400 hover:text-blue-950 transition-all flex items-center gap-3">
-                    Divulgar Nova Vaga <ChevronRight className="w-5 h-5" />
-                  </button>
+                  <div className="flex flex-wrap items-center gap-4 shrink-0">
+                    <button
+                      onClick={() => setShowJobsModal(true)}
+                      className="bg-amber-400 hover:bg-amber-300 text-blue-950 px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 shadow-md cursor-pointer active:scale-95"
+                    >
+                      Ver Vagas Disponíveis <Eye className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setShowAddJobModal(true)}
+                      className="bg-white text-blue-900 hover:bg-blue-50 px-6 py-4 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                    >
+                      Divulgar Nova Vaga <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </section>
@@ -23442,6 +24419,468 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
           )}
         </AnimatePresence>
 
+        {/* --- BANCO DE VAGAS / OPORTUNIDADES MODAL --- */}
+        <AnimatePresence>
+          {showJobsModal && (
+            <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[105] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white w-full max-w-5xl rounded-[40px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+              >
+                {/* Header */}
+                <div className="bg-blue-950 p-8 text-white flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center">
+                      <Briefcase className="w-6 h-6 text-amber-400" />
+                    </div>
+                    <div className="text-left">
+                      <h3 className="text-xl lg:text-2xl font-black uppercase tracking-tight font-display">
+                        Banco de Oportunidades do Setor
+                      </h3>
+                      <p className="text-xs text-blue-200 mt-0.5">
+                        Plataforma de vagas exclusivas para associados do SINPA. Marque vagas como "Contratado" para atualizar o painel.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowJobsModal(false)}
+                    className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl transition-all cursor-pointer text-white"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Filters & Actions Bar */}
+                <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col md:flex-row gap-4 items-center justify-between shrink-0">
+                  <div className="flex flex-1 flex-col sm:flex-row gap-3 w-full">
+                    {/* Search Input */}
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Buscar por cargo, empresa ou requisitos..."
+                        value={jobSearch}
+                        onChange={(e) => setJobSearch(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-2xl text-xs font-medium focus:outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-900 transition-all text-gray-900"
+                      />
+                    </div>
+
+                    {/* Type Filter */}
+                    <div className="relative">
+                      <select
+                        value={jobTypeFilter}
+                        onChange={(e) => setJobTypeFilter(e.target.value)}
+                        className="appearance-none w-full sm:w-44 pl-4 pr-10 py-3 bg-white border border-gray-200 rounded-2xl text-xs font-bold text-gray-700 cursor-pointer focus:outline-none focus:border-blue-900 transition-all"
+                      >
+                        <option value="all">Todos os Regimes</option>
+                        <option value="CLT">CLT</option>
+                        <option value="PJ">PJ</option>
+                        <option value="Estágio">Estágio</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+
+                    {/* Status Filter */}
+                    <div className="relative">
+                      <select
+                        value={jobStatusFilter}
+                        onChange={(e) => setJobStatusFilter(e.target.value)}
+                        className="appearance-none w-full sm:w-44 pl-4 pr-10 py-3 bg-white border border-gray-200 rounded-2xl text-xs font-bold text-gray-700 cursor-pointer focus:outline-none focus:border-blue-900 transition-all"
+                      >
+                        <option value="all">Todos os Status</option>
+                        <option value="aberta">Vagas Abertas</option>
+                        <option value="contratado">Hired / Contratado</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setShowJobsModal(false);
+                      setShowAddJobModal(true);
+                    }}
+                    className="w-full md:w-auto px-5 py-3.5 bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-4 h-4" /> Cadastrar Vaga
+                  </button>
+                </div>
+
+                {/* Job Cards Container */}
+                <div className="p-8 overflow-y-auto flex-1 space-y-6 bg-slate-50/55">
+                  {(() => {
+                    const filtered = vacancies.filter(v => {
+                      const matchesSearch = 
+                        v.title.toLowerCase().includes(jobSearch.toLowerCase()) ||
+                        v.company.toLowerCase().includes(jobSearch.toLowerCase()) ||
+                        v.description.toLowerCase().includes(jobSearch.toLowerCase()) ||
+                        v.requirements.toLowerCase().includes(jobSearch.toLowerCase());
+                      const matchesType = jobTypeFilter === "all" || v.type === jobTypeFilter;
+                      const matchesStatus = jobStatusFilter === "all" || v.status === jobStatusFilter;
+                      return matchesSearch && matchesType && matchesStatus;
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="py-16 text-center max-w-md mx-auto">
+                          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center text-gray-400 mx-auto mb-6">
+                            <Search className="w-8 h-8" />
+                          </div>
+                          <h4 className="font-bold text-lg text-blue-950 mb-2">Nenhuma vaga encontrada</h4>
+                          <p className="text-gray-500 text-sm font-medium mb-6">
+                            Não encontramos vagas com os termos informados ou filtros selecionados. Tente ajustar os filtros ou publique uma nova vaga de exemplo!
+                          </p>
+                          <button
+                            onClick={() => {
+                              setJobSearch("");
+                              setJobTypeFilter("all");
+                              setJobStatusFilter("all");
+                            }}
+                            className="bg-blue-900 hover:bg-blue-950 text-white font-black px-6 py-3 rounded-2xl text-xs uppercase tracking-wider transition-all cursor-pointer"
+                          >
+                            Limpar Filtros
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {filtered.map((job) => (
+                          <div
+                            key={job.id}
+                            className={`p-6 rounded-[32px] border bg-white shadow-sm hover:shadow-md transition-all flex flex-col justify-between ${
+                              job.status === "contratado" 
+                                ? "border-gray-150 bg-gray-50/40 opacity-85" 
+                                : "border-gray-100 hover:border-blue-100"
+                            }`}
+                          >
+                            <div className="space-y-4">
+                              {/* Card Header Status Row */}
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-md ${
+                                  job.type === "CLT" 
+                                    ? "bg-blue-50 text-blue-800 border border-blue-100" 
+                                    : job.type === "PJ"
+                                    ? "bg-purple-50 text-purple-800 border border-purple-100"
+                                    : "bg-teal-50 text-teal-800 border border-teal-100"
+                                }`}>
+                                  {job.type}
+                                </span>
+
+                                <div className="flex items-center gap-1.5">
+                                  {job.status === "contratado" ? (
+                                    <span className="bg-emerald-50 text-emerald-800 border border-emerald-100 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md flex items-center gap-1">
+                                      <Check className="w-3 h-3 text-emerald-600" /> CONTRATADO
+                                    </span>
+                                  ) : (
+                                    <span className="bg-green-50 text-green-800 border border-green-100 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> ABERTA
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Title & Company */}
+                              <div className="text-left">
+                                <h4 className="text-base font-extrabold text-blue-950 leading-tight">
+                                  {job.title}
+                                </h4>
+                                <p className="text-xs font-bold text-blue-900 mt-1 flex items-center gap-1">
+                                  <Building className="w-3.5 h-3.5" /> {job.company}
+                                </p>
+                              </div>
+
+                              {/* Quick Meta Details */}
+                              <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-gray-500 text-left border-t border-b border-gray-50 py-3">
+                                <div className="flex items-center gap-1">
+                                  <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" /> {job.location}
+                                </div>
+                                <div className="flex items-center gap-1 text-emerald-700">
+                                  <Banknote className="w-3.5 h-3.5 text-emerald-500 shrink-0" /> {job.salary}
+                                </div>
+                              </div>
+
+                              {/* Descriptions */}
+                              <div className="space-y-2 text-left text-xs font-medium">
+                                <div>
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 block">
+                                    Sobre a vaga
+                                  </span>
+                                  <p className="text-gray-600 leading-relaxed mt-0.5">
+                                    {job.description}
+                                  </p>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 block">
+                                    Requisitos necessários
+                                  </span>
+                                  <p className="text-gray-600 leading-relaxed mt-0.5">
+                                    {job.requirements}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Actions / Contact email */}
+                            <div className="mt-6 pt-4 border-t border-gray-100 space-y-3">
+                              <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100 flex items-center justify-between gap-2 text-left">
+                                <div className="min-w-0">
+                                  <span className="text-[9px] font-bold text-gray-400 uppercase block tracking-wider leading-none">
+                                    E-mail de Contato
+                                  </span>
+                                  <span className="text-xs font-black text-blue-950 truncate block mt-0.5">
+                                    {job.contactEmail}
+                                  </span>
+                                </div>
+                                <a 
+                                  href={`mailto:${job.contactEmail}?subject=Candidatura: ${job.title}`}
+                                  className="p-2.5 bg-blue-50 hover:bg-blue-100 text-blue-900 rounded-xl transition-all font-bold text-[10px] uppercase tracking-wider cursor-pointer flex items-center justify-center text-center shrink-0"
+                                >
+                                  Candidatar-se
+                                </a>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2 pt-1">
+                                {job.status === "aberta" ? (
+                                  <button
+                                    onClick={() => handleUpdateJobStatus(job.id, "contratado")}
+                                    className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl transition-all font-black text-[10px] uppercase tracking-wider cursor-pointer flex items-center justify-center gap-1 shadow-sm active:scale-95"
+                                  >
+                                    <CheckCircle className="w-3.5 h-3.5" /> Marcar como Contratado
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => handleUpdateJobStatus(job.id, "aberta")}
+                                    className="flex-1 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-all font-bold text-[10px] uppercase tracking-wider cursor-pointer flex items-center justify-center gap-1 active:scale-95"
+                                  >
+                                    <RefreshCw className="w-3.5 h-3.5" /> Reabrir Vaga
+                                  </button>
+                                )}
+
+                                <button
+                                  onClick={() => handleDeleteJob(job.id)}
+                                  className="p-2.5 border border-red-100 hover:bg-red-50 text-red-500 hover:text-red-600 rounded-xl transition-all cursor-pointer flex items-center justify-center active:scale-95 shrink-0"
+                                  title="Excluir Vaga"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Footer status counter */}
+                <div className="p-5 border-t border-gray-100 bg-gray-50 flex items-center justify-between text-xs font-bold text-gray-500 shrink-0">
+                  <div className="flex gap-4">
+                    <span>Total: {vacancies.length} vagas</span>
+                    <span className="text-green-600">Abertas: {vacancies.filter(v => v.status === 'aberta').length}</span>
+                    <span className="text-emerald-700">Preenchidas: {vacancies.filter(v => v.status === 'contratado').length}</span>
+                  </div>
+                  <span>Sindicato SINPA • 2026</span>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* --- CADASTRAR NOVA VAGA MODAL --- */}
+        <AnimatePresence>
+          {showAddJobModal && (
+            <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[106] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+              >
+                <div className="bg-blue-950 p-6 text-white flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center">
+                      <Plus className="w-5 h-5 text-amber-400" />
+                    </div>
+                    <div className="text-left">
+                      <h4 className="text-lg font-black uppercase tracking-tight">
+                        Cadastrar Nova Oportunidade
+                      </h4>
+                      <p className="text-[10px] text-blue-200">
+                        Disponibilize vagas de trabalho para candidatos e associados
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowAddJobModal(false);
+                      setShowJobsModal(true);
+                    }}
+                    className="p-2 hover:bg-white/10 rounded-xl transition-all cursor-pointer text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateJob} className="p-8 space-y-5 text-left overflow-y-auto flex-1">
+                  {/* Job Title */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-black uppercase tracking-wider text-gray-500 block">
+                      Cargo / Título da Vaga <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Operador de Linha de Produção"
+                      value={newJobTitle}
+                      onChange={(e) => setNewJobTitle(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-2xl text-xs font-semibold focus:outline-none focus:border-blue-900 transition-all text-gray-900 bg-gray-50/30"
+                    />
+                  </div>
+
+                  {/* Company and Location */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-black uppercase tracking-wider text-gray-500 block">
+                        Empresa Ofertante <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Metalúrgica Norte S/A"
+                        value={newJobCompany}
+                        onChange={(e) => setNewJobCompany(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-2xl text-xs font-semibold focus:outline-none focus:border-blue-900 transition-all text-gray-900 bg-gray-50/30"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-black uppercase tracking-wider text-gray-500 block">
+                        Localização <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Salvador - BA / Camaçari"
+                        value={newJobLocation}
+                        onChange={(e) => setNewJobLocation(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-2xl text-xs font-semibold focus:outline-none focus:border-blue-900 transition-all text-gray-900 bg-gray-50/30"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Salary and Contract Type */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-black uppercase tracking-wider text-gray-500 block">
+                        Remuneração / Salário
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: R$ 2.500,00 ou A combinar"
+                        value={newJobSalary}
+                        onChange={(e) => setNewJobSalary(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-2xl text-xs font-semibold focus:outline-none focus:border-blue-900 transition-all text-gray-900 bg-gray-50/30"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-black uppercase tracking-wider text-gray-500 block">
+                        Regime de Contratação <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={newJobType}
+                          onChange={(e) => setNewJobType(e.target.value as "CLT" | "PJ" | "Estágio")}
+                          className="appearance-none w-full px-4 py-3 border border-gray-200 rounded-2xl text-xs font-bold text-gray-700 cursor-pointer focus:outline-none focus:border-blue-900 bg-gray-50/30"
+                        >
+                          <option value="CLT">CLT (Efetivo)</option>
+                          <option value="PJ">PJ (Contrato Prestador)</option>
+                          <option value="Estágio">Estágio</option>
+                        </select>
+                        <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Contact Email */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-black uppercase tracking-wider text-gray-500 block">
+                      E-mail para Recebimento de Currículos <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="Ex: vagas@empresa.com.br"
+                      value={newJobEmail}
+                      onChange={(e) => setNewJobEmail(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-2xl text-xs font-semibold focus:outline-none focus:border-blue-900 transition-all text-gray-900 bg-gray-50/30"
+                    />
+                  </div>
+
+                  {/* Description */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-black uppercase tracking-wider text-gray-500 block">
+                      Atividades & Descrição
+                    </label>
+                    <textarea
+                      placeholder="Descreva as responsabilidades e atribuições do cargo..."
+                      value={newJobDescription}
+                      onChange={(e) => setNewJobDescription(e.target.value)}
+                      rows={3}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-2xl text-xs font-semibold focus:outline-none focus:border-blue-900 transition-all text-gray-900 bg-gray-50/30 resize-none"
+                    />
+                  </div>
+
+                  {/* Requirements */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-black uppercase tracking-wider text-gray-500 block">
+                      Requisitos & Qualificações
+                    </label>
+                    <textarea
+                      placeholder="Ex: Experiência com solda MIG, Curso técnico completo, etc."
+                      value={newJobRequirements}
+                      onChange={(e) => setNewJobRequirements(e.target.value)}
+                      rows={2}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-2xl text-xs font-semibold focus:outline-none focus:border-blue-900 transition-all text-gray-900 bg-gray-50/30 resize-none"
+                    />
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-3 pt-4 border-t border-gray-100 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddJobModal(false);
+                        setShowJobsModal(true);
+                      }}
+                      className="flex-1 py-4 border border-gray-200 hover:bg-gray-50 text-gray-600 font-bold rounded-2xl text-xs uppercase tracking-wider transition-all cursor-pointer text-center"
+                    >
+                      Voltar ao Banco
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmittingJob}
+                      className="flex-[1.5] py-4 bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black rounded-2xl text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {isSubmittingJob ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" /> Publicando...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-4 h-4" /> Publicar Vaga
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
         {/* PIX Payment Modal */}
         <AnimatePresence>
           {showPixModal && selectedBoletoPix && (
@@ -24789,6 +26228,79 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
               <X className="w-4 h-4 opacity-50" />
             </button>
           </motion.div>
+        )}
+
+        {/* Custom Delete Confirmation Modal */}
+        {deleteConfirm.isOpen && (
+          <div className="fixed inset-0 bg-blue-950/40 backdrop-blur-md z-[2100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden border border-gray-100"
+            >
+              <div className="p-8 space-y-6">
+                {/* Header/Icon */}
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center shrink-0 shadow-inner">
+                    <Trash2 className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-black text-blue-950 font-display">
+                      Confirmar Exclusão
+                    </h4>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">
+                      {deleteConfirm.type === "partner" ? "Parceiros & Convênios" : 
+                       deleteConfirm.type === "publication" ? "Publicações & Documentos" : 
+                       "Histórico de Contratos"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Body Content */}
+                <div className="space-y-3 bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest leading-none">
+                    Item Selecionado
+                  </p>
+                  <p className="text-sm font-black text-blue-950 break-words leading-snug">
+                    {deleteConfirm.title}
+                  </p>
+                  <div className="pt-3 border-t border-gray-200/60 flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                    <p className="text-[10px] text-rose-800 font-bold leading-relaxed">
+                      Esta ação é permanente e não poderá ser desfeita. O registro correspondente será removido definitivamente do banco de dados e do portal de forma irreversível.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer Buttons */}
+              <div className="p-6 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setDeleteConfirm({ isOpen: false, type: null, id: "", title: "" })}
+                  className="px-5 py-3 hover:bg-gray-200 hover:text-gray-700 text-gray-500 rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    if (deleteConfirm.type === "partner") {
+                      executeDeletePartner(deleteConfirm.id);
+                    } else if (deleteConfirm.type === "publication") {
+                      executeDeletePublishedDoc(deleteConfirm.id);
+                    } else if (deleteConfirm.type === "partnerContract") {
+                      executeDeletePartnerContract(deleteConfirm.id);
+                    }
+                    setDeleteConfirm({ isOpen: false, type: null, id: "", title: "" });
+                  }}
+                  className="px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md shadow-rose-600/10 active:scale-95 flex items-center gap-2 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Excluir Registro
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </>

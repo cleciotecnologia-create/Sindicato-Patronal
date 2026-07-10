@@ -247,6 +247,10 @@ service cloud.firestore {
       allow write: if isSignedIn();
     }
 
+    match /vagas/{vagaId} {
+      allow read, write: if true;
+    }
+
     match /push_subscriptions/{subscriptionId} {
       allow read, write: if true;
     }
