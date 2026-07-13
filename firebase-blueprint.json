@@ -46,8 +46,11 @@
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
         "message": { "type": "string" },
         "category": { "type": "string" },
+        "sentiment": { "type": "string", "enum": ["Positivas", "Negativas", "Neutras"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["message", "createdAt"]

@@ -202,6 +202,61 @@ async function startServer() {
     }
   });
 
+  // API route for AI Marketing Copy & Strategy generation for Partners & Associates
+  app.post("/api/marketing/generate-copy", async (req, res) => {
+    try {
+      const { companyName, companyType, benefitDetail, targetAudience } = req.body;
+
+      if (!companyName || !companyType || !benefitDetail || !targetAudience) {
+        return res.status(400).json({ error: "Missing required fields in request body." });
+      }
+
+      const prompt = `Você é um Engenheiro de Software Sênior e Estrategista Sênior de Marketing de Crescimento (Growth Marketing) especialista no setor industrial, comercial e ecossistema B2B de Sindicatos Patronais.
+      Sua missão é gerar um plano estratégico de marketing de co-branding (marketing cooperativo) e copys promocionais de alta conversão para divulgar o associado ou parceiro do Sindicato Patronal SINPA.
+
+      Dados da Empresa:
+      - Nome: ${companyName}
+      - Categoria/Tipo: ${companyType === "partner" ? "Parceiro de Convênios / Clube de Vantagens" : "Empresa Associada (Membro Patrono)"}
+      - Detalhes do Benefício / Atividades: ${benefitDetail}
+      - Público Alvo: ${targetAudience === "companies" ? "Empresas, Diretores e Gestores de RH" : targetAudience === "employees" ? "Colaboradores das empresas filiadas e suas famílias" : "Público Geral e Comunidade"}
+
+      Gere um plano extremamente bem estruturado, com tom profissional, focado em conversão e benefício mútuo (ganha-ganha), e formate as copys de divulgação prontas para uso.
+
+      Retorne em formato JSON válido combinando os campos indicados.`;
+
+      const result = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              strategy: { type: Type.STRING, description: "3 a 4 sugestões estratégicas executivas de marketing cooperativo, parcerias e ativação da marca no sindicato." },
+              whatsappCopy: { type: Type.STRING, description: "Mensagem persuasiva e amigável formatada para WhatsApp, contendo espaçamentos, tópicos fáceis e emojis." },
+              emailCopy: {
+                type: Type.OBJECT,
+                properties: {
+                  subject: { type: Type.STRING, description: "Assunto chamativo e profissional para e-mail corporativo (B2B)." },
+                  body: { type: Type.STRING, description: "Corpo do e-mail com estrutura de introdução, benefício principal, chamada para ação (CTA) e despedida profissional." }
+                },
+                required: ["subject", "body"]
+              },
+              socialCopy: { type: Type.STRING, description: "Post de alta qualidade para redes sociais corporativas (como LinkedIn ou Instagram), acompanhado de hashtags relevantes." }
+            },
+            required: ["strategy", "whatsappCopy", "emailCopy", "socialCopy"]
+          }
+        }
+      });
+
+      const responseData = JSON.parse(result.text || "{}");
+      res.json(responseData);
+    } catch (error: any) {
+      console.error("Gemini Marketing Error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate marketing materials" });
+    }
+  });
+
   // API route for Plantão Jurídico classification & routing
   app.post("/api/plantao/classify", async (req, res) => {
     try {

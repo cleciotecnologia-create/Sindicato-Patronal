@@ -433,6 +433,28 @@ function BenefitCard({ benefit }: BenefitCardProps) {
   );
 }
 
+const marqueePartners = [
+  { name: "Unimed Regional", category: "Saúde", logoText: "UR", icon: Heart, color: "text-emerald-600 bg-emerald-50/50 border-emerald-100", label: "Convênio de Saúde", discount: "20%" },
+  { name: "Faculdade Impacto", category: "Educação", logoText: "FI", icon: GraduationCap, color: "text-blue-600 bg-blue-50/50 border-blue-100", label: "Graduação & Pós", discount: "35%" },
+  { name: "Hotel Vista Mar", category: "Lazer", logoText: "VM", icon: Coffee, color: "text-amber-600 bg-amber-50/50 border-amber-100", label: "Lazer & Hotelaria", discount: "15%" },
+  { name: "Porto Seguro", category: "Seguros", logoText: "PS", icon: Shield, color: "text-indigo-600 bg-indigo-50/50 border-indigo-100", label: "Seguros Corp", discount: "10%" },
+  { name: "Bradesco Saúde", category: "Saúde", logoText: "BS", icon: Heart, color: "text-rose-600 bg-rose-50/50 border-rose-100", label: "Planos Coletivos", discount: "25%" },
+  { name: "Senai Tecnologias", category: "Cursos", logoText: "SN", icon: GraduationCap, color: "text-purple-600 bg-purple-50/50 border-purple-100", label: "Capacitação Técnica", discount: "15%" },
+  { name: "Sesc Lazer", category: "Clubes", logoText: "SC", icon: Coffee, color: "text-pink-600 bg-pink-50/50 border-pink-100", label: "Lazer Integrado", discount: "30%" },
+  { name: "Sebrae Negócios", category: "Mentoria", logoText: "SB", icon: Briefcase, color: "text-teal-600 bg-teal-50/50 border-teal-100", label: "Consultoria B2B", discount: "Gratuito" },
+];
+
+const marqueeAssociates = [
+  { name: "Metalúrgica Aliança", segment: "Metalurgia", logoText: "MA", icon: Settings, color: "text-slate-600 bg-slate-50/50 border-slate-100", label: "Indústria Ativa" },
+  { name: "Construtora Alfa", segment: "Construção", logoText: "CA", icon: Building, color: "text-orange-600 bg-orange-50/50 border-orange-100", label: "Infraestrutura" },
+  { name: "Logística Expressa", segment: "Transporte", logoText: "LE", icon: Briefcase, color: "text-sky-600 bg-sky-50/50 border-sky-100", label: "Distribuição" },
+  { name: "Alimentos Sabor do Sul", segment: "Alimentício", logoText: "SS", icon: ShoppingBag, color: "text-yellow-600 bg-yellow-50/50 border-yellow-100", label: "Industrialização" },
+  { name: "Tecnologia Global", segment: "Tecnologia", logoText: "TG", icon: Globe, color: "text-violet-600 bg-violet-50/50 border-violet-100", label: "P&D / Software" },
+  { name: "Auto Peças Central", segment: "Automotivo", logoText: "AP", icon: Settings, color: "text-zinc-600 bg-zinc-50/50 border-zinc-100", label: "Manufatura Peças" },
+  { name: "Têxtil Fio de Ouro", segment: "Têxtil", logoText: "FO", icon: Sparkles, color: "text-amber-600 bg-amber-50/50 border-amber-100", label: "Confecção" },
+  { name: "Embalagens Ecoflex", segment: "Embalagens", logoText: "EF", icon: Shield, color: "text-emerald-600 bg-emerald-50/50 border-emerald-100", label: "Sustentabilidade" },
+];
+
 function LandingPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -882,6 +904,9 @@ function LandingPage() {
     address: "",
   });
   const [isSubmittingMembership, setIsSubmittingMembership] = useState(false);
+  const [isSearchingCnpj, setIsSearchingCnpj] = useState(false);
+  const [cnpjError, setCnpjError] = useState<string | null>(null);
+  const [cnpjSuccess, setCnpjSuccess] = useState<boolean>(false);
   const sinpaSvgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 550 180" width="100%" height="100%"><defs><linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f1a80a" /><stop offset="50%" stop-color="#df9d0c" /><stop offset="100%" stop-color="#b57a00" /></linearGradient><linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#0059b3" /><stop offset="100%" stop-color="#003366" /></linearGradient><filter id="subtle-shadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.1"/></filter></defs><g filter="url(#subtle-shadow)"><g transform="translate(320, 10)"><path d="M 0,90 C 20,70 60,30 140,28 C 120,42 90,55 70,72 C 100,65 140,68 160,40 C 120,70 70,78 0,110 Z" fill="url(#goldGrad)" /><path d="M 0,90 C 35,78 80,68 130,62 C 90,70 50,90 10,102 Z" fill="url(#blueGrad)" /></g><g transform="translate(20, 115)"><text x="0" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="94" fill="#004899" letter-spacing="-4">Sinpa</text><text x="272" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="94" fill="#df9d0c" letter-spacing="-1">BA</text></g><text x="24" y="155" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="28" fill="#df9d0c" letter-spacing="1.2">Paulo Afonso e região</text></g></svg>`;
   const defaultSinpaLogo =
     "data:image/svg+xml;base64," +
@@ -2086,6 +2111,29 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
         text: `Aprovando solicitação de ${request.companyName}...`,
       });
 
+      const cleanCnpj = (request.cnpj || "").replace(/\D/g, "");
+      const formattedCnpj = formatCNPJ(cleanCnpj);
+
+      // Check if CNPJ already exists in "members" (active associates)
+      const qMembersFormatted = query(collection(db, "members"), where("cnpj", "==", formattedCnpj));
+      const qMembersClean = query(collection(db, "members"), where("cnpj", "==", cleanCnpj));
+      const [snapFormatted, snapClean] = await Promise.all([
+        getDocs(qMembersFormatted),
+        getDocs(qMembersClean)
+      ]);
+
+      if (!snapFormatted.empty || !snapClean.empty) {
+        showNotification(
+          "error",
+          "Não é possível aprovar esta solicitação: já existe um associado ativo cadastrado com este CNPJ."
+        );
+        setGlobalMessage({
+          type: "error",
+          text: "Este CNPJ já está cadastrado como associado.",
+        });
+        return;
+      }
+
       // 1. Criar o Associado (Membro)
       const memberRef = await addDoc(collection(db, "members"), {
         name: request.companyName,
@@ -2188,6 +2236,62 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
   const [suggestionStep, setSuggestionStep] = useState(0); // 0: intro, 1: goal/need, 2: company size, 3: recommendation
   const [suggestionGoal, setSuggestionGoal] = useState("");
   const [suggestionSize, setSuggestionSize] = useState("");
+
+  // AI Marketing Copys & Growth Strategy States
+  const [mktTab, setMktTab] = useState<"recommend" | "ai">("recommend");
+  const [mktCompanyName, setMktCompanyName] = useState("");
+  const [mktCompanyType, setMktCompanyType] = useState<"partner" | "associate">("partner");
+  const [mktBenefitDetail, setMktBenefitDetail] = useState("");
+  const [mktTargetAudience, setMktTargetAudience] = useState<"companies" | "employees" | "general">("companies");
+  const [mktResult, setMktResult] = useState<{
+    strategy: string;
+    whatsappCopy: string;
+    emailCopy: { subject: string; body: string };
+    socialCopy: string;
+  } | null>(null);
+  const [isGeneratingMkt, setIsGeneratingMkt] = useState(false);
+  const [mktError, setMktError] = useState<string | null>(null);
+
+  const handleGenerateMarketingCopy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mktCompanyName.trim() || !mktBenefitDetail.trim()) {
+      showNotification("error", "Por favor, preencha todos os campos do formulário.");
+      return;
+    }
+
+    setIsGeneratingMkt(true);
+    setMktError(null);
+    setMktResult(null);
+
+    try {
+      const response = await fetch("/api/marketing/generate-copy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          companyName: mktCompanyName,
+          companyType: mktCompanyType,
+          benefitDetail: mktBenefitDetail,
+          targetAudience: mktTargetAudience,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Erro na geração de sugestões de marketing. Tente novamente.");
+      }
+
+      const data = await response.json();
+      setMktResult(data);
+      showNotification("success", "Campanha e sugestões de marketing geradas com sucesso pela IA!");
+    } catch (err: any) {
+      console.error("Marketing generation error:", err);
+      setMktError(err.message || "Erro de conexão com o servidor de IA.");
+      showNotification("error", "Não foi possível gerar as sugestões com o Gemini.");
+    } finally {
+      setIsGeneratingMkt(false);
+    }
+  };
 
   const executeDeletePartner = (id: string) => {
     setPartners((prev) => prev.filter((p) => p.id !== id));
@@ -3097,10 +3201,186 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
     }
   };
 
+  const isValidCNPJ = (cnpjStr: string): boolean => {
+    const clean = cnpjStr.replace(/\D/g, "");
+    if (clean.length !== 14) return false;
+    if (/^(\d)\1+$/.test(clean)) return false;
+    
+    let size = clean.length - 2;
+    let numbers = clean.substring(0, size);
+    const digits = clean.substring(size);
+    let sum = 0;
+    let pos = size - 7;
+    for (let i = size; i >= 1; i--) {
+      sum += Number(numbers.charAt(size - i)) * pos--;
+      if (pos < 2) pos = 9;
+    }
+    let result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+    if (result !== Number(digits.charAt(0))) return false;
+    
+    size = size + 1;
+    numbers = clean.substring(0, size);
+    sum = 0;
+    pos = size - 7;
+    for (let i = size; i >= 1; i--) {
+      sum += Number(numbers.charAt(size - i)) * pos--;
+      if (pos < 2) pos = 9;
+    }
+    result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+    if (result !== Number(digits.charAt(1))) return false;
+    
+    return true;
+  };
+
+  const lookupCNPJ = async (cnpjVal: string) => {
+    const cleanCnpj = cnpjVal.replace(/\D/g, "");
+    if (cleanCnpj.length !== 14) {
+      setCnpjSuccess(false);
+      setCnpjError(null);
+      return;
+    }
+
+    if (!isValidCNPJ(cleanCnpj)) {
+      setCnpjSuccess(false);
+      setCnpjError("CNPJ inválido (Dígitos verificadores incorretos).");
+      return;
+    }
+
+    try {
+      setIsSearchingCnpj(true);
+      setCnpjError(null);
+      setCnpjSuccess(false);
+
+      const formattedCnpj = formatCNPJ(cleanCnpj);
+
+      // Check if CNPJ already exists in "members" (active associates)
+      const qMembersFormatted = query(collection(db, "members"), where("cnpj", "==", formattedCnpj));
+      const qMembersClean = query(collection(db, "members"), where("cnpj", "==", cleanCnpj));
+      const [snapFormatted, snapClean] = await Promise.all([
+        getDocs(qMembersFormatted),
+        getDocs(qMembersClean)
+      ]);
+
+      if (!snapFormatted.empty || !snapClean.empty) {
+        setCnpjSuccess(false);
+        setCnpjError("Este CNPJ já está cadastrado como associado no sistema.");
+        return;
+      }
+
+      // Check if CNPJ already exists in pending "membership_requests"
+      const qRequestsFormatted = query(
+        collection(db, "membership_requests"),
+        where("cnpj", "==", formattedCnpj),
+        where("status", "==", "pending")
+      );
+      const qRequestsClean = query(
+        collection(db, "membership_requests"),
+        where("cnpj", "==", cleanCnpj),
+        where("status", "==", "pending")
+      );
+      const [snapReqFormatted, snapReqClean] = await Promise.all([
+        getDocs(qRequestsFormatted),
+        getDocs(qRequestsClean)
+      ]);
+
+      if (!snapReqFormatted.empty || !snapReqClean.empty) {
+        setCnpjSuccess(false);
+        setCnpjError("Já existe uma solicitação de filiação em análise para este CNPJ.");
+        return;
+      }
+
+      const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cleanCnpj}`);
+      if (!response.ok) {
+        throw new Error("CNPJ não localizado na base pública.");
+      }
+      const data = await response.json();
+
+      const street = data.logradouro || "";
+      const number = data.numero || "";
+      const comp = data.complemento ? ` - ${data.complemento}` : "";
+      const bhood = data.bairro ? `, ${data.bairro}` : "";
+      const city = data.municipio || "";
+      const state = data.uf || "";
+      const zip = data.cep ? ` - CEP: ${data.cep.replace(/^(\d{5})(\d{3})$/, "$1-$2")}` : "";
+      
+      const formattedAddress = `${street}, ${number}${comp}${bhood}, ${city} - ${state}${zip}`.trim().replace(/^,\s*/, "");
+
+      setMembershipData((prev) => ({
+        ...prev,
+        companyName: data.razao_social || data.nome_fantasia || prev.companyName,
+        address: formattedAddress || prev.address,
+        capitalSocial: data.capital_social ? String(data.capital_social) : prev.capitalSocial,
+      }));
+
+      setCnpjSuccess(true);
+      showNotification("success", "Dados da empresa importados com sucesso via CNPJ!");
+    } catch (err: any) {
+      console.error("Error looking up CNPJ:", err);
+      setCnpjError(err.message || "CNPJ não encontrado ou erro ao consultar a base pública.");
+    } finally {
+      setIsSearchingCnpj(false);
+    }
+  };
+
+  const formatCNPJ = (value: string) => {
+    const digits = value.replace(/\D/g, "").slice(0, 14);
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`;
+    if (digits.length <= 8) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5)}`;
+    if (digits.length <= 12) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8)}`;
+    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12, 14)}`;
+  };
+
   const handleMembershipSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setIsSubmittingMembership(true);
+
+      const cleanCnpj = membershipData.cnpj.replace(/\D/g, "");
+      const formattedCnpj = formatCNPJ(cleanCnpj);
+
+      // Double-check in members
+      const qMembersFormatted = query(collection(db, "members"), where("cnpj", "==", formattedCnpj));
+      const qMembersClean = query(collection(db, "members"), where("cnpj", "==", cleanCnpj));
+      const [snapFormatted, snapClean] = await Promise.all([
+        getDocs(qMembersFormatted),
+        getDocs(qMembersClean)
+      ]);
+
+      if (!snapFormatted.empty || !snapClean.empty) {
+        showNotification(
+          "error",
+          "Impossível enviar: este CNPJ já está cadastrado como associado."
+        );
+        setIsSubmittingMembership(false);
+        return;
+      }
+
+      // Double-check in pending requests
+      const qRequestsFormatted = query(
+        collection(db, "membership_requests"),
+        where("cnpj", "==", formattedCnpj),
+        where("status", "==", "pending")
+      );
+      const qRequestsClean = query(
+        collection(db, "membership_requests"),
+        where("cnpj", "==", cleanCnpj),
+        where("status", "==", "pending")
+      );
+      const [snapReqFormatted, snapReqClean] = await Promise.all([
+        getDocs(qRequestsFormatted),
+        getDocs(qRequestsClean)
+      ]);
+
+      if (!snapReqFormatted.empty || !snapReqClean.empty) {
+        showNotification(
+          "error",
+          "Impossível enviar: já existe uma solicitação de filiação em andamento para este CNPJ."
+        );
+        setIsSubmittingMembership(false);
+        return;
+      }
+
       await addDoc(collection(db, "membership_requests"), {
         ...membershipData,
         capitalSocial: Number(membershipData.capitalSocial),
@@ -3127,6 +3407,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
         "error",
         "Falha ao enviar solicitação: " + error.message,
       );
+      handleFirestoreError(error, OperationType.WRITE, "membership_requests");
     } finally {
       setIsSubmittingMembership(false);
     }
@@ -6200,6 +6481,49 @@ Para corrigir:
   const [newMemberMonthlyValue, setNewMemberMonthlyValue] = useState(150);
   const [newMemberPassword, setNewMemberPassword] = useState("");
   const [isRegisteringMember, setIsRegisteringMember] = useState(false);
+  const [isSearchingCnpjAdmin, setIsSearchingCnpjAdmin] = useState(false);
+
+  const lookupCNPJForAdmin = async (cnpjVal: string) => {
+    const cleanCnpj = cnpjVal.replace(/\D/g, "");
+    if (cleanCnpj.length !== 14) return;
+
+    if (!isValidCNPJ(cleanCnpj)) {
+      showNotification("error", "CNPJ inválido (Dígitos verificadores incorretos).");
+      return;
+    }
+
+    try {
+      setIsSearchingCnpjAdmin(true);
+      const formattedCnpj = formatCNPJ(cleanCnpj);
+
+      // Check if CNPJ already exists in "members" (active associates)
+      const qMembersFormatted = query(collection(db, "members"), where("cnpj", "==", formattedCnpj));
+      const qMembersClean = query(collection(db, "members"), where("cnpj", "==", cleanCnpj));
+      const [snapFormatted, snapClean] = await Promise.all([
+        getDocs(qMembersFormatted),
+        getDocs(qMembersClean)
+      ]);
+
+      if (!snapFormatted.empty || !snapClean.empty) {
+        showNotification("error", "Este CNPJ já está cadastrado para outro associado no sistema.");
+        return;
+      }
+
+      const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cleanCnpj}`);
+      if (!response.ok) {
+        throw new Error("CNPJ não localizado na base pública.");
+      }
+      const data = await response.json();
+
+      setNewMemberName(data.razao_social || data.nome_fantasia || newMemberName);
+      showNotification("success", "Dados da empresa importados com sucesso via CNPJ!");
+    } catch (err: any) {
+      console.error("Error looking up CNPJ for Admin:", err);
+      showNotification("error", err.message || "Erro ao consultar CNPJ na base pública.");
+    } finally {
+      setIsSearchingCnpjAdmin(false);
+    }
+  };
 
   const {
     data: userProfile,
@@ -6534,13 +6858,19 @@ Para corrigir:
         return;
       }
 
-      // 2. Check if CNPJ already exists in members collection
-      const cnpjQuery = query(
-        collection(db, "members"),
-        where("cnpj", "==", newMemberCnpj.trim()),
-      );
-      const cnpjSnap = await getDocs(cnpjQuery);
-      if (!cnpjSnap.empty) {
+      // 2. Check if CNPJ already exists in members collection (both clean and formatted)
+      const cleanNewMemberCnpj = newMemberCnpj.trim().replace(/\D/g, "");
+      const formattedNewMemberCnpj = formatCNPJ(cleanNewMemberCnpj);
+
+      const qNewMembersFormatted = query(collection(db, "members"), where("cnpj", "==", formattedNewMemberCnpj));
+      const qNewMembersClean = query(collection(db, "members"), where("cnpj", "==", cleanNewMemberCnpj));
+      
+      const [snapNewFormatted, snapNewClean] = await Promise.all([
+        getDocs(qNewMembersFormatted),
+        getDocs(qNewMembersClean)
+      ]);
+
+      if (!snapNewFormatted.empty || !snapNewClean.empty) {
         showNotification("error", "Este CNPJ já está cadastrado para outro associado.");
         setIsRegisteringMember(false);
         return;
@@ -8160,6 +8490,11 @@ Para corrigir:
                           icon: DownloadCloud,
                         },
                         {
+                          id: "vagas",
+                          label: "Banco de Vagas",
+                          icon: Briefcase,
+                        },
+                        {
                           id: "settings",
                           label: "Minha Conta",
                           icon: Settings,
@@ -8217,7 +8552,13 @@ Para corrigir:
                   ).map((item) => (
                     <button
                       key={item.id}
-                      onClick={() => setActiveDashboardTab(item.id as any)}
+                      onClick={() => {
+                        if (item.id === "vagas") {
+                          setShowJobsModal(true);
+                        } else {
+                          setActiveDashboardTab(item.id as any);
+                        }
+                      }}
                       className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl font-bold text-sm transition-all duration-300 ${
                         activeDashboardTab === item.id
                           ? "bg-amber-400 text-blue-950 shadow-lg shadow-amber-400/20 translate-x-2"
@@ -9867,7 +10208,11 @@ Para corrigir:
                                     .map((proc, idx) => (
                                       <div
                                         key={`proc-slice-${proc.id}`}
-                                        className="p-6 rounded-[32px] border border-gray-50 bg-gray-50/30 hover:bg-white hover:border-emerald-100 transition-all group flex flex-col gap-4"
+                                        className={`p-6 rounded-[32px] border transition-all group flex flex-col gap-4 ${
+                                          proc.status === "Aguardando Documento"
+                                            ? "border-rose-200 bg-rose-50/45 hover:bg-rose-100/50 animate-[pulse_2.5s_infinite]"
+                                            : "border-gray-50 bg-gray-50/30 hover:bg-white hover:border-emerald-100"
+                                        }`}
                                       >
                                         <div className="flex items-center justify-between">
                                           <p className="text-xs font-black text-gray-400 uppercase tracking-widest">
@@ -11063,7 +11408,7 @@ Para corrigir:
                                     <div className="space-y-6">
                                       {legalQueries.map((query, idx) => (
                                         <div
-                                          key={`query-tab-${query.id}`}
+                                          key={`query-tab-${query.id || idx}-${idx}`}
                                           className="border border-gray-100 rounded-3xl p-6 hover:border-blue-200 hover:shadow-lg transition-all space-y-4 relative overflow-hidden"
                                         >
                                           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -14237,7 +14582,7 @@ Para corrigir:
                                                 allBillings.map(
                                                   (bill, index) => (
                                                     <tr
-                                                      key={`bill-${bill.id}`}
+                                                      key={`bill-${bill.id || index}-${index}`}
                                                       className="group hover:bg-gray-50/70 transition-all"
                                                     >
                                                       <td className="py-7 px-4 w-12">
@@ -17525,7 +17870,11 @@ Para corrigir:
                                           {jucebProcesses.map((proc, idx) => (
                                             <tr
                                               key={`proc-${proc.id}`}
-                                              className="hover:bg-blue-50/30 transition-all group"
+                                              className={`transition-all group border-l-4 ${
+                                                proc.status === "Aguardando Documento"
+                                                  ? "bg-rose-50/45 hover:bg-rose-100/50 border-rose-500 animate-[pulse_2.5s_infinite]"
+                                                  : "border-transparent hover:bg-blue-50/30"
+                                              }`}
                                             >
                                               <td className="px-10 py-8">
                                                 <p className="text-sm font-bold text-gray-800 group-hover:text-blue-900">
@@ -17858,7 +18207,7 @@ Para corrigir:
                                         <div className="space-y-6">
                                           {legalQueries.map((query, idx) => (
                                             <div
-                                              key={`query-admin-${query.id}`}
+                                              key={`query-admin-${query.id || idx}-${idx}`}
                                               className="border border-gray-100 bg-gray-50/50 p-8 rounded-[32px] hover:bg-white hover:border-blue-100 transition-all shadow-sm"
                                             >
                                               {/* Meta */}
@@ -20380,6 +20729,110 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                     </p>
                   </div>
 
+                  {/* --- CARROSSEL INFREQUENTE DE LOGOMARCAS (PARCEIROS & ASSOCIADOS) --- */}
+                  <div className="mb-20 overflow-hidden w-full relative py-10 bg-gray-100/40 border-y border-gray-100 rounded-[32px] max-w-7xl mx-auto">
+                    <div className="text-center mb-6 px-6">
+                      <span className="bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-black uppercase tracking-wider px-3.5 py-1.5 rounded-full">
+                        Ecossistema em Movimento
+                      </span>
+                      <h4 className="text-2xl font-black text-blue-950 mt-3 tracking-tight font-display">
+                        Empresas Filiadas & Convênios Ativos
+                      </h4>
+                      <p className="text-xs text-gray-400 font-bold mt-1.5 uppercase tracking-wider">
+                        Mais de +50 marcas conectadas gerando desenvolvimento e economia local
+                      </p>
+                    </div>
+
+                    {/* Track 1: Nossos Parceiros (Direção Esquerda) */}
+                    <div className="relative w-full overflow-hidden flex items-center py-3">
+                      {/* Gradient Masks */}
+                      <div className="absolute left-0 top-0 bottom-0 w-32 bg-gradient-to-r from-white via-white/80 to-transparent z-10 pointer-events-none" />
+                      <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-white via-white/80 to-transparent z-10 pointer-events-none" />
+
+                      <div className="animate-marquee-left flex gap-6 items-center">
+                        {[...marqueePartners, ...marqueePartners, ...marqueePartners].map((partner, idx) => {
+                          const Icon = partner.icon;
+                          return (
+                            <div
+                              key={`marquee-p-${idx}`}
+                              onClick={() => {
+                                const realPartner = partners.find(p => p.name.toLowerCase().includes(partner.name.toLowerCase())) || {
+                                  id: "mock",
+                                  name: partner.name,
+                                  category: partner.category.toLowerCase(),
+                                  discount: partner.discount,
+                                  description: partner.label,
+                                  featured: true
+                                };
+                                setSelectedPartnerForRedeem(realPartner as any);
+                              }}
+                              className="group flex items-center gap-3.5 bg-white border border-gray-100 px-6 py-4 rounded-2xl hover:border-blue-900 hover:shadow-xl transition-all duration-300 cursor-pointer shrink-0 hover:scale-[1.03]"
+                            >
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border transition-all duration-300 ${partner.color} group-hover:scale-110`}>
+                                <Icon className="w-5 h-5" />
+                              </div>
+                              <div className="text-left">
+                                <p className="text-xs font-black text-blue-950 uppercase tracking-tight group-hover:text-blue-900 transition-colors">
+                                  {partner.name}
+                                </p>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">
+                                    {partner.label}
+                                  </span>
+                                  <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded leading-none shrink-0">
+                                    {partner.discount} OFF
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Track 2: Nossos Associados (Direção Direita) */}
+                    <div className="relative w-full overflow-hidden flex items-center py-3 mt-4">
+                      {/* Gradient Masks */}
+                      <div className="absolute left-0 top-0 bottom-0 w-32 bg-gradient-to-r from-white via-white/80 to-transparent z-10 pointer-events-none" />
+                      <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-white via-white/80 to-transparent z-10 pointer-events-none" />
+
+                      <div className="animate-marquee-right flex gap-6 items-center">
+                        {[...marqueeAssociates, ...marqueeAssociates, ...marqueeAssociates].map((assoc, idx) => {
+                          const Icon = assoc.icon;
+                          return (
+                            <div
+                              key={`marquee-a-${idx}`}
+                              onClick={() => {
+                                showNotification(
+                                  "info",
+                                  `Filiado SINPA: ${assoc.name} é uma das indústrias associadas que fortalece nosso setor patronal.`
+                                );
+                              }}
+                              className="group flex items-center gap-3.5 bg-white border border-gray-100 px-6 py-4 rounded-2xl hover:border-amber-500 hover:shadow-xl transition-all duration-300 cursor-pointer shrink-0 hover:scale-[1.03]"
+                            >
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border transition-all duration-300 ${assoc.color} group-hover:scale-110`}>
+                                <Icon className="w-5 h-5" />
+                              </div>
+                              <div className="text-left">
+                                <p className="text-xs font-black text-blue-950 uppercase tracking-tight group-hover:text-amber-500 transition-colors">
+                                  {assoc.name}
+                                </p>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">
+                                    {assoc.segment}
+                                  </span>
+                                  <span className="bg-amber-50 text-amber-700 border border-amber-200 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded leading-none shrink-0">
+                                    ASSOCIADO
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
                   {/* --- PAINEL DE MARKETING E PUBLICIDADES DE PARCEIROS --- */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-16 max-w-6xl mx-auto text-left">
                     {/* Painel de Publicidade e Campanhas Patrocinadas */}
@@ -20533,29 +20986,62 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                     </div>
 
                     {/* Assistente de Sugestões Inteligentes de Convênios */}
-                    <div className="lg:col-span-5 bg-gradient-to-br from-blue-950 to-indigo-950 text-white rounded-[32px] p-8 shadow-xl flex flex-col justify-between relative overflow-hidden">
+                    <div className="lg:col-span-5 bg-gradient-to-br from-blue-950 to-indigo-950 text-white rounded-[32px] p-8 shadow-xl flex flex-col relative overflow-hidden transition-all duration-300 min-h-[520px]">
                       {/* Background Ambient Lights */}
                       <div className="absolute -right-16 -top-16 w-36 h-36 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
                       <div className="absolute -left-16 -bottom-16 w-36 h-36 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 
                       {/* Header */}
-                      <div className="relative flex items-center gap-3 border-b border-white/10 pb-4 mb-6">
-                        <div className="w-9 h-9 bg-white/10 text-amber-400 rounded-xl flex items-center justify-center shadow-inner">
-                          <Bot className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-black uppercase tracking-tight text-white font-display">
-                            Recomendador Inteligente
-                          </h4>
-                          <p className="text-[9px] font-bold text-blue-300 uppercase tracking-widest leading-none mt-0.5">
-                            Assistente de Vantagens
-                          </p>
+                      <div className="relative flex items-center justify-between border-b border-white/10 pb-4 mb-5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 bg-white/10 text-amber-400 rounded-xl flex items-center justify-center shadow-inner">
+                            <Bot className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-black uppercase tracking-tight text-white font-display">
+                              {mktTab === "recommend" ? "Recomendador Inteligente" : "Suporte de Marketing IA"}
+                            </h4>
+                            <p className="text-[9px] font-bold text-blue-300 uppercase tracking-widest leading-none mt-0.5">
+                              {mktTab === "recommend" ? "Assistente de Vantagens" : "Engenheiro de Software & Growth"}
+                            </p>
+                          </div>
                         </div>
                       </div>
 
-                      {/* Dynamic Assistant Steps */}
-                      <div className="flex-1 flex flex-col justify-center min-h-[200px] relative">
-                        <AnimatePresence mode="wait">
+                      {/* Interactive Tabs */}
+                      <div className="relative flex bg-white/5 border border-white/10 p-1 rounded-2xl mb-5 z-10">
+                        <button
+                          type="button"
+                          onClick={() => setMktTab("recommend")}
+                          className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                            mktTab === "recommend"
+                              ? "bg-white text-blue-950 shadow-md"
+                              : "text-blue-200 hover:text-white"
+                          }`}
+                        >
+                          Encontrar Convênios
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMktTab("ai")}
+                          className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                            mktTab === "ai"
+                              ? "bg-amber-400 text-blue-950 shadow-md"
+                              : "text-blue-200 hover:text-white"
+                          }`}
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Marketing IA
+                        </button>
+                      </div>
+
+                      {/* Dynamic Tab Body */}
+                      <div className="flex-1 flex flex-col justify-between relative z-10">
+                        {mktTab === "recommend" ? (
+                          <>
+                            {/* Dynamic Assistant Steps */}
+                            <div className="flex-1 flex flex-col justify-center min-h-[220px] relative">
+                              <AnimatePresence mode="wait">
                           {suggestionStep === 0 && (
                             <motion.div
                               key="step-intro"
@@ -20791,8 +21277,241 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                           ))}
                         </div>
                       </div>
+                    </>
+                  ) : (
+                    /* ABRE CONTEÚDO DE MARKETING IA */
+                    <div className="flex-1 flex flex-col justify-between">
+                      <AnimatePresence mode="wait">
+                        {!mktResult ? (
+                          <motion.form
+                            key="mkt-form"
+                            onSubmit={handleGenerateMarketingCopy}
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="space-y-3.5 text-left w-full"
+                          >
+                            <div>
+                              <label className="block text-[9px] font-black uppercase tracking-widest text-blue-300 mb-1">
+                                Nome da Empresa / Parceiro
+                              </label>
+                              <input
+                                type="text"
+                                value={mktCompanyName}
+                                onChange={(e) => setMktCompanyName(e.target.value)}
+                                placeholder="Ex: Unimed Regional, Metalúrgica Sul..."
+                                className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-2.5 text-xs text-white placeholder-blue-300/40 focus:outline-none focus:border-amber-400 transition-all font-semibold"
+                                required
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[9px] font-black uppercase tracking-widest text-blue-300 mb-1">
+                                Categoria da Relação
+                              </label>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setMktCompanyType("partner")}
+                                  className={`py-2 px-3 rounded-xl border text-[10px] font-bold uppercase tracking-wider transition-all text-center cursor-pointer ${
+                                    mktCompanyType === "partner"
+                                      ? "bg-white text-blue-950 border-white font-black"
+                                      : "bg-white/5 border-white/10 text-blue-100 hover:bg-white/10"
+                                  }`}
+                                >
+                                  Parceiro Convênio
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setMktCompanyType("associate")}
+                                  className={`py-2 px-3 rounded-xl border text-[10px] font-bold uppercase tracking-wider transition-all text-center cursor-pointer ${
+                                    mktCompanyType === "associate"
+                                      ? "bg-white text-blue-950 border-white font-black"
+                                      : "bg-white/5 border-white/10 text-blue-100 hover:bg-white/10"
+                                  }`}
+                                >
+                                  Associado SINPA
+                                </button>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-[9px] font-black uppercase tracking-widest text-blue-300 mb-1">
+                                Detalhes do Benefício ou Atividade
+                              </label>
+                              <textarea
+                                value={mktBenefitDetail}
+                                onChange={(e) => setMktBenefitDetail(e.target.value)}
+                                placeholder="Ex: Oferece 20% de desconto em mensalidades... ou Fornece peças fundidas sob demanda..."
+                                rows={2}
+                                className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-2 text-xs text-white placeholder-blue-300/40 focus:outline-none focus:border-amber-400 transition-all resize-none font-semibold leading-relaxed"
+                                required
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[9px] font-black uppercase tracking-widest text-blue-300 mb-1">
+                                Público Alvo Principal
+                              </label>
+                              <select
+                                value={mktTargetAudience}
+                                onChange={(e) => setMktTargetAudience(e.target.value as any)}
+                                className="w-full bg-blue-950 border border-white/15 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-amber-400 transition-all font-semibold cursor-pointer"
+                              >
+                                <option value="companies font-sans">Empresas e Diretores (B2B)</option>
+                                <option value="employees font-sans font-sans">Colaboradores & Suas Famílias</option>
+                                <option value="general font-sans">Público Geral / Comunidade</option>
+                              </select>
+                            </div>
+
+                            <div className="pt-2">
+                              <button
+                                type="submit"
+                                disabled={isGeneratingMkt}
+                                className="w-full py-3.5 bg-amber-400 hover:bg-amber-300 text-blue-950 disabled:bg-white/10 disabled:text-gray-400 font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer font-sans"
+                              >
+                                {isGeneratingMkt ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Estruturando Plano...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Sparkles className="w-4 h-4" />
+                                    Gerar Campanha com IA
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </motion.form>
+                        ) : (
+                          <motion.div
+                            key="mkt-result"
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="space-y-4 text-left w-full"
+                          >
+                            <div className="max-h-[350px] overflow-y-auto space-y-4 pr-1 scrollbar-thin scrollbar-thumb-white/15 scrollbar-track-transparent">
+                              {/* Strategy Suggestion section */}
+                              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2.5">
+                                <div className="flex items-center gap-1.5">
+                                  <Briefcase className="w-4 h-4 text-amber-400" />
+                                  <h6 className="text-[10px] text-amber-400 font-black uppercase tracking-wider font-display">
+                                    Plano e Estratégia de Crescimento
+                                  </h6>
+                                </div>
+                                <p className="text-[11px] text-blue-100 leading-relaxed font-semibold">
+                                  {mktResult.strategy}
+                                </p>
+                              </div>
+
+                              {/* WhatsApp copy mockup */}
+                              <div className="bg-emerald-950/40 border border-emerald-900/40 rounded-2xl p-4 space-y-2 relative font-sans">
+                                <div className="flex items-center justify-between font-display">
+                                  <div className="flex items-center gap-1.5">
+                                    <MessageCircle className="w-4 h-4 text-emerald-400" />
+                                    <h6 className="text-[10px] text-emerald-400 font-black uppercase tracking-wider">
+                                      Mensagem WhatsApp
+                                    </h6>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(mktResult.whatsappCopy);
+                                      showNotification("success", "Mensagem de WhatsApp copiada!");
+                                    }}
+                                    className="text-[9px] bg-white/10 hover:bg-white/20 text-white font-bold uppercase tracking-wider px-2 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-all"
+                                  >
+                                    <Copy className="w-3 h-3" /> Copiar
+                                  </button>
+                                </div>
+                                <pre className="text-[10px] text-emerald-100 whitespace-pre-wrap font-sans leading-relaxed break-words font-semibold bg-emerald-950/60 p-3 rounded-xl border border-emerald-900/50">
+                                  {mktResult.whatsappCopy}
+                                </pre>
+                              </div>
+
+                              {/* Email copy mockup */}
+                              <div className="bg-indigo-950/40 border border-indigo-900/40 rounded-2xl p-4 space-y-2.5 font-sans">
+                                <div className="flex items-center justify-between font-display">
+                                  <div className="flex items-center gap-1.5">
+                                    <Mail className="w-4 h-4 text-indigo-400" />
+                                    <h6 className="text-[10px] text-indigo-400 font-black uppercase tracking-wider">
+                                      E-mail de Divulgação
+                                    </h6>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(`Assunto: ${mktResult.emailCopy.subject}\n\n${mktResult.emailCopy.body}`);
+                                      showNotification("success", "Assunto e Corpo do e-mail copiados!");
+                                    }}
+                                    className="text-[9px] bg-white/10 hover:bg-white/20 text-white font-bold uppercase tracking-wider px-2 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-all"
+                                  >
+                                    <Copy className="w-3 h-3" /> Copiar
+                                  </button>
+                                </div>
+                                <div className="space-y-2 bg-indigo-950/60 p-3 rounded-xl border border-indigo-900/50">
+                                  <div>
+                                    <span className="text-[8px] font-black uppercase text-blue-300 tracking-wider">Assunto:</span>
+                                    <p className="text-[10px] font-bold text-white mt-0.5">{mktResult.emailCopy.subject}</p>
+                                  </div>
+                                  <div className="pt-2 border-t border-white/5">
+                                    <span className="text-[8px] font-black uppercase text-blue-300 tracking-wider">Corpo:</span>
+                                    <pre className="text-[10px] text-indigo-100 whitespace-pre-wrap font-sans leading-relaxed break-words font-semibold mt-0.5">
+                                      {mktResult.emailCopy.body}
+                                    </pre>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* LinkedIn / Social section */}
+                              <div className="bg-blue-950/40 border border-blue-900/40 rounded-2xl p-4 space-y-2 font-sans">
+                                <div className="flex items-center justify-between font-display">
+                                  <div className="flex items-center gap-1.5">
+                                    <Globe className="w-4 h-4 text-blue-400" />
+                                    <h6 className="text-[10px] text-blue-400 font-black uppercase tracking-wider">
+                                      Post Redes Sociais / LinkedIn
+                                    </h6>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(mktResult.socialCopy);
+                                      showNotification("success", "Post de Redes Sociais copiado!");
+                                    }}
+                                    className="text-[9px] bg-white/10 hover:bg-white/20 text-white font-bold uppercase tracking-wider px-2 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-all"
+                                  >
+                                    <Copy className="w-3 h-3" /> Copiar
+                                  </button>
+                                </div>
+                                <pre className="text-[10px] text-blue-100 whitespace-pre-wrap font-sans leading-relaxed break-words font-semibold bg-blue-950/60 p-3 rounded-xl border border-blue-900/50">
+                                  {mktResult.socialCopy}
+                                </pre>
+                              </div>
+                            </div>
+
+                            <div className="pt-2 font-sans">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMktResult(null);
+                                  setMktCompanyName("");
+                                  setMktBenefitDetail("");
+                                }}
+                                className="w-full py-2.5 bg-white/10 hover:bg-white/15 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer text-center"
+                              >
+                                Gerar Outra Campanha
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
-                  </div>
+                  )}
+                </div>
+              </div>
+            </div>
 
                   {/* Search and Category Filter Controls */}
                   <div className="flex flex-col md:flex-row gap-6 items-center justify-between mb-12 max-w-5xl mx-auto">
@@ -22345,22 +23064,71 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                         </div>
 
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
-                            CNPJ
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            value={membershipData.cnpj}
-                            onChange={(e) =>
-                              setMembershipData({
-                                ...membershipData,
-                                cnpj: e.target.value,
-                              })
-                            }
-                            className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
-                            placeholder="00.000.000/0000-00"
-                          />
+                          <div className="flex justify-between items-center px-4">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                              CNPJ
+                            </label>
+                            {isSearchingCnpj && (
+                              <span className="text-[10px] text-blue-600 font-bold flex items-center gap-1 animate-pulse">
+                                <Loader2 className="w-3 h-3 animate-spin" /> Buscando...
+                              </span>
+                            )}
+                            {cnpjSuccess && !isSearchingCnpj && (
+                              <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                                <Check className="w-3 h-3" /> CNPJ Verificado
+                              </span>
+                            )}
+                          </div>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              required
+                              value={membershipData.cnpj}
+                              onChange={(e) => {
+                                const formatted = formatCNPJ(e.target.value);
+                                setMembershipData({
+                                  ...membershipData,
+                                  cnpj: formatted,
+                                });
+                                const cleanDigits = formatted.replace(/\D/g, "");
+                                if (cleanDigits.length === 14) {
+                                  lookupCNPJ(formatted);
+                                } else {
+                                  setCnpjSuccess(false);
+                                  setCnpjError(null);
+                                }
+                              }}
+                              className={`w-full bg-gray-50 border px-6 py-4 pr-12 rounded-xl font-bold text-gray-900 focus:bg-white transition-all outline-none ${
+                                cnpjError
+                                  ? "border-rose-300 focus:border-rose-500"
+                                  : cnpjSuccess
+                                  ? "border-emerald-300 focus:border-emerald-500"
+                                  : "border-gray-100 focus:border-blue-900"
+                              }`}
+                              placeholder="00.000.000/0000-00"
+                            />
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center">
+                              {isSearchingCnpj ? (
+                                <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                              ) : cnpjSuccess ? (
+                                <Check className="w-5 h-5 text-emerald-600" />
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => lookupCNPJ(membershipData.cnpj)}
+                                  className="text-gray-400 hover:text-blue-900 transition-colors"
+                                  title="Consultar CNPJ manualmente"
+                                >
+                                  <Search className="w-5 h-5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          {cnpjError && (
+                            <p className="text-[10px] text-rose-500 font-bold px-4 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3 animate-bounce" /> {cnpjError}
+                            </p>
+                          )}
                         </div>
 
                         <div className="space-y-2">
@@ -22417,6 +23185,25 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                             }
                             className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
                             placeholder="(00) 00000-0000"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-2 space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-4">
+                            Endereço Comercial da Empresa
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={membershipData.address}
+                            onChange={(e) =>
+                              setMembershipData({
+                                ...membershipData,
+                                address: e.target.value,
+                              })
+                            }
+                            className="w-full bg-gray-50 border border-gray-100 px-6 py-4 rounded-xl font-bold text-gray-900 focus:bg-white focus:border-blue-900 transition-all outline-none"
+                            placeholder="Rua, Número, Bairro, Cidade - UF, CEP"
                           />
                         </div>
 
@@ -23226,18 +24013,43 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
 
                     {/* CNPJ */}
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                        CNPJ *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Ex: 12.345.678/0001-90"
-                        value={newMemberCnpj}
-                        onChange={(e) => setNewMemberCnpj(e.target.value)}
-                        disabled={isRegisteringMember}
-                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
-                      />
+                      <div className="flex justify-between items-center px-1">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                          CNPJ *
+                        </label>
+                        {isSearchingCnpjAdmin && (
+                          <span className="text-[10px] text-blue-600 font-bold flex items-center gap-1 animate-pulse font-sans">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Buscando...
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative flex">
+                        <input
+                          type="text"
+                          required
+                          placeholder="Ex: 12.345.678/0001-90"
+                          value={newMemberCnpj}
+                          onChange={(e) => {
+                            const formatted = formatCNPJ(e.target.value);
+                            setNewMemberCnpj(formatted);
+                            const cleanDigits = formatted.replace(/\D/g, "");
+                            if (cleanDigits.length === 14) {
+                              lookupCNPJForAdmin(formatted);
+                            }
+                          }}
+                          disabled={isRegisteringMember || isSearchingCnpjAdmin}
+                          className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 pl-5 pr-12 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => lookupCNPJForAdmin(newMemberCnpj)}
+                          disabled={isRegisteringMember || isSearchingCnpjAdmin}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-900 transition-colors cursor-pointer"
+                          title="Consultar CNPJ manualmente"
+                        >
+                          <Search className="w-5 h-5" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* E-mail de Contato / Login */}
@@ -24548,9 +25360,9 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
 
                     return (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {filtered.map((job) => (
+                        {filtered.map((job, idx) => (
                           <div
-                            key={job.id}
+                            key={`job-${job.id || idx}-${idx}`}
                             className={`p-6 rounded-[32px] border bg-white shadow-sm hover:shadow-md transition-all flex flex-col justify-between ${
                               job.status === "contratado" 
                                 ? "border-gray-150 bg-gray-50/40 opacity-85" 
