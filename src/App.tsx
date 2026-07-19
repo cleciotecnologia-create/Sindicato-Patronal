@@ -5270,12 +5270,7 @@ Agradecemos o seu pagamento!`;
       if (error.code === "auth/unauthorized-domain") {
         const currentDomain = window.location.hostname;
         const projectId = firebaseConfig.projectId;
-        message = `DOMÍNIO NÃO AUTORIZADO: O domínio "${currentDomain}" não está na lista de permissões do seu projeto Firebase (ID: ${projectId}). 
-
-Para corrigir:
-1. Acesse o Console do Firebase e selecione o projeto "${projectId}".
-2. Vá em Autenticação > Configurações > Domínios autorizados.
-3. Adicione o domínio: ${currentDomain}`;
+        message = `DOMÍNIO NÃO AUTORIZADO: O domínio "${currentDomain}" precisa ser autorizado nas configurações do seu Firebase (ID: ${projectId}).`;
       } else if (error.code === "auth/popup-blocked") {
         message =
           "POPUP BLOQUEADA: Por favor, habilite janelas pop-up para este site em seu navegador.";
@@ -19960,7 +19955,7 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
             </AnimatePresence>
 
             {authError && (
-              <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+              <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 sm:p-6">
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -19971,46 +19966,46 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9, y: 20 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
-                  className="bg-white border-2 border-rose-100 p-8 sm:p-12 rounded-[48px] text-rose-900 shadow-[0_32px_64px_-16px_rgba(225,29,72,0.25)] flex flex-col gap-8 max-w-2xl w-full relative z-10 overflow-hidden"
+                  className="bg-white border-2 border-rose-100 p-6 sm:p-8 rounded-[32px] text-rose-900 shadow-[0_32px_64px_-16px_rgba(225,29,72,0.25)] flex flex-col gap-6 max-w-2xl w-full relative z-10 max-h-[90vh] overflow-y-auto custom-scrollbar"
                 >
                   {/* Background accent */}
                   <div className="absolute top-0 right-0 w-64 h-64 bg-rose-50 rounded-full blur-[80px] -mr-32 -mt-32 opacity-50"></div>
 
-                  <div className="flex items-start gap-6 relative">
-                    <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-[24px] flex items-center justify-center shadow-inner flex-shrink-0">
-                      <AlertCircle className="w-8 h-8" />
+                  <div className="flex items-start gap-4 relative">
+                    <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center shadow-inner flex-shrink-0">
+                      <AlertCircle className="w-6 h-6" />
                     </div>
-                    <div>
-                      <p className="font-black text-[12px] uppercase tracking-[0.2em] text-rose-400 mb-2">
+                    <div className="flex-1 pr-8">
+                      <p className="font-black text-[10px] uppercase tracking-[0.2em] text-rose-400 mb-1">
                         Protocolo de Segurança
                       </p>
-                      <h4 className="text-3xl font-bold text-rose-950 leading-tight">
+                      <h4 className="text-xl sm:text-2xl font-bold text-rose-950 leading-tight">
                         Configuração de Domínio Necessária
                       </h4>
                     </div>
                     <button
                       onClick={() => setAuthError(null)}
-                      className="absolute -top-4 -right-4 p-2 text-rose-300 hover:text-rose-600 transition-colors"
+                      className="absolute top-0 right-0 p-2 text-rose-300 hover:text-rose-600 transition-colors"
                     >
                       <X className="w-6 h-6" />
                     </button>
                   </div>
 
-                  <div className="space-y-6">
-                    <div className="bg-rose-50/50 p-8 rounded-[32px] border border-rose-100/50">
-                      <div className="text-rose-900 font-bold leading-relaxed whitespace-pre-wrap mb-6">
+                  <div className="space-y-5">
+                    <div className="bg-rose-50/50 p-5 sm:p-6 rounded-3xl border border-rose-100/50">
+                      <div className="text-rose-900 font-medium text-sm leading-relaxed mb-4">
                         {authError}
                       </div>
 
-                      {authError
+                      {authError && authError
                         .toUpperCase()
                         .includes("DOMÍNIO NÃO AUTORIZADO") && (
-                        <div className="space-y-6 mt-8 pt-8 border-t border-rose-100">
-                          <div className="space-y-4">
+                        <div className="space-y-4 mt-4 pt-4 border-t border-rose-100">
+                          <div className="space-y-2.5">
                             <p className="text-[10px] font-black uppercase tracking-widest text-rose-500">
                               Passo a passo para liberar:
                             </p>
-                            <div className="grid gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               {[
                                 {
                                   step: 1,
@@ -20025,12 +20020,12 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                               ].map((item) => (
                                 <div
                                   key={item.step}
-                                  className="flex items-center gap-3 bg-white/50 p-3 rounded-2xl border border-rose-100/30"
+                                  className="flex items-center gap-2.5 bg-white/70 p-2.5 rounded-xl border border-rose-100/30"
                                 >
-                                  <span className="w-6 h-6 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center text-[10px] font-black">
+                                  <span className="w-5 h-5 rounded-md bg-rose-100 text-rose-600 flex items-center justify-center text-[9px] font-black shrink-0">
                                     {item.step}
                                   </span>
-                                  <span className="text-xs font-bold text-rose-800">
+                                  <span className="text-[11px] font-bold text-rose-800 leading-tight">
                                     {item.text}
                                   </span>
                                 </div>
@@ -20038,9 +20033,9 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                             </div>
                           </div>
 
-                          <div className="flex flex-col gap-3">
-                            <div className="flex items-center gap-2 bg-white px-5 py-4 rounded-2xl border-2 border-rose-200 shadow-sm">
-                              <code className="text-xs font-mono font-black text-rose-700 flex-1 truncate select-all">
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-2 bg-white px-4 py-3 rounded-xl border border-rose-200 shadow-sm">
+                              <code className="text-[11px] font-mono font-black text-rose-700 flex-1 truncate select-all">
                                 {window.location.hostname}
                               </code>
                               <button
@@ -20055,7 +20050,7 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                     if (btn) btn.innerText = "Copiar";
                                   }, 2000);
                                 }}
-                                className="bg-rose-600 text-white px-4 py-2 rounded-xl text-[10px] font-black hover:bg-rose-700 transition-all active:scale-95"
+                                className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-[9px] font-black hover:bg-rose-700 transition-all active:scale-95 cursor-pointer shrink-0"
                                 id="copy-domain-btn"
                               >
                                 Copiar
@@ -20069,19 +20064,19 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <a
-                        href="https://console.firebase.google.com"
+                        href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-3 py-5 bg-blue-900 text-white rounded-[28px] font-bold text-sm hover:bg-blue-800 transition-all shadow-2xl shadow-blue-900/20 active:scale-95 group"
+                        className="flex items-center justify-center gap-2 py-3.5 bg-blue-900 text-white rounded-2xl font-bold text-xs hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/15 active:scale-95 group"
                       >
-                        <ExternalLink className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                        <ExternalLink className="w-4 h-4 group-hover:rotate-12 transition-transform" />
                         Abrir Console Firebase
                       </a>
                       <button
                         onClick={() => setAuthError(null)}
-                        className="py-5 bg-rose-50 text-rose-600 border border-rose-100 rounded-[28px] font-bold text-sm hover:bg-rose-100 transition-all active:scale-95"
+                        className="py-3.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-2xl font-bold text-xs hover:bg-rose-100 transition-all active:scale-95 cursor-pointer"
                       >
                         Entendido, vou ajustar
                       </button>
