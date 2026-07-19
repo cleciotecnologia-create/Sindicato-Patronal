@@ -6458,7 +6458,7 @@ Agradecemos o seu pagamento!`;
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserDisplayName, setNewUserDisplayName] = useState("");
   const [newUserRole, setNewUserRole] = useState("associado");
-  const [newUserApproved, setNewUserApproved] = useState(true);
+  const [newUserApproved, setNewUserApproved] = useState(false);
   const [approvedUserEmail, setApprovedUserEmail] = useState<{
     email: string;
     displayName: string;
