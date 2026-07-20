@@ -457,6 +457,7 @@ const marqueeAssociates = [
 
 function LandingPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isPortalSidebarOpen, setIsPortalSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [activeDocType, setActiveDocType] = useState<
@@ -8444,11 +8445,27 @@ Agradecemos o seu pagamento!`;
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="flex h-screen bg-[#f8fafc] overflow-hidden font-sans w-full"
+              className="flex h-screen bg-[#f8fafc] overflow-hidden font-sans w-full relative"
             >
+              {/* Backdrop for Mobile Sidebar */}
+              {isPortalSidebarOpen && (
+                <div
+                  className="fixed inset-0 bg-black/40 z-40 lg:hidden"
+                  onClick={() => setIsPortalSidebarOpen(false)}
+                />
+              )}
+
               {/* Persistent Sidebar */}
-              <aside className="w-72 bg-blue-900 text-white flex flex-col h-full shadow-[20px_0_40px_-20px_rgba(30,58,138,0.3)] z-50">
-                <div className="p-8 border-b border-white/10">
+              <aside className={`fixed inset-y-0 left-0 lg:relative lg:translate-x-0 z-50 w-72 bg-blue-900 text-white flex flex-col h-full shadow-[20px_0_40px_-20px_rgba(30,58,138,0.3)] transition-transform duration-300 ${
+                isPortalSidebarOpen ? "translate-x-0" : "-translate-x-full"
+              }`}>
+                <div className="p-8 border-b border-white/10 relative">
+                  <button
+                    onClick={() => setIsPortalSidebarOpen(false)}
+                    className="absolute top-4 right-4 text-white/50 hover:text-white lg:hidden p-1 bg-white/5 hover:bg-white/10 rounded-lg transition-all cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                   <div className="flex items-center gap-3 mb-2">
                     <div className="w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center text-blue-900 shadow-lg shadow-amber-400/20">
                       <Globe className="w-6 h-6" />
@@ -8553,6 +8570,7 @@ Agradecemos o seu pagamento!`;
                         } else {
                           setActiveDashboardTab(item.id as any);
                         }
+                        setIsPortalSidebarOpen(false);
                       }}
                       className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl font-bold text-sm transition-all duration-300 ${
                         activeDashboardTab === item.id
@@ -8609,39 +8627,47 @@ Agradecemos o seu pagamento!`;
 
               {/* Portal Body */}
               <div className="flex-1 flex flex-col overflow-hidden relative">
-                <header className="h-24 bg-white border-b border-gray-100 flex items-center justify-between px-4 sm:px-6 lg:px-12 z-40">
-                  <div>
-                    <h2 className="text-2xl font-bold font-display text-blue-900 capitalize">
-                      {activeDashboardTab === "overview"
-                        ? "Visão Geral"
-                        : activeDashboardTab === "boletos"
-                          ? "Financeiro"
-                          : activeDashboardTab === "boletos_disponiveis"
-                            ? "Boletos / Segunda Via"
-                            : activeDashboardTab === "extrato_pagamentos"
-                              ? "Extrato de Pagamentos"
-                              : activeDashboardTab === "carteira_digital"
-                                ? "Carteira de Associado Digital"
-                                : activeDashboardTab === "docs"
-                                  ? "Documentos"
-                                  : activeDashboardTab === "voting"
-                                    ? "Assembleia"
-                                    : activeDashboardTab === "suggestions"
-                                      ? "Minhas Sugestões"
-                                      : activeDashboardTab === "partners"
-                                        ? "Clube de Vantagens"
-                                        : activeDashboardTab === "accountant"
-                                          ? "Portal do Contador"
-                                          : activeDashboardTab ===
-                                              "gestao_usuarios"
-                                            ? "Gestão de Usuários"
-                                            : activeDashboardTab === "admin"
-                                              ? "Painel Administrativo"
-                                              : "Configurações"}
-                    </h2>
-                    <p className="text-sm text-gray-400 font-medium">
-                      Bem-vindo de volta ao portal corporativo.
-                    </p>
+                <header className="h-24 bg-white border-b border-gray-100 flex items-center justify-between px-4 sm:px-6 lg:px-12 z-40 gap-4">
+                  <div className="flex items-center gap-4 min-w-0">
+                    <button
+                      onClick={() => setIsPortalSidebarOpen(true)}
+                      className="lg:hidden p-2.5 text-gray-500 hover:text-blue-900 bg-gray-50 hover:bg-blue-50 rounded-xl transition-all border border-gray-100 cursor-pointer shrink-0"
+                    >
+                      <Menu className="w-6 h-6" />
+                    </button>
+                    <div className="min-w-0">
+                      <h2 className="text-xl sm:text-2xl font-bold font-display text-blue-900 capitalize truncate">
+                        {activeDashboardTab === "overview"
+                          ? "Visão Geral"
+                          : activeDashboardTab === "boletos"
+                            ? "Financeiro"
+                            : activeDashboardTab === "boletos_disponiveis"
+                              ? "Boletos / Segunda Via"
+                              : activeDashboardTab === "extrato_pagamentos"
+                                ? "Extrato de Pagamentos"
+                                : activeDashboardTab === "carteira_digital"
+                                  ? "Carteira de Associado Digital"
+                                  : activeDashboardTab === "docs"
+                                    ? "Documentos"
+                                    : activeDashboardTab === "voting"
+                                      ? "Assembleia"
+                                      : activeDashboardTab === "suggestions"
+                                        ? "Minhas Sugestões"
+                                        : activeDashboardTab === "partners"
+                                          ? "Clube de Vantagens"
+                                          : activeDashboardTab === "accountant"
+                                            ? "Portal do Contador"
+                                            : activeDashboardTab ===
+                                                "gestao_usuarios"
+                                              ? "Gestão de Usuários"
+                                              : activeDashboardTab === "admin"
+                                                ? "Painel Administrativo"
+                                                : "Configurações"}
+                      </h2>
+                      <p className="text-xs sm:text-sm text-gray-400 font-medium truncate">
+                        Bem-vindo de volta ao portal corporativo.
+                      </p>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-6">
