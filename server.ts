@@ -508,6 +508,382 @@ async function startServer() {
     }
   });
 
+  // --- BANCO DO BRASIL / GATEWAY PIX INTEGRATION & AUTOMATIC VALIDATION ENDPOINTS ---
+
+  // Helper local to calculate CRC16-CCITT for standard EMV Pix
+  const crc16CCITTLocal = (data: string) => {
+    let crc = 0xffff;
+    for (let i = 0; i < data.length; i++) {
+      let x = ((crc >> 8) ^ data.charCodeAt(i)) & 0xff;
+      x ^= x >> 4;
+      crc = ((crc << 8) ^ (x << 12) ^ (x << 5) ^ x) & 0xffff;
+    }
+    return crc.toString(16).toUpperCase().padStart(4, "0");
+  };
+
+  const generateLocalPixPayload = (amount: number, referenceId: string, pixKey: string = "sindicato@pix.org.br") => {
+    const cleanAmount = Number(amount).toFixed(2);
+    const merchantName = "SINDICATO SINPA";
+    const merchantCity = "SALVADOR";
+
+    const f = (id: string, content: string) => {
+      const len = content.length.toString().padStart(2, "0");
+      return id + len + content;
+    };
+
+    const gui = f("00", "br.gov.bcb.pix");
+    const key = f("01", pixKey);
+    const merchantAccountInfo = f("26", gui + key);
+
+    let cleanReference = referenceId
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^A-Za-z0-9]/g, "")
+      .toUpperCase()
+      .substring(0, 25);
+
+    if (cleanReference.length === 0) {
+      cleanReference = "COBRANCASINPA";
+    }
+
+    let payload = f("00", "0201");
+    payload += merchantAccountInfo;
+    payload += f("52", "040000");
+    payload += f("53", "986");
+    payload += f("54", cleanAmount);
+    payload += f("58", "BR");
+    payload += f("59", merchantName.substring(0, 25));
+    payload += f("60", merchantCity.substring(0, 15));
+    payload += f("62", f("05", cleanReference));
+    payload += "6304";
+
+    return payload + crc16CCITTLocal(payload);
+  };
+
+  // Create or retrieve PIX QR code for a given boleto (handles both real Banco do Brasil API and resilient local engine)
+  app.post("/api/payments/create-pix", async (req, res) => {
+    try {
+      const { boletoId, memberId, amount, title } = req.body;
+
+      if (!boletoId) {
+        return res.status(400).json({ error: "Boleto ID é obrigatório." });
+      }
+
+      const cleanAmount = Number(amount) || 150.00;
+      const refTxid = `SINPA${boletoId.substring(0, 15).toUpperCase()}`;
+
+      // 1. Check if Banco do Brasil API keys are configured in environment variables
+      const bbClientId = process.env.BB_CLIENT_ID;
+      const bbClientSecret = process.env.BB_CLIENT_SECRET;
+      const bbDeveloperKey = process.env.BB_DEVELOPER_KEY;
+      const isBBConfigured = !!(bbClientId && bbClientSecret);
+
+      let finalPixPayload = "";
+      let finalTxid = refTxid;
+      let usedGateway = "Simulado (SINPA Engine)";
+
+      if (isBBConfigured) {
+        try {
+          console.log("Iniciando fluxo de integração real com a API do Banco do Brasil...");
+          const bbEnv = process.env.BB_ENV === "production" ? "production" : "sandbox";
+          const oauthUrl = bbEnv === "production" 
+            ? "https://oauth.bb.com.br/oauth/token" 
+            : "https://oauth.sandbox.bb.com.br/oauth/token";
+          const pixApiUrl = bbEnv === "production" 
+            ? "https://api.bb.com.br/pix/v1/cob" 
+            : "https://api.sandbox.bb.com.br/pix/v1/cob";
+
+          // Obter Token OAuth do Banco do Brasil
+          const authHeader = Buffer.from(`${bbClientId}:${bbClientSecret}`).toString("base64");
+          const tokenRes = await fetch(oauthUrl, {
+            method: "POST",
+            headers: {
+              "Authorization": `Basic ${authHeader}`,
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: "grant_type=client_credentials&scope=pix.write pix.read"
+          });
+
+          if (!tokenRes.ok) {
+            throw new Error(`Erro de autenticação no BB: ${tokenRes.statusText}`);
+          }
+
+          const tokenData: any = await tokenRes.json();
+          const accessToken = tokenData.access_token;
+
+          // Chamar API PIX do BB para criar Cobrança Imediata (/cob)
+          const pixPayloadData = {
+            calendario: {
+              expiracao: 3600
+            },
+            valor: {
+              original: cleanAmount.toFixed(2)
+            },
+            chave: process.env.BB_PIX_KEY || "sindicato@pix.org.br",
+            solicitacaoPagador: title || "Mensalidade SINPA"
+          };
+
+          const createPixRes = await fetch(`${pixApiUrl}/${refTxid}`, {
+            method: "PUT",
+            headers: {
+              "Authorization": `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+              "gw-dev-app-key": bbDeveloperKey || ""
+            },
+            body: JSON.stringify(pixPayloadData)
+          });
+
+          if (!createPixRes.ok) {
+            throw new Error(`Erro na criação do PIX no BB: ${createPixRes.statusText}`);
+          }
+
+          const pixResData: any = await createPixRes.json();
+          finalPixPayload = pixResData.pixCopiaECola || generateLocalPixPayload(cleanAmount, refTxid);
+          finalTxid = pixResData.txid || refTxid;
+          usedGateway = `Banco do Brasil (${bbEnv})`;
+        } catch (bbError: any) {
+          console.warn("Falha ao consultar API real do Banco do Brasil. Detalhe:", bbError);
+          console.log("Acionando fallback automático para a geração local segura do PIX.");
+          finalPixPayload = generateLocalPixPayload(cleanAmount, refTxid);
+        }
+      } else {
+        // Fallback or development mode: Generate beautiful standard EMV static Pix code
+        finalPixPayload = generateLocalPixPayload(cleanAmount, refTxid);
+      }
+
+      // 2. Save the transaction information to Firestore so it is persistently linked
+      if (memberId && boletoId && boletoId !== "CONSOLIDADO" && !boletoId.startsWith("MOCK")) {
+        try {
+          const boletoDocPath = `members/${memberId}/boletos/${boletoId}`;
+          console.log(`Gravando TXID ${finalTxid} no boleto: ${boletoDocPath}`);
+          
+          // Using Admin SDK to bypass security rules for billing status linkage
+          await adminDb.doc(boletoDocPath).update({
+            pixTxid: finalTxid,
+            pixPayload: finalPixPayload,
+            pixGateway: usedGateway,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        } catch (dbErr) {
+          console.error("Erro ao salvar dados do Pix no boleto do Firestore:", dbErr);
+        }
+      }
+
+      res.json({
+        success: true,
+        txid: finalTxid,
+        pixPayload: finalPixPayload,
+        gateway: usedGateway,
+        amount: cleanAmount,
+        boletoId
+      });
+    } catch (error: any) {
+      console.error("Erro na criação do Pix:", error);
+      res.status(500).json({ error: error.message || "Erro interno ao gerar PIX." });
+    }
+  });
+
+  // Query status of a single boleto PIX payment
+  app.get("/api/payments/status", async (req, res) => {
+    try {
+      const { boletoId, memberId } = req.query;
+
+      if (!boletoId) {
+        return res.status(400).json({ error: "Parâmetro boletoId é obrigatório." });
+      }
+
+      // If it is mock, return state based on some transient check or always pending
+      if (boletoId === "CONSOLIDADO" || String(boletoId).startsWith("MOCK")) {
+        return res.json({ status: "PENDING" });
+      }
+
+      let currentStatus = "PENDING";
+      let docData: any = null;
+
+      if (memberId) {
+        const boletoRef = adminDb.doc(`members/${memberId}/boletos/${boletoId}`);
+        const snap = await boletoRef.get();
+        if (snap.exists()) {
+          docData = snap.data();
+          currentStatus = docData.status || "PENDING";
+        }
+      } else {
+        // Search across all members if memberId was not provided
+        const snap = await adminDb.collectionGroup("boletos").get();
+        snap.forEach((doc: any) => {
+          if (doc.id === boletoId) {
+            docData = doc.data();
+            currentStatus = docData.status || "PENDING";
+          }
+        });
+      }
+
+      res.json({
+        boletoId,
+        status: currentStatus.toUpperCase(),
+        paidAt: docData?.paidAt || null,
+        pixTxid: docData?.pixTxid || null
+      });
+    } catch (error: any) {
+      console.error("Erro ao buscar status do boleto:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Simulate Instant PIX Payment (Banco do Brasil Sandbox callback trigger)
+  // This executes an automated transaction update directly on the database
+  app.post("/api/payments/simulate-payment", async (req, res) => {
+    try {
+      const { boletoId, memberId } = req.body;
+
+      if (!boletoId) {
+        return res.status(400).json({ error: "Boleto ID é obrigatório para simular." });
+      }
+
+      console.log(`Simulando confirmação de pagamento para o boleto: ${boletoId}`);
+
+      let foundBoletoPath = "";
+      let memberName = "Associado SINPA";
+      let boletoTitle = "Mensalidade";
+      let amount = 150.00;
+      let actualMemberId = memberId || "";
+
+      if (memberId && boletoId !== "CONSOLIDADO" && !boletoId.startsWith("MOCK")) {
+        foundBoletoPath = `members/${memberId}/boletos/${boletoId}`;
+        const bSnap = await adminDb.doc(foundBoletoPath).get();
+        if (bSnap.exists()) {
+          const bData = bSnap.data();
+          memberName = bData.memberName || memberName;
+          boletoTitle = bData.title || bData.doc || boletoTitle;
+          amount = bData.amount || amount;
+        }
+      } else if (boletoId !== "CONSOLIDADO" && !boletoId.startsWith("MOCK")) {
+        // Search across all members via collectionGroup
+        const snap = await adminDb.collectionGroup("boletos").get();
+        snap.forEach((doc: any) => {
+          if (doc.id === boletoId) {
+            foundBoletoPath = doc.ref.path;
+            const bData = doc.data();
+            memberName = bData.memberName || memberName;
+            boletoTitle = bData.title || bData.doc || boletoTitle;
+            amount = bData.amount || amount;
+            
+            // Extract member ID from path (members/{memberId}/boletos/{boletoId})
+            const parts = foundBoletoPath.split("/");
+            actualMemberId = parts[1] || actualMemberId;
+          }
+        });
+      }
+
+      if (foundBoletoPath) {
+        // Update database with PAID status
+        await adminDb.doc(foundBoletoPath).update({
+          status: "paid", // Lowercase for backend standard
+          paidAt: admin.firestore.FieldValue.serverTimestamp(),
+          paymentMethod: "PIX",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Add to audit_logs for the administration panel
+        await adminDb.collection("audit_logs").add({
+          action: "RECEITA_CONFIRMADA",
+          details: `Pagamento automático via PIX do boleto de ${memberName} (${boletoTitle}) - R$ ${amount.toFixed(2)} confirmado pelo gateway Banco do Brasil.`,
+          userEmail: "sistema.automatico@sinpa.org.br",
+          userName: "Banco do Brasil Gateway PIX",
+          timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Dispatch instant notification
+        await adminDb.collection("notifications").add({
+          title: "PIX Recebido com Sucesso!",
+          message: `O associado ${memberName} realizou o pagamento da mensalidade ${boletoTitle} no valor de R$ ${amount.toFixed(2)} via PIX Banco do Brasil. O boleto foi liquidado automaticamente no sistema.`,
+          type: "billing",
+          read: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+
+      res.json({
+        success: true,
+        message: "Simulação realizada com sucesso. Status alterado para pago!",
+        boletoId,
+        memberId: actualMemberId
+      });
+    } catch (error: any) {
+      console.error("Erro na simulação do pagamento PIX:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Real Banco do Brasil PIX Webhook callback endpoint
+  app.post("/api/payments/webhook", async (req, res) => {
+    try {
+      console.log("Webhook Banco do Brasil PIX recebido:", JSON.stringify(req.body));
+      
+      const { pix } = req.body;
+      if (!pix || !Array.isArray(pix) || pix.length === 0) {
+        return res.status(400).json({ error: "Formato de webhook inválido." });
+      }
+
+      let processedCount = 0;
+
+      for (const payment of pix) {
+        const txid = payment.txid;
+        if (!txid) continue;
+
+        console.log(`Processando confirmação para o TXID: ${txid}`);
+
+        // Search for boleto with matching pixTxid
+        const boletosRef = adminDb.collectionGroup("boletos");
+        const qSnap = await boletosRef.where("pixTxid", "==", txid).get();
+
+        if (!qSnap.empty) {
+          for (const doc of qSnap.docs) {
+            const boletoData = doc.data();
+            const memberName = boletoData.memberName || "Associado SINPA";
+            const boletoTitle = boletoData.title || boletoData.doc || "Mensalidade";
+            const amount = boletoData.amount || Number(payment.valor) || 150.00;
+
+            // Update status to paid
+            await doc.ref.update({
+              status: "paid",
+              paidAt: admin.firestore.FieldValue.serverTimestamp(),
+              paymentMethod: "PIX",
+              gatewayEndToEndId: payment.endToEndId || null,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Write logs
+            await adminDb.collection("audit_logs").add({
+              action: "RECEITA_CONFIRMADA",
+              details: `Webhook BB: Pagamento via PIX recebido de ${memberName} (${boletoTitle}) - R$ ${Number(amount).toFixed(2)}. Transação: ${txid}`,
+              userEmail: "webhook.gateway@sinpa.org.br",
+              userName: "Banco do Brasil Webhook",
+              timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            await adminDb.collection("notifications").add({
+              title: "Pagamento Confirmado (Webhook BB)",
+              message: `O gateway do Banco do Brasil confirmou o recebimento de R$ ${Number(amount).toFixed(2)} referente a ${boletoTitle} de ${memberName}.`,
+              type: "billing",
+              read: false,
+              createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            processedCount++;
+          }
+        } else {
+          console.log(`TXID ${txid} não localizado em nenhum boleto cadastrado no Firestore.`);
+        }
+      }
+
+      res.json({ success: true, processed: processedCount });
+    } catch (error: any) {
+      console.error("Erro no processamento do webhook de pagamento:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Public stats endpoint for landing page (to show real database counts)
   app.get("/api/public/stats", async (req, res) => {
     try {
