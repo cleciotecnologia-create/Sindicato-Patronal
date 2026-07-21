@@ -1,0 +1,47 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Default deny all access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isImageOrDoc() {
+      return request.resource.contentType.matches('image/.*') ||
+             request.resource.contentType.matches('application/pdf') ||
+             request.resource.contentType.matches('application/msword') ||
+             request.resource.contentType.matches('application/vnd.openxmlformats-officedocument.*');
+    }
+
+    function isValidSize() {
+      return request.resource.size < 10 * 1024 * 1024; // 10MB max
+    }
+
+    // Public documents (published by admin or union)
+    match /documents/{docId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isImageOrDoc() && isValidSize();
+    }
+
+    // Member company uploads (avatars, receipts, documents)
+    match /companies/{empresaId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isImageOrDoc() && isValidSize();
+    }
+
+    // User uploads (profile photos, attachments)
+    match /users/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && isImageOrDoc() && isValidSize();
+    }
+  }
+}

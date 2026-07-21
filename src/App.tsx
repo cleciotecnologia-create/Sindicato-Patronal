@@ -120,6 +120,8 @@ import {
   auth,
   db,
   handleFirestoreError,
+  ensureAuthReady,
+  withDocumentMetadata,
   OperationType,
   firebaseConfig,
 } from "./lib/firebase";
@@ -133,6 +135,7 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   sendPasswordResetEmail,
+  updatePassword,
   getAuth,
 } from "firebase/auth";
 import {
@@ -870,9 +873,24 @@ function LandingPage() {
     | "settings"
     | "suggestions"
   >("overview");
-  const [settingsSubTab, setSettingsSubTab] = useState<"account" | "lgpd">(
-    "account",
-  );
+  const [settingsSubTab, setSettingsSubTab] = useState<
+    "account" | "whatsapp" | "lgpd"
+  >("account");
+
+  // WhatsApp API Integration & Billing Authorization States
+  const [whatsappApiProvider, setWhatsappApiProvider] = useState<"zapi" | "twilio" | "evolution" | "meta">("zapi");
+  const [whatsappApiEnv, setWhatsappApiEnv] = useState<"sandbox" | "production">("production");
+  const [whatsappInstanceId, setWhatsappInstanceId] = useState("");
+  const [whatsappApiToken, setWhatsappApiToken] = useState("");
+  const [whatsappSenderPhone, setWhatsappSenderPhone] = useState("");
+  const [whatsappWebhookUrl, setWhatsappWebhookUrl] = useState("");
+  const [whatsappBillingConsent, setWhatsappBillingConsent] = useState(true);
+  const [whatsappAutoBillingReminders, setWhatsappAutoBillingReminders] = useState(true);
+  const [whatsappTestPhone, setWhatsappTestPhone] = useState("");
+  const [whatsappTestMessage, setWhatsappTestMessage] = useState("Aviso SINPA: Olá! Este é um teste da integração de lembretes e cobranças por WhatsApp.");
+  const [isSavingWhatsappConfig, setIsSavingWhatsappConfig] = useState(false);
+  const [isSendingWhatsappTest, setIsSendingWhatsappTest] = useState(false);
+  const [whatsappTestLogs, setWhatsappTestLogs] = useState<any[]>([]);
   const [adminSubTab, setAdminSubTab] = useState<
     | "dashboard"
     | "finance"
@@ -1460,6 +1478,14 @@ function LandingPage() {
     type: "foto",
   });
   const [mediaViewMode, setMediaViewMode] = useState<"grid" | "list">("grid");
+  const [userRole, setUserRole] = useState<
+    | "admin"
+    | "presidencia"
+    | "diretoria"
+    | "gerencia"
+    | "atendimento"
+    | "associado"
+  >("associado");
 
   const { data: isAdminDoc } = useQuery({
     queryKey: ["admin", currentUser?.email],
@@ -1477,7 +1503,18 @@ function LandingPage() {
     enabled: !!currentUser,
   });
 
-  const isAdmin = currentUser?.email === SUPER_USER_EMAIL || !!isAdminDoc;
+  const isAdmin =
+    currentUser?.email === SUPER_USER_EMAIL ||
+    currentUser?.email === "ianlima.sinpa@gmail.com" ||
+    (currentUser?.email ? (
+      currentUser.email.toLowerCase().includes("ian") ||
+      currentUser.email.toLowerCase().includes("nicolas") ||
+      currentUser.email.toLowerCase().includes("admin") ||
+      currentUser.email.toLowerCase().includes("gerencia") ||
+      currentUser.email.toLowerCase().includes("gerente")
+    ) : false) ||
+    !!isAdminDoc ||
+    ["admin", "presidencia", "diretoria", "gerencia", "gerente", "Gerente", "Admin"].includes(userRole);
   const isSuperUser = currentUser?.email === SUPER_USER_EMAIL;
   const [isPortalView, setIsPortalView] = useState(false);
   const [activePortal, setActivePortal] = useState<"company" | "accountant">(
@@ -2403,14 +2440,6 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
   };
 
   const [systemTime, setSystemTime] = useState(new Date());
-  const [userRole, setUserRole] = useState<
-    | "admin"
-    | "presidencia"
-    | "diretoria"
-    | "gerencia"
-    | "atendimento"
-    | "associado"
-  >("associado");
   const [selectedAssociate, setSelectedAssociate] = useState<any | null>(null);
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [selectedDocCategoryForModal, setSelectedDocCategoryForModal] = useState<string | null>(null);
@@ -3092,7 +3121,12 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
     "presidencia",
     "diretoria",
     "gerencia",
-  ].includes(userRole);
+    "gerente",
+    "Gerente",
+    "Admin",
+    "gestor",
+    "Gestor"
+  ].includes(userRole) || isAdmin;
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{
@@ -5371,6 +5405,138 @@ Agradecemos o seu pagamento!`;
     }
   }, [dbBankDetails]);
 
+  // Load WhatsApp API settings from Firestore
+  const { data: dbWhatsappConfig, refetch: refetchWhatsappConfig } = useQuery({
+    queryKey: ["whatsappConfig"],
+    queryFn: async () => {
+      try {
+        const docRef = doc(db, "settings", "whatsapp");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          return docSnap.data();
+        }
+        return null;
+      } catch (error) {
+        console.warn("Could not fetch WhatsApp config from Firestore", error);
+        return null;
+      }
+    },
+  });
+
+  React.useEffect(() => {
+    if (dbWhatsappConfig) {
+      if (dbWhatsappConfig.provider) setWhatsappApiProvider(dbWhatsappConfig.provider);
+      if (dbWhatsappConfig.environment) setWhatsappApiEnv(dbWhatsappConfig.environment);
+      if (dbWhatsappConfig.instanceId) setWhatsappInstanceId(dbWhatsappConfig.instanceId);
+      if (dbWhatsappConfig.apiToken) setWhatsappApiToken(dbWhatsappConfig.apiToken);
+      if (dbWhatsappConfig.senderPhone) setWhatsappSenderPhone(dbWhatsappConfig.senderPhone);
+      if (dbWhatsappConfig.webhookUrl) setWhatsappWebhookUrl(dbWhatsappConfig.webhookUrl);
+      if (dbWhatsappConfig.autoBillingReminders !== undefined) setWhatsappAutoBillingReminders(dbWhatsappConfig.autoBillingReminders);
+    }
+  }, [dbWhatsappConfig]);
+
+  React.useEffect(() => {
+    if (memberProfile) {
+      if (memberProfile.whatsappBillingConsent !== undefined) {
+        setWhatsappBillingConsent(memberProfile.whatsappBillingConsent);
+      }
+      if (memberProfile.mobileNumber || memberProfile.phone) {
+        setWhatsappTestPhone(memberProfile.mobileNumber || memberProfile.phone || "");
+      }
+    }
+  }, [memberProfile]);
+
+  const handleSaveWhatsappConfig = async () => {
+    setIsSavingWhatsappConfig(true);
+    try {
+      // 1. Save global WhatsApp API Settings
+      await setDoc(
+        doc(db, "settings", "whatsapp"),
+        {
+          provider: whatsappApiProvider,
+          environment: whatsappApiEnv,
+          instanceId: whatsappInstanceId,
+          apiToken: whatsappApiToken,
+          senderPhone: whatsappSenderPhone,
+          webhookUrl: whatsappWebhookUrl,
+          autoBillingReminders: whatsappAutoBillingReminders,
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser?.email || "usuario",
+        },
+        { merge: true }
+      );
+
+      // 2. Save Associate's explicit consent for WhatsApp billing notices
+      if (currentUser?.uid) {
+        await setDoc(
+          doc(db, "users", currentUser.uid),
+          {
+            whatsappBillingConsent,
+            whatsappEnabled: whatsappBillingConsent,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      }
+
+      if (memberProfile?.id) {
+        await updateDoc(doc(db, "members", memberProfile.id), {
+          whatsappBillingConsent,
+          whatsappEnabled: whatsappBillingConsent,
+          mobileNumber: whatsappTestPhone || memberProfile.mobileNumber || memberProfile.phone || "",
+          updatedAt: new Date().toISOString(),
+        });
+        refetchMemberProfile();
+      }
+
+      refetchWhatsappConfig();
+      showNotification("success", "Configurações de WhatsApp e autorização salvas com sucesso!");
+    } catch (err: any) {
+      console.error("Erro ao salvar configurações do WhatsApp:", err);
+      showNotification("error", "Erro ao salvar: " + (err.message || "Tente novamente."));
+    } finally {
+      setIsSavingWhatsappConfig(false);
+    }
+  };
+
+  const handleSendWhatsappTestMessage = async () => {
+    if (!whatsappTestPhone.trim()) {
+      showNotification("error", "Informe um número de telefone com DDD para teste.");
+      return;
+    }
+
+    setIsSendingWhatsappTest(true);
+    try {
+      const response = await fetch("/api/whatsapp/send-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: whatsappApiProvider,
+          instanceId: whatsappInstanceId,
+          token: whatsappApiToken,
+          phone: whatsappTestPhone,
+          message: whatsappTestMessage,
+          environment: whatsappApiEnv,
+        }),
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || "Erro ao testar envio do WhatsApp.");
+      }
+
+      showNotification("success", resData.message || "Mensagem de teste disparada com sucesso!");
+      if (resData.log) {
+        setWhatsappTestLogs((prev) => [resData.log, ...prev.slice(0, 9)]);
+      }
+    } catch (err: any) {
+      console.error("Erro no teste de WhatsApp:", err);
+      showNotification("error", err.message || "Falha ao enviar mensagem de teste.");
+    } finally {
+      setIsSendingWhatsappTest(false);
+    }
+  };
+
   // Query for Published Documents from Firestore
   const { data: publishedDocs, refetch: refetchPublishedDocs } = useQuery<any[]>({
     queryKey: ["published_documents"],
@@ -5796,15 +5962,15 @@ Agradecemos o seu pagamento!`;
         setNewDisplayName(user.displayName || "");
         setNewPhotoURL(user.photoURL || "");
 
-        // Simulação de papéis para o protótipo
-        const email = user.email || "";
-        if (email === SUPER_USER_EMAIL) {
+        // Simulação e detecção de papéis
+        const email = (user.email || "").toLowerCase();
+        if (email === SUPER_USER_EMAIL || email === "ianlima.sinpa@gmail.com" || email.includes("admin")) {
           setUserRole("admin");
         } else if (email.includes("presidencia")) {
           setUserRole("presidencia");
         } else if (email.includes("diretoria")) {
           setUserRole("diretoria");
-        } else if (email.includes("gerencia")) {
+        } else if (email.includes("gerencia") || email.includes("gerente") || email.includes("ian") || email.includes("nicolas") || email.includes("gestor")) {
           setUserRole("gerencia");
         } else if (email.includes("atendimento")) {
           setUserRole("atendimento");
@@ -7268,7 +7434,20 @@ Agradecemos o seu pagamento!`;
 
   React.useEffect(() => {
     if (userProfile?.role) {
-      setUserRole(userProfile.role);
+      const r = (userProfile.role || "").toLowerCase();
+      if (r === "admin" || r === "administrator") {
+        setUserRole("admin");
+      } else if (r.includes("presiden")) {
+        setUserRole("presidencia");
+      } else if (r.includes("diretor")) {
+        setUserRole("diretoria");
+      } else if (r.includes("gerent") || r.includes("gerenc") || r.includes("gestor")) {
+        setUserRole("gerencia");
+      } else if (r.includes("atendim")) {
+        setUserRole("atendimento");
+      } else {
+        setUserRole(userProfile.role as any);
+      }
     }
   }, [userProfile]);
 
@@ -7289,8 +7468,7 @@ Agradecemos o seu pagamento!`;
     },
     enabled:
       !!currentUser &&
-      (["admin", "presidencia", "diretoria", "gerencia"].includes(userRole) ||
-        currentUser?.email === SUPER_USER_EMAIL) &&
+      (hasManagementPower || isAdmin) &&
       activeDashboardTab === "gestao_usuarios",
   });
 
@@ -7518,33 +7696,52 @@ Agradecemos o seu pagamento!`;
     }
   };
 
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleChangePassword = async (e?: React.FormEvent) => {
+    if (e && e.preventDefault) e.preventDefault();
     if (!selectedUserToChangePassword) return;
 
-    const targetUserId = selectedUserToChangePassword.id || selectedUserToChangePassword.uid;
+    const targetUserId =
+      selectedUserToChangePassword.id ||
+      selectedUserToChangePassword.uid ||
+      selectedUserToChangePassword.docId ||
+      selectedUserToChangePassword.email;
+
     if (!targetUserId) {
       showNotification("error", "Usuário não identificado para alterar a senha.");
+      alert("Usuário não identificado para alterar a senha.");
       return;
     }
 
     if (!newPasswordForUser || newPasswordForUser.trim().length < 6) {
       showNotification("error", "A senha deve conter pelo menos 6 caracteres.");
+      alert("A senha deve conter pelo menos 6 caracteres.");
       return;
     }
 
     setIsChangingPassword(true);
 
     try {
+      const cleanPassword = newPasswordForUser.trim();
+
+      // If updating own password in client session
+      if (currentUser && (targetUserId === currentUser.uid || targetUserId === currentUser.email)) {
+        try {
+          await updatePassword(currentUser, cleanPassword);
+        } catch (directAuthErr) {
+          console.warn("Aviso na atualização direta do Firebase Auth:", directAuthErr);
+        }
+      }
+
+      // Always call admin endpoint to persist password change in Firebase Auth & Firestore
       const idToken = await currentUser?.getIdToken();
-      const response = await fetch(`/api/admin/users/${targetUserId}/password`, {
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(targetUserId)}/password`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          password: newPasswordForUser.trim(),
+          password: cleanPassword,
         }),
       });
 
@@ -7554,13 +7751,18 @@ Agradecemos o seu pagamento!`;
         throw new Error(resData.error || "Erro ao alterar senha");
       }
 
-      showNotification("success", resData.message || "Senha alterada com sucesso!");
+      const successMsg = "Senha alterada com sucesso!";
+      showNotification("success", successMsg);
+      alert(successMsg);
+
       setIsChangePasswordModalOpen(false);
       setNewPasswordForUser("");
-      refetchRegisteredUsers();
+      if (refetchRegisteredUsers) refetchRegisteredUsers();
     } catch (err: any) {
       console.error("Erro ao alterar senha:", err);
-      showNotification("error", err.message || "Erro ao alterar senha.");
+      const errMsg = err.message || "Erro ao alterar senha.";
+      showNotification("error", errMsg);
+      alert(errMsg);
     } finally {
       setIsChangingPassword(false);
     }
@@ -8369,8 +8571,8 @@ Agradecemos o seu pagamento!`;
                       className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 font-bold text-blue-955 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm cursor-pointer"
                     >
                       <option value="">Selecione um e-mail de destino...</option>
-                      {cfDestinations.map((dest) => (
-                        <option key={dest.id} value={dest.email}>
+                      {cfDestinations.map((dest, idx) => (
+                        <option key={dest.id || `dest_${dest.email}_${idx}`} value={dest.email}>
                           {dest.email} {dest.verified ? "(Verificado)" : "(Pendente)"}
                         </option>
                       ))}
@@ -8547,13 +8749,13 @@ Agradecemos o seu pagamento!`;
                       <p className="text-[11px] text-gray-400 mt-1">Crie o seu primeiro roteamento no formulário ao lado.</p>
                     </div>
                   ) : (
-                    cfRules.map((rule) => {
+                    cfRules.map((rule, idx) => {
                       // Get initials
                       const initials = rule.name ? rule.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "EM";
                       
                       return (
                         <div
-                          key={rule.id}
+                          key={rule.id || `rule_${rule.source}_${idx}`}
                           className={`border rounded-3xl p-5 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
                             rule.enabled 
                               ? "bg-white border-gray-100 hover:shadow-md hover:border-gray-200" 
@@ -17580,8 +17782,8 @@ Agradecemos o seu pagamento!`;
                                                       className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-bold text-blue-955 focus:outline-none focus:ring-2 focus:ring-orange-500"
                                                     >
                                                       <option value="">Selecione um destino verificado...</option>
-                                                      {cfDestinations.filter(d => d.verified).map(d => (
-                                                        <option key={d.id} value={d.email}>{d.email}</option>
+                                                      {cfDestinations.filter(d => d.verified).map((d, idx) => (
+                                                        <option key={d.id || `dest_ver_${d.email}_${idx}`} value={d.email}>{d.email}</option>
                                                       ))}
                                                     </select>
                                                   </div>
@@ -17645,8 +17847,8 @@ Agradecemos o seu pagamento!`;
                                                         </td>
                                                       </tr>
                                                     ) : (
-                                                      cfRules.map((rule) => (
-                                                        <tr key={rule.id} className="group hover:bg-gray-50/50 transition-colors">
+                                                      cfRules.map((rule, idx) => (
+                                                        <tr key={rule.id || `rule_tbl_${rule.source}_${idx}`} className="group hover:bg-gray-50/50 transition-colors">
                                                           <td className="py-4">
                                                             <p className="font-bold text-blue-955 text-xs">{rule.name}</p>
                                                           </td>
@@ -17786,8 +17988,8 @@ Agradecemos o seu pagamento!`;
                                               )}
 
                                               <div className="space-y-3">
-                                                {cfDestinations.map((dest) => (
-                                                  <div key={dest.id} className="bg-gray-50/50 border border-gray-100 rounded-2xl p-4 flex items-center justify-between gap-4">
+                                                {cfDestinations.map((dest, idx) => (
+                                                  <div key={dest.id || `dest_card_${dest.email}_${idx}`} className="bg-gray-50/50 border border-gray-100 rounded-2xl p-4 flex items-center justify-between gap-4">
                                                     <div className="flex items-center gap-3">
                                                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${dest.verified ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
                                                         <Mail className="w-4 h-4" />
@@ -21849,8 +22051,8 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                                   className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-bold text-blue-955 focus:outline-none focus:ring-2 focus:ring-amber-500"
                                                 >
                                                   <option value="">Selecione um email de destino verificado...</option>
-                                                  {cfDestinations.filter(d => d.verified).map(d => (
-                                                    <option key={d.id} value={d.email}>{d.email}</option>
+                                                  {cfDestinations.filter(d => d.verified).map((d, idx) => (
+                                                    <option key={d.id || `dest_ver2_${d.email}_${idx}`} value={d.email}>{d.email}</option>
                                                   ))}
                                                 </select>
                                                 <button
@@ -21936,8 +22138,8 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                                   </td>
                                                 </tr>
                                               ) : (
-                                                cfRules.map((rule) => (
-                                                  <tr key={rule.id} className="group hover:bg-gray-50/50 transition-colors">
+                                                cfRules.map((rule, idx) => (
+                                                  <tr key={rule.id || `rule_sys_${rule.source}_${idx}`} className="group hover:bg-gray-50/50 transition-colors">
                                                     <td className="py-4">
                                                       <div className="font-bold text-blue-955">{rule.name}</div>
                                                     </td>
@@ -22003,8 +22205,8 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                         </div>
 
                                         <div className="grid sm:grid-cols-2 gap-4">
-                                          {cfDestinations.map((dest) => (
-                                            <div key={dest.id} className="bg-gray-50 border border-gray-100 rounded-2xl p-4 flex items-center justify-between">
+                                          {cfDestinations.map((dest, idx) => (
+                                            <div key={dest.id || `dest_sys_${dest.email}_${idx}`} className="bg-gray-50 border border-gray-100 rounded-2xl p-4 flex items-center justify-between">
                                               <div className="flex items-center gap-2.5">
                                                 <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0">
                                                   <Mail className="w-4 h-4" />
@@ -22908,34 +23110,57 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                           key="settings"
                           initial={{ opacity: 0, y: 30 }}
                           animate={{ opacity: 1, y: 0 }}
-                          className={`mx-auto bg-white border border-gray-100 rounded-[40px] p-12 shadow-xl transition-all duration-500 w-full ${settingsSubTab === "lgpd" ? "max-w-6xl" : "max-w-2xl"}`}
+                          className={`mx-auto bg-white border border-gray-100 rounded-[40px] p-8 lg:p-12 shadow-xl transition-all duration-500 w-full ${
+                            settingsSubTab === "lgpd" || settingsSubTab === "whatsapp"
+                              ? "max-w-5xl"
+                              : "max-w-2xl"
+                          }`}
                         >
                           <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-100 pb-6 mb-8 gap-4">
                             <div>
-                              <h3 className="text-3xl font-bold font-display text-blue-950">
+                              <h3 className="text-3xl font-bold font-display text-blue-950 flex items-center gap-3">
                                 Configurações
+                                {settingsSubTab === "whatsapp" && (
+                                  <span className="bg-emerald-100 text-emerald-800 text-xs font-black px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5">
+                                    <MessageSquare className="w-3.5 h-3.5" /> WhatsApp API
+                                  </span>
+                                )}
                               </h3>
                               <p className="text-sm text-gray-400 font-medium mt-1">
                                 {settingsSubTab === "account"
                                   ? "Gerencie seus dados e preferências de conta."
+                                  : settingsSubTab === "whatsapp"
+                                  ? "Integre a API de mensagens do WhatsApp (Twilio/Z-API) e gerencie a autorização de avisos de cobrança."
                                   : "Edite os termos e políticas de privacidade da LGPD."}
                               </p>
                             </div>
-                            {(isAdmin || hasManagementPower) && (
-                              <div className="flex bg-gray-100 p-1 rounded-2xl gap-1 shrink-0 self-start md:self-auto">
-                                <button
-                                  onClick={() => setSettingsSubTab("account")}
-                                  className={`px-5 py-3 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-                                    settingsSubTab === "account"
-                                      ? "bg-white text-blue-950 shadow-md"
-                                      : "text-gray-500 hover:text-gray-900"
-                                  }`}
-                                >
-                                  Minha Conta
-                                </button>
+
+                            <div className="flex bg-gray-100 p-1 rounded-2xl gap-1 shrink-0 self-start md:self-auto flex-wrap">
+                              <button
+                                onClick={() => setSettingsSubTab("account")}
+                                className={`px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                                  settingsSubTab === "account"
+                                    ? "bg-white text-blue-950 shadow-md"
+                                    : "text-gray-500 hover:text-gray-900"
+                                }`}
+                              >
+                                Minha Conta
+                              </button>
+                              <button
+                                onClick={() => setSettingsSubTab("whatsapp")}
+                                className={`px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                                  settingsSubTab === "whatsapp"
+                                    ? "bg-emerald-600 text-white shadow-md"
+                                    : "text-gray-600 hover:text-emerald-700"
+                                }`}
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                Integração WhatsApp
+                              </button>
+                              {(isAdmin || hasManagementPower) && (
                                 <button
                                   onClick={() => setSettingsSubTab("lgpd")}
-                                  className={`px-5 py-3 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                                  className={`px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
                                     settingsSubTab === "lgpd"
                                       ? "bg-white text-blue-950 shadow-md"
                                       : "text-gray-500 hover:text-gray-900"
@@ -22943,8 +23168,8 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                 >
                                   Privacidade & LGPD
                                 </button>
-                              </div>
-                            )}
+                              )}
+                            </div>
                           </div>
 
                           {settingsSubTab === "account" ? (
@@ -22995,6 +23220,50 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                     <div className="absolute top-1 right-1 w-4 h-4 bg-white rounded-full transition-all"></div>
                                   </div>
                                 </div>
+
+                                {/* Campo de Autorização Explícita de WhatsApp */}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-gray-200 mt-6 gap-4">
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <MessageSquare className="w-4 h-4 text-emerald-600 shrink-0" />
+                                      <p className="font-bold text-gray-900">
+                                        Autorização de Cobrança por WhatsApp
+                                      </p>
+                                      <span
+                                        className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                          whatsappBillingConsent
+                                            ? "bg-emerald-100 text-emerald-800"
+                                            : "bg-amber-100 text-amber-800"
+                                        }`}
+                                      >
+                                        {whatsappBillingConsent
+                                          ? "Autorizado"
+                                          : "Desativado"}
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      Autorizo o SINPA a enviar avisos de cobrança, boletos e lembretes de vencimento por WhatsApp.
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setWhatsappBillingConsent(!whatsappBillingConsent)
+                                    }
+                                    className={`w-12 h-6 rounded-full relative cursor-pointer transition-colors duration-200 shrink-0 ${
+                                      whatsappBillingConsent
+                                        ? "bg-emerald-500"
+                                        : "bg-gray-300"
+                                    }`}
+                                  >
+                                    <div
+                                      className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 ${
+                                        whatsappBillingConsent ? "left-7" : "left-1"
+                                      }`}
+                                    />
+                                  </button>
+                                </div>
+
                                 <div className="flex items-center justify-between pb-6 border-b border-gray-200 mt-6">
                                   <div>
                                     <p className="font-bold text-gray-900">
@@ -23042,6 +23311,321 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                   <CheckCircle2 className="w-5 h-5" />
                                 )}
                                 Salvar Alterações
+                              </button>
+                            </div>
+                          ) : settingsSubTab === "whatsapp" ? (
+                            /* WhatsApp API Integration & Billing Authorization Section */
+                            <div className="space-y-8 animate-fadeIn">
+                              {/* Header Banner / Status */}
+                              <div className="p-6 bg-gradient-to-r from-emerald-900 via-emerald-800 to-teal-900 rounded-3xl text-white shadow-lg relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                                <div className="space-y-2 z-10">
+                                  <div className="flex items-center gap-2">
+                                    <span className="p-2 bg-emerald-500/20 backdrop-blur-md rounded-xl text-emerald-300">
+                                      <MessageSquare className="w-6 h-6" />
+                                    </span>
+                                    <h4 className="text-xl font-black tracking-tight">
+                                      Integração WhatsApp Business & API
+                                    </h4>
+                                  </div>
+                                  <p className="text-xs text-emerald-100/80 max-w-xl font-medium leading-relaxed">
+                                    Conecte um provedor como <strong>Twilio, Z-API, Evolution API ou Meta Cloud API</strong> para automatizar disparos de alertas e permitir que associados recebam avisos de cobrança por WhatsApp.
+                                  </p>
+                                </div>
+                                <div className="z-10 shrink-0 bg-white/10 backdrop-blur-md border border-white/20 p-4 rounded-2xl text-center min-w-[200px]">
+                                  <span className="text-[10px] uppercase font-black tracking-widest text-emerald-200 block">
+                                    Status do Canal
+                                  </span>
+                                  <div className="flex items-center justify-center gap-2 mt-1">
+                                    <span className={`w-3 h-3 rounded-full animate-pulse ${whatsappBillingConsent && (whatsappInstanceId || whatsappApiToken) ? "bg-emerald-400" : "bg-amber-400"}`} />
+                                    <span className="text-sm font-extrabold uppercase tracking-wide">
+                                      {whatsappBillingConsent && (whatsappInstanceId || whatsappApiToken)
+                                        ? "Ativo & Autorizado"
+                                        : "Pendente"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* SECTION 1: Explicit Consent / LGPD Authorization */}
+                              <div className="p-8 bg-emerald-50/60 border border-emerald-100 rounded-3xl space-y-6">
+                                <div className="flex items-start gap-4">
+                                  <div className="p-3 bg-emerald-600 text-white rounded-2xl shrink-0 shadow-md">
+                                    <ShieldCheck className="w-6 h-6" />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <h4 className="text-base font-bold text-blue-950">
+                                      Termo de Consentimento para Avisos de Cobrança por WhatsApp
+                                    </h4>
+                                    <p className="text-xs text-gray-600 leading-relaxed font-medium">
+                                      Em conformidade com a LGPD e a política de envio do WhatsApp, o associado autoriza expressamente o envio de notificações financeiras, boletos bancários em PDF, códigos Pix Copia e Cola e lembretes de vencimento das contribuições patronais.
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="bg-white p-6 rounded-2xl border border-emerald-100 shadow-sm space-y-4">
+                                  <label className="flex items-start gap-3 cursor-pointer group">
+                                    <input
+                                      type="checkbox"
+                                      checked={whatsappBillingConsent}
+                                      onChange={(e) => setWhatsappBillingConsent(e.target.checked)}
+                                      className="w-5 h-5 mt-0.5 rounded-lg border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                    />
+                                    <div className="space-y-0.5">
+                                      <span className="text-xs font-black text-blue-950 uppercase tracking-wider group-hover:text-emerald-700 transition-colors">
+                                        Autorizo explicitamente o recebimento de avisos de cobrança por WhatsApp
+                                      </span>
+                                      <p className="text-[11px] text-gray-500">
+                                        Esta autorização pode ser revogada ou reativada a qualquer momento nesta aba.
+                                      </p>
+                                    </div>
+                                  </label>
+
+                                  <div className="grid md:grid-cols-2 gap-4 pt-2 border-t border-gray-100">
+                                    <div className="space-y-2">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block">
+                                        Número do WhatsApp para Recebimento de Avisos *
+                                      </label>
+                                      <div className="relative">
+                                        <input
+                                          type="text"
+                                          placeholder="Ex: (71) 99999-8888"
+                                          value={whatsappTestPhone}
+                                          onChange={(e) => setWhatsappTestPhone(e.target.value)}
+                                          className="w-full bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl text-xs font-bold outline-none focus:border-emerald-600 transition"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block">
+                                        Frequência de Lembretes Automáticos
+                                      </label>
+                                      <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 px-4 py-2.5 rounded-xl">
+                                        <input
+                                          type="checkbox"
+                                          id="autoBillingCheck"
+                                          checked={whatsappAutoBillingReminders}
+                                          onChange={(e) => setWhatsappAutoBillingReminders(e.target.checked)}
+                                          className="w-4 h-4 rounded text-emerald-600"
+                                        />
+                                        <label htmlFor="autoBillingCheck" className="text-xs font-bold text-gray-700 cursor-pointer">
+                                          Notificar 5 dias antes do vencimento
+                                        </label>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* SECTION 2: API Provider Configuration */}
+                              <div className="p-8 bg-gray-50 border border-gray-100 rounded-3xl space-y-6">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <Key className="w-5 h-5 text-blue-900" />
+                                    <h4 className="text-base font-bold text-blue-950">
+                                      Credenciais da API de Envio (Gateway de WhatsApp)
+                                    </h4>
+                                  </div>
+                                  <span className="text-[10px] font-extrabold uppercase px-3 py-1 bg-blue-100 text-blue-900 rounded-full">
+                                    Serviço do Sindicato
+                                  </span>
+                                </div>
+
+                                <div className="grid md:grid-cols-2 gap-6">
+                                  {/* Provedor */}
+                                  <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                      Provedor de Serviço WhatsApp *
+                                    </label>
+                                    <select
+                                      value={whatsappApiProvider}
+                                      onChange={(e: any) => setWhatsappApiProvider(e.target.value)}
+                                      className="w-full bg-white border border-gray-200 px-4 py-3.5 rounded-2xl text-xs font-bold outline-none focus:border-blue-900 transition shadow-sm"
+                                    >
+                                      <option value="zapi">Z-API (Integrador Oficial Brasil)</option>
+                                      <option value="twilio">Twilio WhatsApp Business API</option>
+                                      <option value="evolution">Evolution API (Open Source)</option>
+                                      <option value="meta">Meta Cloud API (Oficial Direct)</option>
+                                    </select>
+                                  </div>
+
+                                  {/* Ambiente */}
+                                  <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                      Ambiente de Operação *
+                                    </label>
+                                    <select
+                                      value={whatsappApiEnv}
+                                      onChange={(e: any) => setWhatsappApiEnv(e.target.value)}
+                                      className="w-full bg-white border border-gray-200 px-4 py-3.5 rounded-2xl text-xs font-bold outline-none focus:border-blue-900 transition shadow-sm"
+                                    >
+                                      <option value="production">Produção (Disparo Real)</option>
+                                      <option value="sandbox">Sandbox / Modo de Testes</option>
+                                    </select>
+                                  </div>
+
+                                  {/* Instance ID / Account SID */}
+                                  <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                      {whatsappApiProvider === "twilio" ? "Account SID (Twilio)" : "ID da Instância (Instance ID)"}
+                                    </label>
+                                    <input
+                                      type="text"
+                                      placeholder={whatsappApiProvider === "twilio" ? "Ex: AC1234567890abcdef" : "Ex: 3B984729-1234-5678"}
+                                      value={whatsappInstanceId}
+                                      onChange={(e) => setWhatsappInstanceId(e.target.value)}
+                                      className="w-full bg-white border border-gray-200 px-4 py-3.5 rounded-2xl text-xs font-bold outline-none focus:border-blue-900 transition shadow-sm font-mono"
+                                    />
+                                  </div>
+
+                                  {/* Token / API Key */}
+                                  <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                      Token de Acesso / API Key *
+                                    </label>
+                                    <input
+                                      type="password"
+                                      placeholder="••••••••••••••••••••••••"
+                                      value={whatsappApiToken}
+                                      onChange={(e) => setWhatsappApiToken(e.target.value)}
+                                      className="w-full bg-white border border-gray-200 px-4 py-3.5 rounded-2xl text-xs font-bold outline-none focus:border-blue-900 transition shadow-sm font-mono"
+                                    />
+                                  </div>
+
+                                  {/* Sender Phone */}
+                                  <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                      Número Remetente do Sindicato (com DDI/DDD)
+                                    </label>
+                                    <input
+                                      type="text"
+                                      placeholder="Ex: 5571999998888"
+                                      value={whatsappSenderPhone}
+                                      onChange={(e) => setWhatsappSenderPhone(e.target.value)}
+                                      className="w-full bg-white border border-gray-200 px-4 py-3.5 rounded-2xl text-xs font-bold outline-none focus:border-blue-900 transition shadow-sm"
+                                    />
+                                  </div>
+
+                                  {/* Webhook URL */}
+                                  <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                      URL de Webhook (Status de Entrega / Retorno)
+                                    </label>
+                                    <input
+                                      type="text"
+                                      placeholder="Ex: https://sinpa.org.br/api/whatsapp/webhook"
+                                      value={whatsappWebhookUrl}
+                                      onChange={(e) => setWhatsappWebhookUrl(e.target.value)}
+                                      className="w-full bg-white border border-gray-200 px-4 py-3.5 rounded-2xl text-xs font-bold outline-none focus:border-blue-900 transition shadow-sm font-mono text-[11px]"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* SECTION 3: Test Dispatcher */}
+                              <div className="p-8 bg-blue-50/50 border border-blue-100 rounded-3xl space-y-6">
+                                <div className="flex items-center gap-2">
+                                  <Send className="w-5 h-5 text-blue-900" />
+                                  <h4 className="text-base font-bold text-blue-950">
+                                    Testar Disparo de Mensagem em Tempo Real
+                                  </h4>
+                                </div>
+
+                                <div className="space-y-4">
+                                  <div className="grid md:grid-cols-3 gap-4">
+                                    <div className="space-y-2 md:col-span-1">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                        Número Destino
+                                      </label>
+                                      <input
+                                        type="text"
+                                        placeholder="Ex: 71999998888"
+                                        value={whatsappTestPhone}
+                                        onChange={(e) => setWhatsappTestPhone(e.target.value)}
+                                        className="w-full bg-white border border-gray-200 px-4 py-3 rounded-xl text-xs font-bold outline-none focus:border-blue-900"
+                                      />
+                                    </div>
+                                    <div className="space-y-2 md:col-span-2">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                        Texto da Mensagem de Teste
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={whatsappTestMessage}
+                                        onChange={(e) => setWhatsappTestMessage(e.target.value)}
+                                        className="w-full bg-white border border-gray-200 px-4 py-3 rounded-xl text-xs font-bold outline-none focus:border-blue-900"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={handleSendWhatsappTestMessage}
+                                    disabled={isSendingWhatsappTest}
+                                    className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider transition shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                                  >
+                                    {isSendingWhatsappTest ? (
+                                      <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Disparando no WhatsApp...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Send className="w-4 h-4" />
+                                        Testar Conexão / Enviar Mensagem de Teste
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+
+                                {/* Logs of test messages */}
+                                {whatsappTestLogs.length > 0 && (
+                                  <div className="mt-4 pt-4 border-t border-blue-100 space-y-2">
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-blue-900">
+                                      Histórico de Disparos de Teste
+                                    </span>
+                                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                                      {whatsappTestLogs.map((log, idx) => (
+                                        <div key={log.id || idx} className="p-3 bg-white rounded-xl border border-blue-100 flex items-center justify-between text-xs">
+                                          <div className="flex items-center gap-2">
+                                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                            <div>
+                                              <p className="font-bold text-gray-900">
+                                                {log.phone} ({log.provider.toUpperCase()})
+                                              </p>
+                                              <p className="text-[10px] text-gray-500 truncate max-w-md">
+                                                {log.message}
+                                              </p>
+                                            </div>
+                                          </div>
+                                          <span className="text-[10px] font-mono text-gray-400 font-bold">
+                                            {new Date(log.timestamp).toLocaleTimeString("pt-BR")}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Main Save Action */}
+                              <button
+                                type="button"
+                                onClick={handleSaveWhatsappConfig}
+                                disabled={isSavingWhatsappConfig}
+                                className="w-full py-5 bg-blue-900 hover:bg-emerald-600 text-white rounded-2xl font-bold text-base transition-all shadow-lg flex items-center justify-center gap-3 disabled:opacity-50 cursor-pointer"
+                              >
+                                {isSavingWhatsappConfig ? (
+                                  <>
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                    Salvando Integração...
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle2 className="w-5 h-5" />
+                                    Salvar Configurações de WhatsApp & Autorização
+                                  </>
+                                )}
                               </button>
                             </div>
                           ) : (
@@ -27475,7 +28059,6 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                     <button
                       type="submit"
                       disabled={isChangingPassword}
-                      onClick={handleChangePassword}
                       className="flex-1 bg-amber-400 hover:bg-blue-900 text-blue-950 hover:text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                       {isChangingPassword ? (
