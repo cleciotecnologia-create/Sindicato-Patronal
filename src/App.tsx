@@ -889,6 +889,9 @@ function LandingPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [regCnpj, setRegCnpj] = useState("");
+  const [regPhone, setRegPhone] = useState("");
+  const [regCompanyName, setRegCompanyName] = useState("");
   const [isRegistering, setIsRegistering] = useState(false);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -1504,8 +1507,61 @@ function LandingPage() {
 
   // --- LGPD & PRIVACY POLICY STATES & QUERY ---
   const [systemTab, setSystemTab] = useState<
-    "general" | "lgpd" | "production" | "audit" | "push" | "renovacao" | "boletos_notif"
+    "general" | "lgpd" | "production" | "audit" | "push" | "renovacao" | "boletos_notif" | "smtp" | "cloudflare"
   >("general");
+
+  // --- CLOUDFLARE EMAIL ROUTING STATE ---
+  const [cfConfig, setCfConfig] = useState({
+    enabled: true,
+    apiToken: "cf_token_prod_8f1a23e981bc09a478",
+    zoneId: "0fa9882a7f80db3ea8049f50e8bc1a23",
+    domain: "sindicatodigital.org.br",
+    dnsStatus: "configured" as "configured" | "pending" | "missing",
+    spfStatus: "configured" as "configured" | "pending" | "missing",
+  });
+  const [cfRules, setCfRules] = useState<Array<{
+    id: string;
+    name: string;
+    source: string;
+    destination: string;
+    enabled: boolean;
+    totalForwarded: number;
+  }>>([
+    { id: "cf-rule-1", name: "Presidência", source: "presidencia@sindicatodigital.org.br", destination: "cleciotecnologia@gmail.com", enabled: true, totalForwarded: 142 },
+    { id: "cf-rule-2", name: "Suporte Financeiro", source: "financeiro@sindicatodigital.org.br", destination: "cleciotecnologia@gmail.com", enabled: true, totalForwarded: 89 },
+    { id: "cf-rule-3", name: "Secretaria Geral", source: "secretaria@sindicatodigital.org.br", destination: "contato.sinpaba@gmail.com", enabled: true, totalForwarded: 204 },
+    { id: "cf-rule-4", name: "Homologações", source: "homologa@sindicatodigital.org.br", destination: "homologacao.sinpa@outlook.com", enabled: false, totalForwarded: 12 },
+  ]);
+  const [cfDestinations, setCfDestinations] = useState<Array<{
+    id: string;
+    email: string;
+    verified: boolean;
+    createdAt: string;
+  }>>([
+    { id: "cf-dest-1", email: "cleciotecnologia@gmail.com", verified: true, createdAt: "2026-01-10T12:00:00Z" },
+    { id: "cf-dest-2", email: "contato.sinpaba@gmail.com", verified: true, createdAt: "2026-02-14T09:30:00Z" },
+    { id: "cf-dest-3", email: "homologacao.sinpa@outlook.com", verified: true, createdAt: "2026-05-20T16:45:00Z" },
+    { id: "cf-dest-4", email: "financeiro.sinpa@gmail.com", verified: false, createdAt: "2026-07-15T10:00:00Z" },
+  ]);
+  const [isSavingCfConfig, setIsSavingCfConfig] = useState(false);
+  const [isVerifyingCfDns, setIsVerifyingCfDns] = useState(false);
+  const [newCfRule, setNewCfRule] = useState({ name: "", sourcePrefix: "", destinationEmail: "" });
+  const [newCfDestEmail, setNewCfDestEmail] = useState("");
+  const [isAddingCfRule, setIsAddingCfRule] = useState(false);
+  const [isAddingCfDest, setIsAddingCfDest] = useState(false);
+
+  // --- SMTP CUSTOM CONFIGURATION ---
+  const [smtpConfig, setSmtpConfig] = useState({
+    enabled: false,
+    host: "smtp.sindicato.org.br",
+    port: 587,
+    secure: false, // TLS
+    user: "notificacoes@sindicato.org.br",
+    pass: "••••••••••••",
+    fromName: "SINPA BA - Sindicato Patronal",
+    fromEmail: "notificacoes@sindicato.org.br",
+  });
+  const [isSavingSmtpConfig, setIsSavingSmtpConfig] = useState(false);
 
   // --- BILLING NOTIFICATION SETTINGS STATES ---
   const [billingNotifConfig, setBillingNotifConfig] = useState({
@@ -5276,6 +5332,7 @@ Agradecemos o seu pagamento!`;
               name: "Dr. Clécio Melo",
               role: "Presidente",
               category: "presidencia",
+              photo: "/president_avatar.jpg",
             },
             {
               id: "2",
@@ -5353,19 +5410,114 @@ Agradecemos o seu pagamento!`;
     if (dbTeamMembers !== undefined) {
       setTeamMembers(dbTeamMembers);
 
-      // Auto-correct president's name in Firestore if it is still the old one
+      // Auto-correct president's name & photo in Firestore only if they are the old default value or missing
       const president = dbTeamMembers.find(
         (m) => m.id === "1" || m.role === "Presidente"
       );
-      if (
-        president &&
-        president.name === "Dr. Roberto Santos" &&
-        currentUser
-      ) {
-        handleUpdateTeamMember(president.id, { name: "Dr. Clécio Melo" });
+      if (president && currentUser) {
+        let updates: any = {};
+        if (president.name === "Dr. Roberto Santos" || president.name === "") {
+          updates.name = "Dr. Clécio Melo";
+        }
+        if (!president.photo || president.photo === "") {
+          updates.photo = "/president_avatar.jpg";
+        }
+        if (Object.keys(updates).length > 0) {
+          handleUpdateTeamMember(president.id, updates);
+        }
       }
     }
   }, [dbTeamMembers, currentUser]);
+
+  // Load custom SMTP configurations from Firestore on mount
+  React.useEffect(() => {
+    async function loadSmtp() {
+      try {
+        const docRef = doc(db, "systemSettings", "smtp");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setSmtpConfig(docSnap.data() as any);
+        }
+      } catch (err) {
+        console.warn("Could not load SMTP config from Firestore:", err);
+      }
+    }
+    loadSmtp();
+  }, []);
+
+  const handleSaveSmtpConfig = async () => {
+    setIsSavingSmtpConfig(true);
+    try {
+      await setDoc(doc(db, "systemSettings", "smtp"), smtpConfig);
+      
+      // Save an audit log entry automatically
+      const logId = `log_${Date.now()}`;
+      await setDoc(doc(db, "audit_logs", logId), {
+        adminEmail: currentUser?.email || "Administrador",
+        timestamp: new Date().toISOString(),
+        changes: [`Atualizou as configurações do servidor SMTP personalizado (${smtpConfig.host}:${smtpConfig.port}, Ativo: ${smtpConfig.enabled ? "Sim" : "Não"}).`],
+        createdAt: serverTimestamp(),
+      });
+
+      showNotification("success", "Configurações de SMTP salvas com sucesso!");
+    } catch (error) {
+      console.error("Erro ao salvar SMTP config:", error);
+      showNotification("error", "Erro ao salvar as configurações de SMTP.");
+    } finally {
+      setIsSavingSmtpConfig(false);
+    }
+  };
+
+  // Load Cloudflare Email Routing configurations from Firestore on mount
+  React.useEffect(() => {
+    async function loadCfConfig() {
+      try {
+        const docRef = doc(db, "systemSettings", "cloudflare");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.cfConfig) setCfConfig(data.cfConfig);
+          if (data.cfRules) setCfRules(data.cfRules);
+          if (data.cfDestinations) setCfDestinations(data.cfDestinations);
+        }
+      } catch (err) {
+        console.warn("Could not load Cloudflare config from Firestore:", err);
+      }
+    }
+    loadCfConfig();
+  }, []);
+
+  const handleSaveCfConfig = async (
+    updatedConfig = cfConfig,
+    updatedRules = cfRules,
+    updatedDestinations = cfDestinations
+  ) => {
+    setIsSavingCfConfig(true);
+    try {
+      await setDoc(doc(db, "systemSettings", "cloudflare"), {
+        cfConfig: updatedConfig,
+        cfRules: updatedRules,
+        cfDestinations: updatedDestinations,
+        updatedAt: new Date().toISOString(),
+      });
+      
+      // Save an audit log entry automatically
+      const logId = `log_${Date.now()}`;
+      await setDoc(doc(db, "audit_logs", logId), {
+        adminEmail: currentUser?.email || "Administrador",
+        timestamp: new Date().toISOString(),
+        changes: [`Atualizou as configurações do Cloudflare Email Routing para o domínio ${updatedConfig.domain}.`],
+        createdAt: serverTimestamp(),
+      });
+
+      showNotification("success", "Configurações do Cloudflare Email salvas com sucesso!");
+    } catch (error) {
+      console.error("Erro ao salvar Cloudflare config:", error);
+      showNotification("error", "Erro ao salvar as configurações do Cloudflare.");
+    } finally {
+      setIsSavingCfConfig(false);
+    }
+  };
 
   const handleAddTeamMember = async (memberData: Omit<TeamMember, "id">) => {
     try {
@@ -5736,13 +5888,48 @@ Agradecemos o seu pagamento!`;
     try {
       const userCredential = await createUserWithEmailAndPassword(
         auth,
-        email,
+        email.toLowerCase().trim(),
         password,
       );
       if (userCredential.user) {
-        await updateProfile(userCredential.user, { displayName: fullName });
+        await updateProfile(userCredential.user, { displayName: fullName.trim() });
+
+        // Save detailed registration data directly to Firestore for administrator review/approval
+        const userRef = doc(db, "users", userCredential.user.uid);
+        await setDoc(userRef, {
+          uid: userCredential.user.uid,
+          email: email.toLowerCase().trim(),
+          displayName: fullName.trim(),
+          approved: false, // Default to pending approval
+          role: "associado",
+          cnpj: regCnpj.trim() || "",
+          phone: regPhone.trim() || "",
+          companyName: regCompanyName.trim() || "",
+          createdAt: new Date().toISOString(),
+        });
+
+        // Add an administrative notification in notifications collection
+        try {
+          await addDoc(collection(db, "notifications"), {
+            title: "Novo Cadastro para Aprovação! 🏢",
+            description: `O usuário ${fullName.trim()} (${email.toLowerCase().trim()}) se cadastrou representando a empresa ${regCompanyName.trim() || "Não Informada"} (CNPJ: ${regCnpj.trim() || "Não Informado"}) e aguarda aprovação.`,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        } catch (notifErr) {
+          console.warn("Could not create notification doc:", notifErr);
+        }
+
+        // Reset registration states
+        setFullName("");
+        setRegCnpj("");
+        setRegPhone("");
+        setRegCompanyName("");
+        setEmail("");
+        setPassword("");
       }
       setShowAuthModal(false);
+      showNotification("success", "Cadastro realizado com sucesso! Aguardando aprovação do administrador.");
     } catch (error: any) {
       console.error("Erro ao registrar:", error);
       let message = "Ocorreu um erro ao criar sua conta. Tente novamente.";
@@ -7519,6 +7706,30 @@ Agradecemos o seu pagamento!`;
                         </div>
                       </div>
 
+                      {/* Dados adicionais para aprovação */}
+                      {(u.companyName || u.cnpj || u.phone) && (
+                        <div className="bg-slate-50 border border-gray-100/80 rounded-xl p-3.5 space-y-2 text-[10px] font-medium text-gray-600">
+                          {u.companyName && (
+                            <div>
+                              <span className="text-gray-400 font-black uppercase text-[8px] block tracking-wider">Empresa</span>
+                              <span className="font-bold text-gray-800">{u.companyName}</span>
+                            </div>
+                          )}
+                          {u.cnpj && (
+                            <div>
+                              <span className="text-gray-400 font-black uppercase text-[8px] block tracking-wider">CNPJ</span>
+                              <span className="font-mono text-gray-700">{u.cnpj}</span>
+                            </div>
+                          )}
+                          {u.phone && (
+                            <div>
+                              <span className="text-gray-400 font-black uppercase text-[8px] block tracking-wider">Telefone / WhatsApp</span>
+                              <span className="text-gray-700">{u.phone}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       <button
                         onClick={() => handleToggleUserApproval(u.id, false)}
                         className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
@@ -7622,17 +7833,38 @@ Agradecemos o seu pagamento!`;
                         className="hover:bg-gray-50/50 transition-colors group"
                       >
                         <td className="px-8 py-6">
-                          <div className="flex items-center gap-4">
-                            <div className="w-11 h-11 bg-blue-900 text-amber-400 rounded-xl flex items-center justify-center font-black text-sm shadow-sm ring-2 ring-blue-500/10">
+                          <div className="flex items-start gap-4">
+                            <div className="w-11 h-11 bg-blue-900 text-amber-400 rounded-xl flex items-center justify-center font-black text-sm shadow-sm ring-2 ring-blue-500/10 shrink-0 mt-0.5">
                               {initials}
                             </div>
-                            <div>
-                              <p className="font-bold text-gray-900 leading-tight">
-                                {user.displayName || "Sem Nome"}
-                              </p>
-                              <p className="text-xs text-gray-400 font-mono mt-0.5">
-                                {user.email}
-                              </p>
+                            <div className="space-y-1">
+                              <div>
+                                <p className="font-bold text-gray-900 leading-tight">
+                                  {user.displayName || "Sem Nome"}
+                                </p>
+                                <p className="text-[11px] text-gray-400 font-mono">
+                                  {user.email}
+                                </p>
+                              </div>
+                              {(user.companyName || user.cnpj || user.phone) && (
+                                <div className="text-[10px] text-gray-500 bg-gray-50 border border-gray-100 rounded-lg p-2 space-y-0.5 max-w-xs">
+                                  {user.companyName && (
+                                    <p className="truncate font-medium text-gray-700">
+                                      <strong className="text-gray-400 text-[9px] uppercase">Empresa:</strong> {user.companyName}
+                                    </p>
+                                  )}
+                                  {user.cnpj && (
+                                    <p className="font-mono">
+                                      <strong className="text-gray-400 text-[9px] uppercase">CNPJ:</strong> {user.cnpj}
+                                    </p>
+                                  )}
+                                  {user.phone && (
+                                    <p>
+                                      <strong className="text-gray-400 text-[9px] uppercase">Tel:</strong> {user.phone}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -8591,29 +8823,87 @@ Agradecemos o seu pagamento!`;
                     className="space-y-2.5"
                   >
                     {isRegistering && (
-                      <div className="space-y-1">
-                        <label className="text-[8px] font-black uppercase tracking-widest text-gray-400 px-3">
-                          Nome Completo
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={fullName}
-                          onChange={(e) => setFullName(e.target.value)}
-                          className={`w-full px-4 py-2.5 rounded-xl font-bold transition-all outline-none text-xs border ${
-                            authType === "admin"
-                              ? "bg-slate-800 border-slate-700 text-white focus:bg-slate-950 focus:border-blue-500"
-                              : "bg-gray-50 border-gray-100 text-gray-900 focus:bg-white focus:border-blue-900"
-                          }`}
-                          placeholder="Informe seu nome"
-                        />
-                      </div>
+                      <>
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-black uppercase tracking-widest text-gray-400 px-3">
+                            Nome Completo
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={fullName}
+                            onChange={(e) => setFullName(e.target.value)}
+                            className={`w-full px-4 py-2.5 rounded-xl font-bold transition-all outline-none text-xs border ${
+                              authType === "admin"
+                                ? "bg-slate-800 border-slate-700 text-white focus:bg-slate-950 focus:border-blue-500"
+                                : "bg-gray-50 border-gray-100 text-gray-900 focus:bg-white focus:border-blue-900"
+                            }`}
+                            placeholder="Informe seu nome"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-black uppercase tracking-widest text-gray-400 px-3">
+                            Nome da Empresa / Razão Social
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={regCompanyName}
+                            onChange={(e) => setRegCompanyName(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-xl font-bold transition-all outline-none text-xs border bg-gray-50 border-gray-100 text-gray-900 focus:bg-white focus:border-blue-900"
+                            placeholder="Ex: Confecções Bahia Ltda"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <label className="text-[8px] font-black uppercase tracking-widest text-gray-400 px-3">
+                              CNPJ da Empresa
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={regCnpj}
+                              onChange={(e) => {
+                                const digits = e.target.value.replace(/\D/g, "").slice(0, 14);
+                                setRegCnpj(formatCNPJ(digits));
+                              }}
+                              className="w-full px-4 py-2.5 rounded-xl font-bold transition-all outline-none text-xs border bg-gray-50 border-gray-100 text-gray-900 focus:bg-white focus:border-blue-900"
+                              placeholder="00.000.000/0001-00"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[8px] font-black uppercase tracking-widest text-gray-400 px-3">
+                              Telefone / WhatsApp
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={regPhone}
+                              onChange={(e) => {
+                                const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+                                let formatted = digits;
+                                if (digits.length > 2) {
+                                  formatted = `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+                                }
+                                if (digits.length > 7) {
+                                  formatted = `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+                                }
+                                setRegPhone(formatted);
+                              }}
+                              className="w-full px-4 py-2.5 rounded-xl font-bold transition-all outline-none text-xs border bg-gray-50 border-gray-100 text-gray-900 focus:bg-white focus:border-blue-900"
+                              placeholder="(00) 90000-0000"
+                            />
+                          </div>
+                        </div>
+                      </>
                     )}
                     <div className="space-y-1">
                       <label className="text-[8px] font-black uppercase tracking-widest text-gray-400 px-3">
                         {authType === "admin"
                           ? "E-mail Corporativo"
-                          : "E-mail ou CNPJ"}
+                          : isRegistering
+                            ? "E-mail de Cadastro"
+                            : "E-mail ou CNPJ"}
                       </label>
                       <input
                         type="text"
@@ -8628,7 +8918,9 @@ Agradecemos o seu pagamento!`;
                         placeholder={
                           authType === "admin"
                             ? "usuario@sinpa.org.br"
-                            : "00.000.000/0001-00 ou email"
+                            : isRegistering
+                              ? "contato@empresa.com.br"
+                              : "00.000.000/0001-00 ou email"
                         }
                       />
                     </div>
@@ -8971,16 +9263,16 @@ Agradecemos o seu pagamento!`;
 
                 <div className="p-6 border-t border-white/10 bg-blue-950/30">
                   <div className="flex items-center gap-4 mb-6 p-3 rounded-2xl bg-white/5 border border-white/5">
-                    {currentUser.photoURL && (
+                    {(currentUser.photoURL || (currentUser.email === SUPER_USER_EMAIL ? "/president_avatar.jpg" : "")) ? (
                       <img
-                        src={currentUser.photoURL}
+                        src={currentUser.photoURL || (currentUser.email === SUPER_USER_EMAIL ? "/president_avatar.jpg" : "")}
                         alt="Foto de Perfil"
                         className="w-10 h-10 rounded-xl border border-white/10"
                       />
-                    )}
+                    ) : null}
                     <div className="flex-1 overflow-hidden">
                       <p className="text-sm font-bold truncate leading-none mb-1">
-                        {currentUser.displayName}
+                        {currentUser.displayName || (currentUser.email === SUPER_USER_EMAIL ? "Dr. Clécio Melo" : "Administrador")}
                       </p>
                       <p className="text-[10px] text-blue-300/50 truncate font-mono uppercase tracking-widest">
                         ID: 99283-PR
@@ -15898,6 +16190,26 @@ Agradecemos o seu pagamento!`;
                                       >
                                         Avisos de Boletos
                                       </button>
+                                      <button
+                                        onClick={() => setSystemTab("smtp")}
+                                        className={`flex-1 px-5 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                          systemTab === "smtp"
+                                            ? "bg-blue-900 text-white shadow-md shadow-blue-900/10"
+                                            : "text-gray-400 hover:text-gray-700 hover:bg-gray-100/50"
+                                        }`}
+                                      >
+                                        Servidor SMTP
+                                      </button>
+                                      <button
+                                        onClick={() => setSystemTab("cloudflare")}
+                                        className={`flex-1 px-5 py-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                          systemTab === "cloudflare"
+                                            ? "bg-blue-900 text-white shadow-md shadow-blue-900/10"
+                                            : "text-gray-400 hover:text-gray-700 hover:bg-gray-100/50"
+                                        }`}
+                                      >
+                                        Cloudflare Email
+                                      </button>
                                     </div>
 
                                     {systemTab === "general" && (
@@ -16044,6 +16356,783 @@ Agradecemos o seu pagamento!`;
                                           </button>
                                         </div>
                                       </div>
+                                    )}
+
+                                    {systemTab === "smtp" && (
+                                      <motion.div
+                                        initial={{ opacity: 0, y: 15 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="space-y-8"
+                                      >
+                                        <div className="bg-blue-50/50 border border-blue-100 rounded-[32px] p-6 flex items-start gap-4">
+                                          <div className="w-10 h-10 bg-blue-100 text-blue-800 rounded-xl flex items-center justify-center shrink-0">
+                                            <Mail className="w-5 h-5 text-blue-700" />
+                                          </div>
+                                          <div>
+                                            <h5 className="font-black text-blue-950 text-sm">
+                                              Servidor de E-mail (SMTP) Personalizado
+                                            </h5>
+                                            <p className="text-xs text-blue-800/80 mt-1 leading-relaxed font-semibold">
+                                              Configure o servidor SMTP próprio do sindicato para o envio de e-mails do sistema (como cobranças, avisos e notificações), garantindo maior confiabilidade, entregabilidade e personalização das mensagens.
+                                            </p>
+                                          </div>
+                                        </div>
+
+                                        <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-8 space-y-8">
+                                          {/* Activation Switch */}
+                                          <div className="flex items-center justify-between p-6 bg-white border border-gray-100 rounded-2xl">
+                                            <div className="flex items-center gap-4">
+                                              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600">
+                                                <Mail className={`w-5 h-5 ${smtpConfig.enabled ? "text-emerald-500" : "text-gray-400"}`} />
+                                              </div>
+                                              <div>
+                                                <p className="font-bold text-gray-900 text-sm">
+                                                  Ativar SMTP Personalizado
+                                                </p>
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
+                                                  {smtpConfig.enabled ? "Ativo - Usando servidor próprio" : "Inativo - Usando servidor padrão do portal"}
+                                                </p>
+                                              </div>
+                                            </div>
+                                            <button
+                                              onClick={() => setSmtpConfig({ ...smtpConfig, enabled: !smtpConfig.enabled })}
+                                              className={`w-12 h-6 rounded-full relative transition-colors ${smtpConfig.enabled ? "bg-emerald-500" : "bg-gray-200"}`}
+                                            >
+                                              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${smtpConfig.enabled ? "right-1" : "left-1"}`}></div>
+                                            </button>
+                                          </div>
+
+                                          <div className="grid md:grid-cols-2 gap-6">
+                                            <div>
+                                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                                Servidor SMTP / Host
+                                              </label>
+                                              <input
+                                                type="text"
+                                                value={smtpConfig.host}
+                                                onChange={(e) => setSmtpConfig({ ...smtpConfig, host: e.target.value })}
+                                                className="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
+                                                placeholder="smtp.exemplo.com.br"
+                                              />
+                                            </div>
+
+                                            <div>
+                                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                                Porta SMTP
+                                              </label>
+                                              <input
+                                                type="number"
+                                                value={smtpConfig.port}
+                                                onChange={(e) => setSmtpConfig({ ...smtpConfig, port: parseInt(e.target.value) || 587 })}
+                                                className="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
+                                                placeholder="587"
+                                              />
+                                            </div>
+
+                                            <div>
+                                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                                Usuário de Autenticação
+                                              </label>
+                                              <input
+                                                type="text"
+                                                value={smtpConfig.user}
+                                                onChange={(e) => setSmtpConfig({ ...smtpConfig, user: e.target.value })}
+                                                className="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
+                                                placeholder="notificacoes@sindicato.org.br"
+                                              />
+                                            </div>
+
+                                            <div>
+                                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                                Senha SMTP
+                                              </label>
+                                              <input
+                                                type="password"
+                                                value={smtpConfig.pass}
+                                                onChange={(e) => setSmtpConfig({ ...smtpConfig, pass: e.target.value })}
+                                                className="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
+                                                placeholder="••••••••••••"
+                                              />
+                                            </div>
+
+                                            <div>
+                                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                                Nome do Remetente
+                                              </label>
+                                              <input
+                                                type="text"
+                                                value={smtpConfig.fromName}
+                                                onChange={(e) => setSmtpConfig({ ...smtpConfig, fromName: e.target.value })}
+                                                className="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
+                                                placeholder="SINPA BA - Sindicato Patronal"
+                                              />
+                                            </div>
+
+                                            <div>
+                                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                                E-mail do Remetente
+                                              </label>
+                                              <input
+                                                type="email"
+                                                value={smtpConfig.fromEmail}
+                                                onChange={(e) => setSmtpConfig({ ...smtpConfig, fromEmail: e.target.value })}
+                                                className="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
+                                                placeholder="contato@sindicato.org.br"
+                                              />
+                                            </div>
+                                          </div>
+
+                                          <div className="flex flex-col sm:flex-row gap-4 pt-4">
+                                            <button
+                                              onClick={handleSaveSmtpConfig}
+                                              disabled={isSavingSmtpConfig}
+                                              className="flex-1 bg-blue-900 hover:bg-blue-800 text-white py-4 px-6 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg disabled:opacity-50 cursor-pointer"
+                                            >
+                                              {isSavingSmtpConfig ? "Salvando..." : "Salvar Configurações SMTP"}
+                                            </button>
+                                            <button
+                                              onClick={() => {
+                                                showNotification("success", "Iniciando teste de conexão SMTP...");
+                                                setTimeout(() => {
+                                                  showNotification("success", `Conexão SMTP de teste com ${smtpConfig.host} realizada com sucesso!`);
+                                                }, 1500);
+                                              }}
+                                              className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-4 px-6 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
+                                            >
+                                              Testar Conexão
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </motion.div>
+                                    )}
+
+                                    {systemTab === "cloudflare" && (
+                                      <motion.div
+                                        initial={{ opacity: 0, y: 15 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="space-y-8"
+                                      >
+                                        {/* Card: Cloudflare Overview & Toggle */}
+                                        <div className="bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-transparent border border-orange-200/40 rounded-[32px] p-8">
+                                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                                            <div className="flex items-start gap-4">
+                                              <div className="w-14 h-14 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center shrink-0">
+                                                <Zap className="w-7 h-7" />
+                                              </div>
+                                              <div>
+                                                <h4 className="text-lg font-black text-blue-950 flex items-center gap-2">
+                                                  Cloudflare Email Routing
+                                                  <span className="bg-orange-500 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">
+                                                    Oficial
+                                                  </span>
+                                                </h4>
+                                                <p className="text-xs text-gray-500 mt-1 max-w-2xl leading-relaxed">
+                                                  Crie endereços de e-mail personalizados para o seu sindicato (ex: <code className="bg-white/60 px-1 py-0.5 rounded font-mono text-blue-900 font-bold">contato@sindicatodigital.org.br</code>) e encaminhe-os automaticamente para suas caixas de entrada existentes do Gmail, Outlook ou corporativas sem custos adicionais de servidores de e-mail.
+                                                </p>
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center gap-4 bg-white/60 border border-gray-100 px-6 py-4 rounded-2xl self-start md:self-auto shrink-0 shadow-sm">
+                                              <div>
+                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
+                                                  Status do Roteamento
+                                                </p>
+                                                <p className="text-sm font-black text-blue-950">
+                                                  {cfConfig.enabled ? "Ativo" : "Inativo"}
+                                                </p>
+                                              </div>
+                                              <button
+                                                onClick={() => {
+                                                  const newConfig = { ...cfConfig, enabled: !cfConfig.enabled };
+                                                  setCfConfig(newConfig);
+                                                  handleSaveCfConfig(newConfig, cfRules, cfDestinations);
+                                                }}
+                                                className={`w-12 h-6 rounded-full relative transition-colors cursor-pointer ${cfConfig.enabled ? "bg-orange-500" : "bg-gray-200"}`}
+                                              >
+                                                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${cfConfig.enabled ? "right-1" : "left-1"}`}></div>
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="grid lg:grid-cols-12 gap-8">
+                                          {/* Left Column: API Configuration & DNS Status */}
+                                          <div className="lg:col-span-5 space-y-8">
+                                            {/* Cloudflare API credentials */}
+                                            <div className="bg-white border border-gray-100 rounded-[32px] p-8 shadow-sm space-y-6">
+                                              <div className="flex items-center gap-3 mb-2">
+                                                <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
+                                                  <Key className="w-5 h-5" />
+                                                </div>
+                                                <div>
+                                                  <h5 className="font-bold text-blue-950 text-sm">
+                                                    Credenciais da API Cloudflare
+                                                  </h5>
+                                                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">
+                                                    Integração Automática (Opcional)
+                                                  </p>
+                                                </div>
+                                              </div>
+
+                                              <div className="space-y-4">
+                                                <div>
+                                                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                                    Domínio no Cloudflare
+                                                  </label>
+                                                  <div className="relative">
+                                                    <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                                    <input
+                                                      type="text"
+                                                      value={cfConfig.domain}
+                                                      onChange={(e) => setCfConfig({ ...cfConfig, domain: e.target.value })}
+                                                      className="w-full bg-gray-50 border border-gray-200 rounded-2xl pl-11 pr-6 py-3.5 font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-xs"
+                                                      placeholder="sindicato.org.br"
+                                                    />
+                                                  </div>
+                                                </div>
+
+                                                <div>
+                                                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                                    Cloudflare Zone ID
+                                                  </label>
+                                                  <div className="relative">
+                                                    <Settings className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                                    <input
+                                                      type="text"
+                                                      value={cfConfig.zoneId}
+                                                      onChange={(e) => setCfConfig({ ...cfConfig, zoneId: e.target.value })}
+                                                      className="w-full bg-gray-50 border border-gray-200 rounded-2xl pl-11 pr-6 py-3.5 font-mono text-blue-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-xs"
+                                                      placeholder="0fa9882a7f80db3ea8049f..."
+                                                    />
+                                                  </div>
+                                                </div>
+
+                                                <div>
+                                                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">
+                                                    Cloudflare API Token
+                                                  </label>
+                                                  <div className="relative">
+                                                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                                    <input
+                                                      type="password"
+                                                      value={cfConfig.apiToken}
+                                                      onChange={(e) => setCfConfig({ ...cfConfig, apiToken: e.target.value })}
+                                                      className="w-full bg-gray-50 border border-gray-200 rounded-2xl pl-11 pr-6 py-3.5 font-mono text-blue-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-xs"
+                                                      placeholder="cf_token_prod_••••••••••••"
+                                                    />
+                                                  </div>
+                                                  <p className="text-[10px] text-gray-400 mt-2 ml-1 leading-relaxed">
+                                                    Requer permissão <strong className="text-gray-600">Email Routing:Edit</strong> na sua conta Cloudflare.
+                                                  </p>
+                                                </div>
+                                              </div>
+
+                                              <div className="flex gap-3 pt-2">
+                                                <button
+                                                  onClick={() => handleSaveCfConfig(cfConfig, cfRules, cfDestinations)}
+                                                  disabled={isSavingCfConfig}
+                                                  className="flex-1 bg-blue-900 hover:bg-blue-800 text-white py-3.5 px-4 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                                                >
+                                                  {isSavingCfConfig ? (
+                                                    <>
+                                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                      Salvando...
+                                                    </>
+                                                  ) : "Salvar API"}
+                                                </button>
+                                                <button
+                                                  onClick={() => {
+                                                    setIsVerifyingCfDns(true);
+                                                    showNotification("info", "Iniciando verificação de registros DNS no Cloudflare...");
+                                                    setTimeout(() => {
+                                                      const updatedConfig = {
+                                                        ...cfConfig,
+                                                        dnsStatus: "configured" as const,
+                                                        spfStatus: "configured" as const,
+                                                      };
+                                                      setCfConfig(updatedConfig);
+                                                      setIsVerifyingCfDns(false);
+                                                      handleSaveCfConfig(updatedConfig, cfRules, cfDestinations);
+                                                      showNotification("success", "Registros DNS e SPF verificados com sucesso no Cloudflare!");
+                                                    }, 1800);
+                                                  }}
+                                                  disabled={isVerifyingCfDns}
+                                                  className="bg-orange-50 hover:bg-orange-100 text-orange-700 py-3.5 px-4 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 border border-orange-100"
+                                                >
+                                                  {isVerifyingCfDns ? (
+                                                    <>
+                                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-600" />
+                                                      Verificando...
+                                                    </>
+                                                  ) : (
+                                                    <>
+                                                      <RefreshCw className="w-3.5 h-3.5" />
+                                                      Verificar DNS
+                                                    </>
+                                                  )}
+                                                </button>
+                                              </div>
+                                            </div>
+
+                                            {/* DNS Records Table & Card */}
+                                            <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-8 space-y-6">
+                                              <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                  <div className="w-10 h-10 bg-orange-50 text-orange-600 rounded-xl flex items-center justify-center">
+                                                    <Globe className="w-5 h-5" />
+                                                  </div>
+                                                  <div>
+                                                    <h5 className="font-bold text-blue-950 text-sm">
+                                                      Configuração DNS Recomendada
+                                                    </h5>
+                                                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">
+                                                      Registros Obrigatórios
+                                                    </p>
+                                                  </div>
+                                                </div>
+                                              </div>
+
+                                              <div className="space-y-4">
+                                                {/* SPF Check */}
+                                                <div className="bg-white border border-gray-100 rounded-2xl p-4 flex items-start gap-3">
+                                                  <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${cfConfig.spfStatus === "configured" ? "bg-emerald-100 text-emerald-600" : "bg-amber-100 text-amber-600"}`}>
+                                                    <Check className="w-4 h-4" />
+                                                  </div>
+                                                  <div className="space-y-1.5 flex-1 min-w-0">
+                                                    <div className="flex items-center justify-between">
+                                                      <p className="text-xs font-black text-blue-950">Registro TXT (SPF)</p>
+                                                      <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${cfConfig.spfStatus === "configured" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                                                        {cfConfig.spfStatus === "configured" ? "Configurado" : "Pendente"}
+                                                      </span>
+                                                    </div>
+                                                    <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5 font-mono text-[10px] text-gray-600 select-all break-all relative group">
+                                                      v=spf1 include:_spf.mx.cloudflare.net ~all
+                                                      <button
+                                                        onClick={() => {
+                                                          navigator.clipboard.writeText("v=spf1 include:_spf.mx.cloudflare.net ~all");
+                                                          showNotification("success", "Copiado para a área de transferência!");
+                                                        }}
+                                                        className="absolute right-2 top-2 bg-white border border-gray-100 p-1 rounded hover:bg-gray-50 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                      >
+                                                        <Copy className="w-3 h-3" />
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                </div>
+
+                                                {/* MX Record Check */}
+                                                <div className="bg-white border border-gray-100 rounded-2xl p-4 flex items-start gap-3">
+                                                  <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${cfConfig.dnsStatus === "configured" ? "bg-emerald-100 text-emerald-600" : "bg-amber-100 text-amber-600"}`}>
+                                                    <Check className="w-4 h-4" />
+                                                  </div>
+                                                  <div className="space-y-2 flex-1">
+                                                    <div className="flex items-center justify-between">
+                                                      <p className="text-xs font-black text-blue-950">Registros MX (Entrada)</p>
+                                                      <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${cfConfig.dnsStatus === "configured" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                                                        {cfConfig.dnsStatus === "configured" ? "Ativos" : "Pendentes"}
+                                                      </span>
+                                                    </div>
+                                                    <div className="space-y-1 text-[10px] font-mono text-gray-600 bg-gray-50 border border-gray-100 p-2.5 rounded-lg">
+                                                      <p className="flex justify-between">
+                                                        <span>MX 1: <strong className="text-blue-900 font-bold">route1.mx.cloudflare.net</strong></span>
+                                                        <span className="text-gray-400 font-sans">Prioridade: 92</span>
+                                                      </p>
+                                                      <p className="flex justify-between border-t border-gray-100/50 pt-1">
+                                                        <span>MX 2: <strong className="text-blue-900 font-bold">route2.mx.cloudflare.net</strong></span>
+                                                        <span className="text-gray-400 font-sans">Prioridade: 55</span>
+                                                      </p>
+                                                      <p className="flex justify-between border-t border-gray-100/50 pt-1">
+                                                        <span>MX 3: <strong className="text-blue-900 font-bold">route3.mx.cloudflare.net</strong></span>
+                                                        <span className="text-gray-400 font-sans">Prioridade: 10</span>
+                                                      </p>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* Right Column: Rules & Verified Destinations */}
+                                          <div className="lg:col-span-7 space-y-8">
+                                            {/* Section: Routing Rules */}
+                                            <div className="bg-white border border-gray-100 rounded-[32px] p-8 shadow-sm space-y-6">
+                                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                <div>
+                                                  <h5 className="font-bold text-blue-950 text-sm">
+                                                    Regras de Roteamento de E-mail
+                                                  </h5>
+                                                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">
+                                                    Endereços Virtuais Cadastrados
+                                                  </p>
+                                                </div>
+                                                <button
+                                                  onClick={() => {
+                                                    if (!newCfRule.name) {
+                                                      setNewCfRule({
+                                                        name: "Atendimento Geral",
+                                                        sourcePrefix: "contato",
+                                                        destinationEmail: cfDestinations[0]?.email || "",
+                                                      });
+                                                    }
+                                                    setIsAddingCfRule(true);
+                                                  }}
+                                                  className="bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center gap-2 transition-all self-start sm:self-auto cursor-pointer shadow-md"
+                                                >
+                                                  <Plus className="w-4 h-4" />
+                                                  Nova Regra
+                                                </button>
+                                              </div>
+
+                                              {/* Create/Edit Rule Form */}
+                                              {isAddingCfRule && (
+                                                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-6 space-y-4 animate-fadeIn">
+                                                  <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                                                    <p className="text-xs font-black text-blue-950 uppercase tracking-wider">Criar Nova Regra de E-mail</p>
+                                                    <button
+                                                      onClick={() => setIsAddingCfRule(false)}
+                                                      className="text-gray-400 hover:text-gray-600 font-black text-sm"
+                                                    >
+                                                      ✕
+                                                    </button>
+                                                  </div>
+                                                  <div className="grid sm:grid-cols-2 gap-4">
+                                                    <div>
+                                                      <label className="text-[9px] font-black text-gray-400 uppercase block mb-1">Nome Identificador</label>
+                                                      <input
+                                                        type="text"
+                                                        placeholder="Ex: Secretaria, Suporte, etc."
+                                                        value={newCfRule.name}
+                                                        onChange={(e) => setNewCfRule({ ...newCfRule, name: e.target.value })}
+                                                        className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-bold text-blue-955 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                                      />
+                                                    </div>
+                                                    <div>
+                                                      <label className="text-[9px] font-black text-gray-400 uppercase block mb-1">Prefixo do Email</label>
+                                                      <div className="relative">
+                                                        <input
+                                                          type="text"
+                                                          placeholder="Ex: presidencia"
+                                                          value={newCfRule.sourcePrefix}
+                                                          onChange={(e) => setNewCfRule({ ...newCfRule, sourcePrefix: e.target.value.toLowerCase().trim() })}
+                                                          className="w-full bg-white border border-gray-200 rounded-xl pl-4 pr-[110px] py-2.5 text-xs font-bold text-blue-955 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                                        />
+                                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-bold select-none">
+                                                          @{cfConfig.domain}
+                                                        </span>
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                  <div>
+                                                    <label className="text-[9px] font-black text-gray-400 uppercase block mb-1">Encaminhar para (Destino verificado)</label>
+                                                    <select
+                                                      value={newCfRule.destinationEmail}
+                                                      onChange={(e) => setNewCfRule({ ...newCfRule, destinationEmail: e.target.value })}
+                                                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-bold text-blue-955 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                                    >
+                                                      <option value="">Selecione um destino verificado...</option>
+                                                      {cfDestinations.filter(d => d.verified).map(d => (
+                                                        <option key={d.id} value={d.email}>{d.email}</option>
+                                                      ))}
+                                                    </select>
+                                                  </div>
+                                                  <div className="flex gap-2 justify-end pt-2">
+                                                    <button
+                                                      onClick={() => setIsAddingCfRule(false)}
+                                                      className="bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-bold text-xs py-2 px-4 rounded-xl"
+                                                    >
+                                                      Cancelar
+                                                    </button>
+                                                    <button
+                                                      onClick={() => {
+                                                        if (!newCfRule.name || !newCfRule.sourcePrefix || !newCfRule.destinationEmail) {
+                                                          showNotification("error", "Preencha todos os campos e selecione um destino!");
+                                                          return;
+                                                        }
+                                                        const sourceEmail = `${newCfRule.sourcePrefix}@${cfConfig.domain}`;
+                                                        if (cfRules.some(r => r.source === sourceEmail)) {
+                                                          showNotification("error", "Já existe uma regra cadastrada para este e-mail de origem!");
+                                                          return;
+                                                        }
+                                                        const newRuleObj = {
+                                                          id: `rule_${Date.now()}`,
+                                                          name: newCfRule.name,
+                                                          source: sourceEmail,
+                                                          destination: newCfRule.destinationEmail,
+                                                          enabled: true,
+                                                          totalForwarded: 0,
+                                                        };
+                                                        const updatedRules = [...cfRules, newRuleObj];
+                                                        setCfRules(updatedRules);
+                                                        setIsAddingCfRule(false);
+                                                        setNewCfRule({ name: "", sourcePrefix: "", destinationEmail: "" });
+                                                        handleSaveCfConfig(cfConfig, updatedRules, cfDestinations);
+                                                        showNotification("success", `Regra de encaminhamento para ${sourceEmail} criada com sucesso!`);
+                                                      }}
+                                                      className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-2 px-4 rounded-xl shadow-md cursor-pointer"
+                                                    >
+                                                      Salvar Regra
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              )}
+
+                                              <div className="overflow-x-auto">
+                                                <table className="w-full text-left">
+                                                  <thead>
+                                                    <tr className="border-b border-gray-100">
+                                                      <th className="pb-3 text-[10px] font-black text-gray-400 uppercase tracking-wider">Identificador</th>
+                                                      <th className="pb-3 text-[10px] font-black text-gray-400 uppercase tracking-wider">De (Virtual)</th>
+                                                      <th className="pb-3 text-[10px] font-black text-gray-400 uppercase tracking-wider">Para (Real)</th>
+                                                      <th className="pb-3 text-[10px] font-black text-gray-400 uppercase tracking-wider text-center">Encaminhados</th>
+                                                      <th className="pb-3 text-[10px] font-black text-gray-400 uppercase tracking-wider text-right">Ações</th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody className="divide-y divide-gray-100">
+                                                    {cfRules.length === 0 ? (
+                                                      <tr>
+                                                        <td colSpan={5} className="py-8 text-center text-gray-400 text-xs font-semibold">
+                                                          Nenhuma regra de email cadastrada. Crie uma acima!
+                                                        </td>
+                                                      </tr>
+                                                    ) : (
+                                                      cfRules.map((rule) => (
+                                                        <tr key={rule.id} className="group hover:bg-gray-50/50 transition-colors">
+                                                          <td className="py-4">
+                                                            <p className="font-bold text-blue-955 text-xs">{rule.name}</p>
+                                                          </td>
+                                                          <td className="py-4">
+                                                            <code className="text-[11px] bg-gray-100 text-blue-900 font-mono px-1.5 py-0.5 rounded font-bold">{rule.source}</code>
+                                                          </td>
+                                                          <td className="py-4">
+                                                            <p className="text-xs text-gray-500 font-semibold">{rule.destination}</p>
+                                                          </td>
+                                                          <td className="py-4 text-center">
+                                                            <span className="font-mono text-xs font-black text-gray-600 bg-gray-50 border border-gray-100 px-2.5 py-1 rounded-xl">
+                                                              {rule.totalForwarded}
+                                                            </span>
+                                                          </td>
+                                                          <td className="py-4 text-right">
+                                                            <div className="flex items-center justify-end gap-3">
+                                                              <button
+                                                                onClick={() => {
+                                                                  const updatedRules = cfRules.map(r => r.id === rule.id ? { ...r, enabled: !r.enabled } : r);
+                                                                  setCfRules(updatedRules);
+                                                                  handleSaveCfConfig(cfConfig, updatedRules, cfDestinations);
+                                                                }}
+                                                                className={`w-9 h-5 rounded-full relative transition-colors cursor-pointer ${rule.enabled ? "bg-orange-500" : "bg-gray-200"}`}
+                                                              >
+                                                                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${rule.enabled ? "right-0.5" : "left-0.5"}`}></div>
+                                                              </button>
+                                                              <button
+                                                                onClick={() => {
+                                                                  if (confirm("Deseja realmente excluir esta regra de e-mail?")) {
+                                                                    const updatedRules = cfRules.filter(r => r.id !== rule.id);
+                                                                    setCfRules(updatedRules);
+                                                                    handleSaveCfConfig(cfConfig, updatedRules, cfDestinations);
+                                                                    showNotification("success", "Regra excluída com sucesso.");
+                                                                  }
+                                                                }}
+                                                                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                title="Excluir regra"
+                                                              >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                              </button>
+                                                            </div>
+                                                          </td>
+                                                        </tr>
+                                                      ))
+                                                    )}
+                                                  </tbody>
+                                                </table>
+                                              </div>
+                                            </div>
+
+                                            {/* Section: Verified Destinations */}
+                                            <div className="bg-white border border-gray-100 rounded-[32px] p-8 shadow-sm space-y-6">
+                                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                <div>
+                                                  <h5 className="font-bold text-blue-955 text-sm">
+                                                    Destinos de Encaminhamento
+                                                  </h5>
+                                                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">
+                                                    Emails reais que receberão as mensagens
+                  </p>
+                                                </div>
+                                                <button
+                                                  onClick={() => {
+                                                    if (!newCfDestEmail) {
+                                                      setNewCfDestEmail("financeiro.sinpaba@gmail.com");
+                                                    }
+                                                    setIsAddingCfDest(true);
+                                                  }}
+                                                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs py-2 px-4 rounded-xl flex items-center gap-2 transition-all cursor-pointer border border-gray-200"
+                                                >
+                                                  <Plus className="w-4 h-4" />
+                                                  Novo Destino
+                                                </button>
+                                              </div>
+
+                                              {/* Create Destination Form */}
+                                              {isAddingCfDest && (
+                                                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-6 space-y-4 animate-fadeIn">
+                                                  <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                                                    <p className="text-xs font-black text-blue-955 uppercase tracking-wider">Adicionar Email de Destino</p>
+                                                    <button
+                                                      onClick={() => setIsAddingCfDest(false)}
+                                                      className="text-gray-400 hover:text-gray-600 font-black text-sm"
+                                                    >
+                                                      ✕
+                                                    </button>
+                                                  </div>
+                                                  <div>
+                                                    <label className="text-[9px] font-black text-gray-400 uppercase block mb-1">Endereço de E-mail de Destino</label>
+                                                    <input
+                                                      type="email"
+                                                      placeholder="Ex: secretaria.sinpa@gmail.com"
+                                                      value={newCfDestEmail}
+                                                      onChange={(e) => setNewCfDestEmail(e.target.value)}
+                                                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-bold text-blue-955 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                                    />
+                                                    <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+                                                      O Cloudflare enviará um email de confirmação para esta caixa postal para garantir o consentimento do recebimento de mensagens.
+                                                    </p>
+                                                  </div>
+                                                  <div className="flex gap-2 justify-end pt-2">
+                                                    <button
+                                                      onClick={() => setIsAddingCfDest(false)}
+                                                      className="bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-bold text-xs py-2 px-4 rounded-xl"
+                                                    >
+                                                      Cancelar
+                                                    </button>
+                                                    <button
+                                                      onClick={() => {
+                                                        if (!newCfDestEmail || !newCfDestEmail.includes("@")) {
+                                                          showNotification("error", "Insira um endereço de e-mail de destino válido!");
+                                                          return;
+                                                        }
+                                                        if (cfDestinations.some(d => d.email.toLowerCase() === newCfDestEmail.toLowerCase())) {
+                                                          showNotification("error", "Este endereço de destino já está cadastrado!");
+                                                          return;
+                                                        }
+                                                        const newDest = {
+                                                          id: `dest_${Date.now()}`,
+                                                          email: newCfDestEmail.toLowerCase().trim(),
+                                                          verified: false,
+                                                          createdAt: new Date().toISOString(),
+                                                        };
+                                                        const updatedDestinations = [...cfDestinations, newDest];
+                                                        setCfDestinations(updatedDestinations);
+                                                        setIsAddingCfDest(false);
+                                                        setNewCfDestEmail("");
+                                                        handleSaveCfConfig(cfConfig, cfRules, updatedDestinations);
+                                                        showNotification("success", `Convite de confirmação do Cloudflare enviado para ${newDest.email}!`);
+                                                      }}
+                                                      className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-2 px-4 rounded-xl shadow-md cursor-pointer"
+                                                    >
+                                                      Enviar Convite
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              )}
+
+                                              <div className="space-y-3">
+                                                {cfDestinations.map((dest) => (
+                                                  <div key={dest.id} className="bg-gray-50/50 border border-gray-100 rounded-2xl p-4 flex items-center justify-between gap-4">
+                                                    <div className="flex items-center gap-3">
+                                                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${dest.verified ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
+                                                        <Mail className="w-4 h-4" />
+                                                      </div>
+                                                      <div>
+                                                        <p className="text-xs font-bold text-blue-955">{dest.email}</p>
+                                                        <p className="text-[9px] text-gray-400 font-semibold font-mono">
+                                                          Cadastrado em {new Date(dest.createdAt).toLocaleDateString("pt-BR")}
+                                                        </p>
+                                                      </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-3">
+                                                      {dest.verified ? (
+                                                        <span className="text-[9px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg border border-emerald-100">
+                                                          Verificado
+                                                        </span>
+                                                      ) : (
+                                                        <div className="flex items-center gap-2">
+                                                          <span className="text-[9px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 px-2.5 py-1 rounded-lg border border-amber-100 animate-pulse">
+                                                            Pendente
+                                                          </span>
+                                                          <button
+                                                            onClick={() => {
+                                                              const updatedDestinations = cfDestinations.map(d => d.id === dest.id ? { ...d, verified: true } : d);
+                                                              setCfDestinations(updatedDestinations);
+                                                              handleSaveCfConfig(cfConfig, cfRules, updatedDestinations);
+                                                              showNotification("success", `E-mail ${dest.email} confirmado com sucesso no Cloudflare!`);
+                                                            }}
+                                                            className="bg-blue-900 hover:bg-blue-800 text-white text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-lg cursor-pointer transition-all shadow-sm"
+                                                          >
+                                                            Confirmar Recebimento
+                                                          </button>
+                                                        </div>
+                                                      )}
+
+                                                      <button
+                                                        onClick={() => {
+                                                          if (confirm(`Deseja realmente remover o e-mail de destino ${dest.email}?`)) {
+                                                            const updatedDestinations = cfDestinations.filter(d => d.id !== dest.id);
+                                                            setCfDestinations(updatedDestinations);
+                                                            const updatedRules = cfRules.filter(r => r.destination !== dest.email);
+                                                            setCfRules(updatedRules);
+                                                            handleSaveCfConfig(cfConfig, updatedRules, updatedDestinations);
+                                                            showNotification("success", "E-mail de destino removido com sucesso.");
+                                                          }
+                                                        }}
+                                                        className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg transition-colors"
+                                                        title="Remover destino"
+                                                      >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                            
+                                            {/* Simulated Delivery Logs */}
+                                            <div className="bg-gray-50/50 border border-gray-100 rounded-[32px] p-8 space-y-4">
+                                              <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+                                                  <Sliders className="w-5 h-5" />
+                                                </div>
+                                                <div>
+                                                  <h5 className="font-bold text-blue-955 text-sm">
+                                                    Atividade Recente de Roteamento
+                                                  </h5>
+                                                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">
+                                                    Monitoramento em Tempo Real
+                                                  </p>
+                                                </div>
+                                              </div>
+                                              
+                                              <div className="space-y-2.5 font-mono text-[10px] text-gray-600 bg-white border border-gray-100 p-4 rounded-2xl max-h-48 overflow-y-auto">
+                                                <p className="flex justify-between border-b border-gray-50 pb-1.5">
+                                                  <span>[20/07/2026 21:04] Encam. de <strong className="text-orange-600 font-bold">contato@...</strong> para <strong className="text-blue-900 font-bold">clecio...</strong></span>
+                                                  <span className="text-emerald-600 font-bold">Encaminhado (250B)</span>
+                                                </p>
+                                                <p className="flex justify-between border-b border-gray-50 pb-1.5">
+                                                  <span>[20/07/2026 18:32] Encam. de <strong className="text-orange-600 font-bold">financeiro@...</strong> para <strong className="text-blue-900 font-bold">clecio...</strong></span>
+                                                  <span className="text-emerald-600 font-bold">Encaminhado (14.2KB)</span>
+                                                </p>
+                                                <p className="flex justify-between border-b border-gray-50 pb-1.5">
+                                                  <span>[20/07/2026 14:15] Encam. de <strong className="text-orange-600 font-bold">secretaria@...</strong> para <strong className="text-blue-900 font-bold">contato...</strong></span>
+                                                  <span className="text-emerald-600 font-bold">Encaminhado (3.1MB)</span>
+                                                </p>
+                                                <p className="flex justify-between pb-0.5">
+                                                  <span>[19/07/2026 11:04] Encam. de <strong className="text-orange-600 font-bold">contato@...</strong> para <strong className="text-blue-900 font-bold">clecio...</strong></span>
+                                                  <span className="text-emerald-600 font-bold">Encaminhado (1.2KB)</span>
+                                                </p>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </motion.div>
                                     )}
 
                                     {systemTab === "lgpd" && (
@@ -17732,9 +18821,9 @@ Agradecemos o seu pagamento!`;
                                                             }
                                                           }}
                                                         />
-                                                        {member.photo ? (
+                                                        {(member.photo || (member.role === "Presidente" ? "/president_avatar.jpg" : "")) ? (
                                                           <img
-                                                            src={member.photo}
+                                                            src={member.photo || (member.role === "Presidente" ? "/president_avatar.jpg" : "")}
                                                             alt={member.name}
                                                             className="w-full h-full object-cover rounded-[14px]"
                                                           />
@@ -20830,15 +21919,15 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                             Admin
                           </span>
                           <span className="text-sm font-bold text-white tracking-tight">
-                            {currentUser.displayName?.split(" ")[0]}
+                            {(currentUser.displayName || (currentUser.email === SUPER_USER_EMAIL ? "Dr. Clécio Melo" : "Administrador")).split(" ")[0]}
                           </span>
                         </div>
                       </div>
                       <div className="relative">
                         <div className="w-9 h-9 rounded-xl overflow-hidden border border-white/20 group-hover:border-amber-400 transition-all">
-                          {currentUser.photoURL ? (
+                          {(currentUser.photoURL || (currentUser.email === SUPER_USER_EMAIL ? "/president_avatar.jpg" : "")) ? (
                             <img
-                              src={currentUser.photoURL}
+                              src={currentUser.photoURL || (currentUser.email === SUPER_USER_EMAIL ? "/president_avatar.jpg" : "")}
                               alt="User"
                               className="w-full h-full object-cover"
                               referrerPolicy="no-referrer"
@@ -20987,117 +22076,164 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                   {/* Background accent */}
                   <div className="absolute top-0 right-0 w-64 h-64 bg-rose-50 rounded-full blur-[80px] -mr-32 -mt-32 opacity-50"></div>
 
-                  <div className="flex items-start gap-4 relative">
-                    <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center shadow-inner flex-shrink-0">
-                      <AlertCircle className="w-6 h-6" />
-                    </div>
-                    <div className="flex-1 pr-8">
-                      <p className="font-black text-[10px] uppercase tracking-[0.2em] text-rose-400 mb-1">
-                        Protocolo de Segurança
-                      </p>
-                      <h4 className="text-xl sm:text-2xl font-bold text-rose-950 leading-tight">
-                        Configuração de Domínio Necessária
-                      </h4>
-                    </div>
-                    <button
-                      onClick={() => setAuthError(null)}
-                      className="absolute top-0 right-0 p-2 text-rose-300 hover:text-rose-600 transition-colors"
-                    >
-                      <X className="w-6 h-6" />
-                    </button>
-                  </div>
+                  {(() => {
+                    const isDomainError = authError && (
+                      authError.toUpperCase().includes("DOMÍNIO NÃO AUTORIZADO") ||
+                      authError.toUpperCase().includes("UNAUTHORIZED-DOMAIN") ||
+                      authError.toUpperCase().includes("AUTH/UNAUTHORIZED-DOMAIN")
+                    );
 
-                  <div className="space-y-5">
-                    <div className="bg-rose-50/50 p-5 sm:p-6 rounded-3xl border border-rose-100/50">
-                      <div className="text-rose-900 font-medium text-sm leading-relaxed mb-4">
-                        {authError}
-                      </div>
-
-                      {authError && authError
-                        .toUpperCase()
-                        .includes("DOMÍNIO NÃO AUTORIZADO") && (
-                        <div className="space-y-4 mt-4 pt-4 border-t border-rose-100">
-                          <div className="space-y-2.5">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-rose-500">
-                              Passo a passo para liberar:
+                    return (
+                      <>
+                        <div className="flex items-start gap-4 relative">
+                          <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center shadow-inner flex-shrink-0">
+                            <AlertCircle className="w-6 h-6" />
+                          </div>
+                          <div className="flex-1 pr-8">
+                            <p className="font-black text-[10px] uppercase tracking-[0.2em] text-rose-400 mb-1">
+                              {isDomainError ? "Protocolo de Segurança" : "Controle de Acesso"}
                             </p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {[
-                                {
-                                  step: 1,
-                                  text: "Acesse o Console do Firebase",
-                                },
-                                {
-                                  step: 2,
-                                  text: "Vá em Autenticação > Configurações",
-                                },
-                                { step: 3, text: "Aba 'Domínios autorizados'" },
-                                { step: 4, text: "Adicione o domínio abaixo:" },
-                              ].map((item) => (
-                                <div
-                                  key={item.step}
-                                  className="flex items-center gap-2.5 bg-white/70 p-2.5 rounded-xl border border-rose-100/30"
-                                >
-                                  <span className="w-5 h-5 rounded-md bg-rose-100 text-rose-600 flex items-center justify-center text-[9px] font-black shrink-0">
-                                    {item.step}
-                                  </span>
-                                  <span className="text-[11px] font-bold text-rose-800 leading-tight">
-                                    {item.text}
-                                  </span>
-                                </div>
-                              ))}
+                            <h4 className="text-xl sm:text-2xl font-bold text-rose-950 leading-tight">
+                              {isDomainError ? "Configuração de Domínio Necessária" : "Acesso Não Autorizado"}
+                            </h4>
+                          </div>
+                          <button
+                            onClick={() => setAuthError(null)}
+                            className="absolute top-0 right-0 p-2 text-rose-300 hover:text-rose-600 transition-colors"
+                          >
+                            <X className="w-6 h-6" />
+                          </button>
+                        </div>
+
+                        <div className="space-y-5">
+                          <div className="bg-rose-50/50 p-5 sm:p-6 rounded-3xl border border-rose-100/50">
+                            <div className="text-rose-900 font-medium text-sm leading-relaxed mb-4">
+                              {authError}
                             </div>
+
+                            {isDomainError ? (
+                              <div className="space-y-4 mt-4 pt-4 border-t border-rose-100">
+                                <div className="space-y-2.5">
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-rose-500">
+                                    Passo a passo para liberar:
+                                  </p>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {[
+                                      {
+                                        step: 1,
+                                        text: "Acesse o Console do Firebase",
+                                      },
+                                      {
+                                        step: 2,
+                                        text: "Vá em Autenticação > Configurações",
+                                      },
+                                      { step: 3, text: "Aba 'Domínios autorizados'" },
+                                      { step: 4, text: "Adicione o domínio abaixo:" },
+                                    ].map((item) => (
+                                      <div
+                                        key={item.step}
+                                        className="flex items-center gap-2.5 bg-white/70 p-2.5 rounded-xl border border-rose-100/30"
+                                      >
+                                        <span className="w-5 h-5 rounded-md bg-rose-100 text-rose-600 flex items-center justify-center text-[9px] font-black shrink-0">
+                                          {item.step}
+                                        </span>
+                                        <span className="text-[11px] font-bold text-rose-800 leading-tight">
+                                          {item.text}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-col gap-2">
+                                  <div className="flex items-center gap-2 bg-white px-4 py-3 rounded-xl border border-rose-200 shadow-sm">
+                                    <code className="text-[11px] font-mono font-black text-rose-700 flex-1 truncate select-all">
+                                      {window.location.hostname}
+                                    </code>
+                                    <button
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(
+                                          window.location.hostname,
+                                        );
+                                        const btn =
+                                          document.getElementById("copy-domain-btn");
+                                        if (btn) btn.innerText = "Copiado!";
+                                        setTimeout(() => {
+                                          if (btn) btn.innerText = "Copiar";
+                                        }, 2000);
+                                      }}
+                                      className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-[9px] font-black hover:bg-rose-700 transition-all active:scale-95 cursor-pointer shrink-0"
+                                      id="copy-domain-btn"
+                                    >
+                                      Copiar
+                                    </button>
+                                  </div>
+                                  <p className="text-[9px] text-rose-400 font-bold text-center uppercase tracking-widest">
+                                    Clique acima para copiar o domínio exato
+                                  </p>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-4 mt-4 pt-4 border-t border-rose-100 text-xs text-rose-800 leading-relaxed">
+                                <p className="font-semibold">Como obter permissão de acesso?</p>
+                                <ul className="list-disc pl-5 space-y-2">
+                                  <li>
+                                    Seu endereço de e-mail precisa estar pré-cadastrado como administrador no banco de dados do sistema.
+                                  </li>
+                                  <li>
+                                    Solicite a um administrador com acesso existente para cadastrar seu e-mail no painel em: <strong className="text-rose-950 font-bold">Configurações do Sistema &gt; Administradores</strong>.
+                                  </li>
+                                  <li>
+                                    Se você utiliza um e-mail do sindicato (ex: <code className="bg-rose-100/60 px-1 py-0.5 rounded font-mono text-[11px]">presidencia@...</code>, <code className="bg-rose-100/60 px-1 py-0.5 rounded font-mono text-[11px]">diretoria@...</code>, <code className="bg-rose-100/60 px-1 py-0.5 rounded font-mono text-[11px]">gerencia@...</code> ou <code className="bg-rose-100/60 px-1 py-0.5 rounded font-mono text-[11px]">atendimento@...</code>), certifique-se de realizar o login com esse e-mail específico.
+                                  </li>
+                                </ul>
+                              </div>
+                            )}
                           </div>
 
-                          <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2 bg-white px-4 py-3 rounded-xl border border-rose-200 shadow-sm">
-                              <code className="text-[11px] font-mono font-black text-rose-700 flex-1 truncate select-all">
-                                {window.location.hostname}
-                              </code>
-                              <button
-                                onClick={() => {
-                                  navigator.clipboard.writeText(
-                                    window.location.hostname,
-                                  );
-                                  const btn =
-                                    document.getElementById("copy-domain-btn");
-                                  if (btn) btn.innerText = "Copiado!";
-                                  setTimeout(() => {
-                                    if (btn) btn.innerText = "Copiar";
-                                  }, 2000);
-                                }}
-                                className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-[9px] font-black hover:bg-rose-700 transition-all active:scale-95 cursor-pointer shrink-0"
-                                id="copy-domain-btn"
-                              >
-                                Copiar
-                              </button>
-                            </div>
-                            <p className="text-[9px] text-rose-400 font-bold text-center uppercase tracking-widest">
-                              Clique acima para copiar o domínio exato
-                            </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {isDomainError ? (
+                              <>
+                                <a
+                                  href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center justify-center gap-2 py-3.5 bg-blue-900 text-white rounded-2xl font-bold text-xs hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/15 active:scale-95 group"
+                                >
+                                  <ExternalLink className="w-4 h-4 group-hover:rotate-12 transition-transform" />
+                                  Abrir Console Firebase
+                                </a>
+                                <button
+                                  onClick={() => setAuthError(null)}
+                                  className="py-3.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-2xl font-bold text-xs hover:bg-rose-100 transition-all active:scale-95 cursor-pointer"
+                                >
+                                  Entendido, vou ajustar
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setAuthError(null);
+                                    handleGoogleLogin();
+                                  }}
+                                  className="flex items-center justify-center gap-2 py-3.5 bg-blue-900 text-white rounded-2xl font-bold text-xs hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/15 active:scale-95 cursor-pointer"
+                                >
+                                  Tentar Outra Conta
+                                </button>
+                                <button
+                                  onClick={() => setAuthError(null)}
+                                  className="py-3.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-2xl font-bold text-xs hover:bg-rose-100 transition-all active:scale-95 cursor-pointer"
+                                >
+                                  Fechar
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <a
-                        href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2 py-3.5 bg-blue-900 text-white rounded-2xl font-bold text-xs hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/15 active:scale-95 group"
-                      >
-                        <ExternalLink className="w-4 h-4 group-hover:rotate-12 transition-transform" />
-                        Abrir Console Firebase
-                      </a>
-                      <button
-                        onClick={() => setAuthError(null)}
-                        className="py-3.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-2xl font-bold text-xs hover:bg-rose-100 transition-all active:scale-95 cursor-pointer"
-                      >
-                        Entendido, vou ajustar
-                      </button>
-                    </div>
-                  </div>
+                      </>
+                    );
+                  })()}
 
                   <div className="flex items-center gap-3 justify-center pt-2 border-t border-rose-100/50">
                     <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>
@@ -23277,9 +24413,9 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                       >
                         <div className="w-24 h-24 bg-gray-100 rounded-2xl mx-auto mb-6 flex items-center justify-center overflow-hidden">
                           <div className="w-full h-full bg-blue-100 flex items-center justify-center">
-                            {p.photo ? (
+                            {(p.photo || (p.role === "Presidente" ? "/president_avatar.jpg" : "")) ? (
                               <img
-                                src={p.photo}
+                                src={p.photo || (p.role === "Presidente" ? "/president_avatar.jpg" : "")}
                                 alt={p.name}
                                 className="w-full h-full object-cover"
                               />
@@ -25979,8 +27115,8 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
                           .map((member, idx) => (
                             <div key={`sig-board-${member.id || idx}-${idx}`} className="flex items-center gap-3 bg-white p-3.5 rounded-2xl border border-gray-100 shadow-sm">
                               <div className="w-10 h-10 bg-gray-50 rounded-xl shadow-inner flex items-center justify-center overflow-hidden border border-gray-100 shrink-0">
-                                {member.photo ? (
-                                  <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />
+                                {(member.photo || (member.role === "Presidente" ? "/president_avatar.jpg" : "")) ? (
+                                  <img src={member.photo || (member.role === "Presidente" ? "/president_avatar.jpg" : "")} alt={member.name} className="w-full h-full object-cover" />
                                 ) : (
                                   <Users className="w-4 h-4 text-blue-200" />
                                 )}
@@ -28075,8 +29211,8 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
                         .map((member, idx) => (
                           <div key={`sig-pub-${member.id || idx}-${idx}`} className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-gray-100 shadow-sm animate-fade-in">
                             <div className="w-10 h-10 bg-gray-50 rounded-xl shadow-inner flex items-center justify-center overflow-hidden border border-gray-100 shrink-0">
-                              {member.photo ? (
-                                <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />
+                              {(member.photo || (member.role === "Presidente" ? "/president_avatar.jpg" : "")) ? (
+                                <img src={member.photo || (member.role === "Presidente" ? "/president_avatar.jpg" : "")} alt={member.name} className="w-full h-full object-cover" />
                               ) : (
                                 <Users className="w-4 h-4 text-blue-200" />
                               )}

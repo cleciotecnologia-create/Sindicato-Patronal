@@ -179,9 +179,53 @@
         "photo": { "type": "string" }
       },
       "required": ["name", "role", "category"]
+    },
+    "CloudflareEmailConfig": {
+      "title": "CloudflareEmailConfig",
+      "description": "Cloudflare Email Routing configuration settings and routing rules",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "apiToken": { "type": "string" },
+        "zoneId": { "type": "string" },
+        "domain": { "type": "string" },
+        "dnsStatus": { "type": "string", "enum": ["configured", "pending", "missing"] },
+        "spfStatus": { "type": "string", "enum": ["configured", "pending", "missing"] },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "source": { "type": "string" },
+              "destination": { "type": "string" },
+              "enabled": { "type": "boolean" },
+              "totalForwarded": { "type": "number" }
+            }
+          }
+        },
+        "destinations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "email": { "type": "string" },
+              "verified": { "type": "boolean" },
+              "createdAt": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["enabled", "domain"]
     }
   },
   "firestore": {
+    "/systemSettings/{settingId}": {
+      "schema": "CloudflareEmailConfig",
+      "description": "System settings including SMTP and Cloudflare Email Routing"
+    },
     "/team_members/{memberId}": {
       "schema": "TeamMember",
       "description": "Board members and employees shown in the organizational chart"
