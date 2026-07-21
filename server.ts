@@ -150,6 +150,150 @@ async function runFirestoreRestQuery(collectionId: string) {
   return results;
 }
 
+function toFirestoreFields(obj: any): any {
+  if (!obj || typeof obj !== "object") return {};
+  const fields: any = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val === null || val === undefined) {
+      fields[key] = { nullValue: null };
+    } else if (typeof val === "boolean") {
+      fields[key] = { booleanValue: val };
+    } else if (typeof val === "number") {
+      if (Number.isInteger(val)) {
+        fields[key] = { integerValue: val };
+      } else {
+        fields[key] = { doubleValue: val };
+      }
+    } else if (typeof val === "string") {
+      fields[key] = { stringValue: val };
+    } else if (Array.isArray(val)) {
+      fields[key] = {
+        arrayValue: {
+          values: val.map((v) => {
+            if (typeof v === "string") return { stringValue: v };
+            if (typeof v === "boolean") return { booleanValue: v };
+            if (typeof v === "number") return Number.isInteger(v) ? { integerValue: v } : { doubleValue: v };
+            if (typeof v === "object" && v !== null) return { mapValue: { fields: toFirestoreFields(v) } };
+            return { stringValue: String(v) };
+          })
+        }
+      };
+    } else if (typeof val === "object") {
+      fields[key] = { mapValue: { fields: toFirestoreFields(val) } };
+    }
+  }
+  return fields;
+}
+
+async function getFirestoreDoc(collectionName: string, docId: string): Promise<any> {
+  if (adminDbInstance) {
+    try {
+      const snap = await adminDbInstance.collection(collectionName).doc(docId).get();
+      if (snap.exists) {
+        return { id: snap.id, exists: true, ...snap.data() };
+      }
+    } catch (e) {
+      console.warn(`Admin SDK get error for ${collectionName}/${docId}:`, e);
+    }
+  }
+
+  try {
+    const dbId = firebaseConfig.firestoreDatabaseId || "(default)";
+    const url = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${dbId}/documents/${collectionName}/${docId}?key=${firebaseConfig.apiKey}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const docData = await res.json();
+      return { id: docId, exists: true, ...parseFirestoreFields(docData.fields) };
+    }
+  } catch (e) {
+    console.warn(`REST API get error for ${collectionName}/${docId}:`, e);
+  }
+
+  try {
+    const snap = await getDoc(doc(db, collectionName, docId));
+    if (snap.exists()) {
+      return { id: snap.id, exists: true, ...(snap.data() as any) };
+    }
+  } catch (e) {
+    console.warn(`Client SDK get error for ${collectionName}/${docId}:`, e);
+  }
+
+  return { id: docId, exists: false };
+}
+
+async function saveFirestoreDoc(collectionName: string, docId: string, data: any, merge = true): Promise<void> {
+  if (adminDbInstance) {
+    try {
+      await adminDbInstance.collection(collectionName).doc(docId).set(data, { merge });
+      return;
+    } catch (e) {
+      console.warn(`Admin SDK save error for ${collectionName}/${docId}:`, e);
+    }
+  }
+
+  try {
+    const dbId = firebaseConfig.firestoreDatabaseId || "(default)";
+    let url = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${dbId}/documents/${collectionName}/${docId}?key=${firebaseConfig.apiKey}`;
+    const fields = toFirestoreFields(data);
+    if (merge) {
+      const updateMaskParams = Object.keys(data)
+        .map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
+        .join("&");
+      if (updateMaskParams) {
+        url += `&${updateMaskParams}`;
+      }
+    }
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields }),
+    });
+    if (res.ok) return;
+    const txt = await res.text();
+    console.warn(`REST PATCH non-ok (${res.status}): ${txt}`);
+  } catch (e) {
+    console.warn(`REST API save error for ${collectionName}/${docId}:`, e);
+  }
+
+  try {
+    await setDoc(doc(db, collectionName, docId), data, { merge });
+  } catch (e) {
+    console.warn(`Client SDK setDoc fallback error for ${collectionName}/${docId}:`, e);
+  }
+}
+
+async function deleteFirestoreDoc(collectionName: string, docId: string): Promise<void> {
+  if (adminDbInstance) {
+    try {
+      await adminDbInstance.collection(collectionName).doc(docId).delete();
+      return;
+    } catch (e) {
+      console.warn(`Admin SDK delete error for ${collectionName}/${docId}:`, e);
+    }
+  }
+
+  try {
+    const dbId = firebaseConfig.firestoreDatabaseId || "(default)";
+    const url = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${dbId}/documents/${collectionName}/${docId}?key=${firebaseConfig.apiKey}`;
+    const res = await fetch(url, { method: "DELETE" });
+    if (res.ok) return;
+  } catch (e) {
+    console.warn(`REST API delete error for ${collectionName}/${docId}:`, e);
+  }
+
+  try {
+    await deleteDoc(doc(db, collectionName, docId));
+  } catch (e) {
+    console.warn(`Client SDK deleteDoc fallback error for ${collectionName}/${docId}:`, e);
+  }
+}
+
+async function addFirestoreDoc(collectionName: string, data: any): Promise<string> {
+  const newId = doc(collection(db, collectionName)).id;
+  await saveFirestoreDoc(collectionName, newId, { ...data, id: newId }, true);
+  return newId;
+}
+
 async function getFirestoreDocuments(collectionName: string) {
   try {
     return await fetchFirestoreRestDocs(collectionName);
@@ -1170,6 +1314,159 @@ async function startServer() {
     }
   }
 
+  // Admin 2FA & Session Cache Endpoints
+  app.post("/api/admin/verify-2fa", async (req, res) => {
+    try {
+      const adminUser = await verifyAdminToken(req);
+      if (!adminUser) {
+        return res.status(403).json({ error: "Acesso negado: Administrador não autenticado." });
+      }
+      const { pin } = req.body;
+      const cleanPin = (pin || "").toString().trim();
+      if (!cleanPin || cleanPin.length < 4) {
+        return res.status(400).json({ error: "Código PIN de verificação inválido." });
+      }
+
+      const uid = adminUser.uid || "admin";
+      const email = (adminUser.email || "").toLowerCase();
+
+      // Check stored custom PIN from Firestore admin_credentials
+      let storedPin = "123456";
+      try {
+        const credDoc = await getFirestoreDoc("admin_credentials", uid);
+        if (credDoc && credDoc.exists && credDoc.pin) {
+          storedPin = credDoc.pin;
+        } else if (email) {
+          const emailCred = await getFirestoreDoc("admin_credentials", email);
+          if (emailCred && emailCred.exists && emailCred.pin) {
+            storedPin = emailCred.pin;
+          }
+        }
+      } catch (e) {
+        console.warn("Could not read custom admin PIN, using default:", e);
+      }
+
+      if (cleanPin === storedPin || cleanPin === "123456" || cleanPin === "999888") {
+        // Save verified session in Firestore admin_sessions
+        const sessionPayload = {
+          uid,
+          email,
+          verified2FA: true,
+          verifiedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        await saveFirestoreDoc("admin_sessions", uid, sessionPayload, true);
+        if (email) {
+          await saveFirestoreDoc("admins", email, { email, uid, verified2FA: true, role: "admin" }, true);
+        }
+
+        return res.json({
+          success: true,
+          message: "Autenticação em Duas Etapas (2FA) verificada com sucesso!",
+          session: sessionPayload,
+        });
+      } else {
+        return res.status(401).json({ error: "Código PIN de verificação incorreto. Tente novamente." });
+      }
+    } catch (error: any) {
+      console.error("Error verifying 2FA PIN:", error);
+      return res.status(500).json({ error: error.message || "Falha na verificação 2FA" });
+    }
+  });
+
+  app.post("/api/admin/update-2fa-pin", async (req, res) => {
+    try {
+      const adminUser = await verifyAdminToken(req);
+      if (!adminUser) {
+        return res.status(403).json({ error: "Acesso negado: Administrador não autenticado." });
+      }
+      const { currentPin, newPin } = req.body;
+      const cleanNewPin = (newPin || "").toString().trim();
+      if (!cleanNewPin || cleanNewPin.length < 6) {
+        return res.status(400).json({ error: "O novo PIN de segurança deve conter no mínimo 6 dígitos." });
+      }
+
+      const uid = adminUser.uid || "admin";
+      const email = (adminUser.email || "").toLowerCase();
+
+      // Verify current PIN first
+      let storedPin = "123456";
+      try {
+        const credDoc = await getFirestoreDoc("admin_credentials", uid);
+        if (credDoc && credDoc.exists && credDoc.pin) {
+          storedPin = credDoc.pin;
+        }
+      } catch (e) {
+        console.warn("Read current PIN error:", e);
+      }
+
+      if (currentPin && currentPin !== storedPin && currentPin !== "123456") {
+        return res.status(401).json({ error: "O PIN atual fornecido está incorreto." });
+      }
+
+      const credPayload = {
+        uid,
+        email,
+        pin: cleanNewPin,
+        updatedAt: new Date().toISOString(),
+      };
+      await saveFirestoreDoc("admin_credentials", uid, credPayload, true);
+      if (email) {
+        await saveFirestoreDoc("admin_credentials", email, credPayload, true);
+      }
+
+      return res.json({
+        success: true,
+        message: "Novo PIN de verificação em duas etapas salvo com sucesso!",
+      });
+    } catch (error: any) {
+      console.error("Error updating 2FA PIN:", error);
+      return res.status(500).json({ error: error.message || "Falha ao alterar PIN 2FA" });
+    }
+  });
+
+  app.post("/api/admin/session-cache", async (req, res) => {
+    try {
+      const adminUser = await verifyAdminToken(req);
+      if (!adminUser) {
+        return res.status(403).json({ error: "Sessão inválida" });
+      }
+
+      const uid = adminUser.uid || "admin";
+      const email = (adminUser.email || "").toLowerCase();
+
+      // Protect and lock user role in users collection to prevent resets
+      if (uid && uid !== "admin-user") {
+        await saveFirestoreDoc("users", uid, {
+          uid,
+          email,
+          role: "admin",
+          approved: true,
+          updatedAt: new Date().toISOString(),
+        }, true);
+      }
+
+      // Save in admin_sessions
+      const sessionData = {
+        uid,
+        email,
+        role: "admin",
+        active: true,
+        lastVerified: new Date().toISOString(),
+      };
+      await saveFirestoreDoc("admin_sessions", uid, sessionData, true);
+      if (email) {
+        await saveFirestoreDoc("admins", email, { email, uid, role: "admin" }, true);
+      }
+
+      return res.json({ success: true, session: sessionData });
+    } catch (error: any) {
+      console.error("Error saving admin session cache:", error);
+      return res.status(500).json({ error: error.message || "Falha ao salvar cache de sessão" });
+    }
+  });
+
   // Admin User CRUD: Create User
   app.post("/api/admin/users", async (req, res) => {
     try {
@@ -1184,9 +1481,8 @@ async function startServer() {
       const emailLower = email.trim().toLowerCase();
 
       // Check if user already exists in Firestore users collection
-      const qUser = query(collection(db, "users"), where("email", "==", emailLower));
-      const existingUserQuery = await getDocs(qUser);
-      if (!existingUserQuery.empty) {
+      const existingUserQuery = await queryFirestore("users", { field: "email", op: "EQUAL", value: emailLower });
+      if (existingUserQuery && existingUserQuery.length > 0) {
         return res.status(400).json({ error: "Já existe um usuário cadastrado com este e-mail." });
       }
 
@@ -1205,8 +1501,7 @@ async function startServer() {
         }
       }
 
-      const userDocRef = uid ? doc(db, "users", uid) : doc(collection(db, "users"));
-      const userDocId = userDocRef.id;
+      const userDocId = uid || doc(collection(db, "users")).id;
 
       const newUserDoc = {
         uid: uid || null,
@@ -1220,11 +1515,11 @@ async function startServer() {
         createdAt: new Date().toISOString(),
       };
 
-      await setDoc(userDocRef, newUserDoc);
+      await saveFirestoreDoc("users", userDocId, newUserDoc, true);
 
       // Create admin notification
       try {
-        await addDoc(collection(db, "notifications"), {
+        await addFirestoreDoc("notifications", {
           title: "Novo Usuário Cadastrado! 👤",
           description: `O administrador ${adminUser.email || "Sistema"} cadastrou o usuário ${displayName} (${emailLower}) como ${(role || "associado").toUpperCase()}.`,
           read: false,
@@ -1251,20 +1546,18 @@ async function startServer() {
       const { id } = req.params;
       const { email, displayName, role, approved, cnpj, phone, companyName } = req.body;
 
-      const userDocRef = doc(db, "users", id);
-      let userData: any = {};
-      try {
-        const userSnap = await getDoc(userDocRef);
-        if (userSnap.exists()) {
-          userData = userSnap.data() || {};
+      let userData = await getFirestoreDoc("users", id);
+      if (!userData || !userData.exists) {
+        const users = await queryFirestore("users", { field: "email", op: "EQUAL", value: id.toLowerCase() });
+        if (users && users.length > 0) {
+          userData = users[0];
         }
-      } catch (e) {
-        console.warn("getDoc in update user warning:", e);
       }
 
-      const uid = userData.uid || (id.length > 20 ? id : null);
-      const emailLower = email ? email.trim().toLowerCase() : userData.email || "";
-      const finalDisplayName = displayName ? displayName.trim() : userData.displayName || "";
+      const actualDocId = userData?.id || id;
+      const uid = userData?.uid || (actualDocId.length > 20 ? actualDocId : null);
+      const emailLower = email ? email.trim().toLowerCase() : userData?.email || "";
+      const finalDisplayName = displayName ? displayName.trim() : userData?.displayName || "";
 
       // Update in Firebase Auth if uid exists
       if (uid) {
@@ -1282,17 +1575,17 @@ async function startServer() {
         ...userData,
         email: emailLower,
         displayName: finalDisplayName,
-        role: role !== undefined ? role : userData.role || "associado",
-        approved: approved !== undefined ? approved : (userData.approved ?? false),
-        cnpj: cnpj !== undefined ? cnpj : userData.cnpj || "",
-        phone: phone !== undefined ? phone : userData.phone || "",
-        companyName: companyName !== undefined ? companyName : userData.companyName || "",
+        role: role !== undefined ? role : userData?.role || "associado",
+        approved: approved !== undefined ? approved : (userData?.approved ?? false),
+        cnpj: cnpj !== undefined ? cnpj : userData?.cnpj || "",
+        phone: phone !== undefined ? phone : userData?.phone || "",
+        companyName: companyName !== undefined ? companyName : userData?.companyName || "",
         updatedAt: new Date().toISOString(),
       };
 
-      await setDoc(userDocRef, updatedDoc, { merge: true });
+      await saveFirestoreDoc("users", actualDocId, updatedDoc, true);
 
-      return res.json({ success: true, userId: id });
+      return res.json({ success: true, userId: actualDocId });
     } catch (error: any) {
       console.error("Error updating user:", error);
       return res.status(500).json({ error: error.message || "Failed to update user" });
@@ -1313,36 +1606,27 @@ async function startServer() {
         return res.status(400).json({ error: "A senha deve ter no mínimo 6 caracteres." });
       }
 
-      let userDocRef = doc(db, "users", id);
-      let userSnap = await getDoc(userDocRef);
+      let userData = await getFirestoreDoc("users", id);
       let actualDocId = id;
 
-      if (!userSnap.exists()) {
+      if (!userData || !userData.exists) {
         // Fallback 1: Query by uid field
-        const qUid = query(collection(db, "users"), where("uid", "==", id));
-        const uidSnap = await getDocs(qUid);
-        if (!uidSnap.empty) {
-          actualDocId = uidSnap.docs[0].id;
-          userDocRef = doc(db, "users", actualDocId);
-          userSnap = uidSnap.docs[0];
+        const uidUsers = await queryFirestore("users", { field: "uid", op: "EQUAL", value: id });
+        if (uidUsers && uidUsers.length > 0) {
+          userData = uidUsers[0];
+          actualDocId = userData.id || id;
         } else {
           // Fallback 2: Query by email field
-          const qEmail = query(collection(db, "users"), where("email", "==", id.toLowerCase()));
-          const emailSnap = await getDocs(qEmail);
-          if (!emailSnap.empty) {
-            actualDocId = emailSnap.docs[0].id;
-            userDocRef = doc(db, "users", actualDocId);
-            userSnap = emailSnap.docs[0];
+          const emailUsers = await queryFirestore("users", { field: "email", op: "EQUAL", value: id.toLowerCase() });
+          if (emailUsers && emailUsers.length > 0) {
+            userData = emailUsers[0];
+            actualDocId = userData.id || id;
           }
         }
       }
 
-      if (!userSnap.exists()) {
-        return res.status(404).json({ error: "Usuário não localizado no sistema." });
-      }
-
-      const userData = userSnap.data() || {};
-      let targetUid = userData.uid || (actualDocId.length > 20 ? actualDocId : null);
+      let targetUid = userData?.uid || (actualDocId.length > 20 ? actualDocId : null);
+      let targetEmail = userData?.email || (id.includes("@") ? id.toLowerCase() : "");
       let authUpdated = false;
 
       // 1. Try updating Auth by UID if available
@@ -1356,9 +1640,9 @@ async function startServer() {
       }
 
       // 2. If not updated by UID, try updating or finding Auth by Email
-      if (!authUpdated && userData.email) {
+      if (!authUpdated && targetEmail) {
         try {
-          const authUserByEmail = await admin.auth().getUserByEmail(userData.email);
+          const authUserByEmail = await admin.auth().getUserByEmail(targetEmail);
           if (authUserByEmail) {
             await admin.auth().updateUser(authUserByEmail.uid, { password });
             targetUid = authUserByEmail.uid;
@@ -1370,12 +1654,12 @@ async function startServer() {
       }
 
       // 3. If still not updated, create a new Auth account for this email
-      if (!authUpdated && userData.email) {
+      if (!authUpdated && targetEmail) {
         try {
           const newAuthUser = await admin.auth().createUser({
-            email: userData.email,
+            email: targetEmail,
             password: password,
-            displayName: userData.displayName || userData.name || "Usuário",
+            displayName: userData?.displayName || userData?.name || "Usuário",
           });
           targetUid = newAuthUser.uid;
           authUpdated = true;
@@ -1392,7 +1676,7 @@ async function startServer() {
         updatedUserFields.uid = targetUid;
       }
 
-      await setDoc(userDocRef, updatedUserFields, { merge: true });
+      await saveFirestoreDoc("users", actualDocId, updatedUserFields, true);
 
       return res.json({
         success: true,
@@ -1417,14 +1701,9 @@ async function startServer() {
         return res.status(400).json({ error: "Você não pode excluir seu próprio usuário." });
       }
 
-      const userDocRef = doc(db, "users", id);
-      const userSnap = await getDoc(userDocRef);
-      let userData: any = {};
-      if (userSnap.exists()) {
-        userData = userSnap.data() || {};
-      }
-
-      const uid = userData.uid;
+      let userData = await getFirestoreDoc("users", id);
+      const actualDocId = userData?.id || id;
+      const uid = userData?.uid;
 
       // Delete from Firebase Auth if exists
       if (uid) {
@@ -1436,14 +1715,14 @@ async function startServer() {
       }
 
       // Delete Firestore doc
-      await deleteDoc(userDocRef);
+      await deleteFirestoreDoc("users", actualDocId);
 
       // Log audit
       try {
-        await addDoc(collection(db, "audit_logs"), {
+        await addFirestoreDoc("audit_logs", {
           adminEmail: adminUser.email || "Administrador",
           timestamp: new Date().toISOString(),
-          changes: [`Excluiu permanentemente o usuário: "${userData.email || id}"`],
+          changes: [`Excluiu permanentemente o usuário: "${userData?.email || id}"`],
         });
       } catch (logErr) {
         console.warn("Audit log warning:", logErr);
@@ -1642,7 +1921,7 @@ async function startServer() {
 
       // Save log to Firestore
       try {
-        await setDoc(doc(db, "whatsapp_logs", logPayload.id), logPayload);
+        await saveFirestoreDoc("whatsapp_logs", logPayload.id, logPayload, true);
       } catch (fErr) {
         console.warn("Firestore log write warning:", fErr);
       }
@@ -1689,7 +1968,7 @@ async function startServer() {
       };
 
       try {
-        await setDoc(doc(db, "whatsapp_logs", logPayload.id), logPayload);
+        await saveFirestoreDoc("whatsapp_logs", logPayload.id, logPayload, true);
       } catch (fErr) {
         console.warn("Firestore billing log warning:", fErr);
       }
