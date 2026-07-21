@@ -965,6 +965,268 @@ async function startServer() {
     }
   });
 
+  // Helper to verify ID token and ensure the user is an admin / superuser
+  async function verifyAdminToken(req: any) {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return null;
+      }
+      const idToken = authHeader.split("Bearer ")[1];
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const email = decodedToken.email || "";
+
+      // Allow superuser email
+      if (email === "cleciotecnologia@gmail.com" || email === "ianlima.sinpa@gmail.com") {
+        return decodedToken;
+      }
+
+      // Check if user is admin in Firestore users collection
+      const userSnap = await adminDb.collection("users").doc(decodedToken.uid).get();
+      if (userSnap.exists) {
+        const userData = userSnap.data();
+        if (userData && ["admin", "presidencia", "diretoria", "gerencia"].includes(userData.role)) {
+          return decodedToken;
+        }
+      }
+
+      // Also check in admins collection
+      const adminDoc = await adminDb.collection("admins").doc(email).get();
+      if (adminDoc.exists) {
+        return decodedToken;
+      }
+
+      return null;
+    } catch (err) {
+      console.error("Error verifying admin token:", err);
+      return null;
+    }
+  }
+
+  // Admin User CRUD: Create User
+  app.post("/api/admin/users", async (req, res) => {
+    try {
+      const adminUser = await verifyAdminToken(req);
+      if (!adminUser) {
+        return res.status(403).json({ error: "Acesso proibido: Apenas administradores podem executar esta ação." });
+      }
+
+      const { email, displayName, role, approved, password, cnpj, phone, companyName } = req.body;
+      if (!email || !displayName) {
+        return res.status(400).json({ error: "E-mail e Nome Completo são obrigatórios." });
+      }
+
+      const emailLower = email.trim().toLowerCase();
+
+      // Check if user already exists in Firestore users collection
+      const existingUserQuery = await adminDb.collection("users").where("email", "==", emailLower).get();
+      if (!existingUserQuery.empty) {
+        return res.status(400).json({ error: "Já existe um usuário cadastrado com este e-mail." });
+      }
+
+      let uid = "";
+      if (password && password.trim().length >= 6) {
+        // Create user in Firebase Auth
+        const authUser = await admin.auth().createUser({
+          email: emailLower,
+          password: password,
+          displayName: displayName.trim(),
+        });
+        uid = authUser.uid;
+      }
+
+      const userDocId = uid || adminDb.collection("users").doc().id;
+
+      const newUserDoc = {
+        uid: uid || null,
+        email: emailLower,
+        displayName: displayName.trim(),
+        role: role || "associado",
+        approved: approved !== undefined ? approved : false,
+        cnpj: cnpj || "",
+        phone: phone || "",
+        companyName: companyName || "",
+        createdAt: new Date().toISOString(),
+      };
+
+      await adminDb.collection("users").doc(userDocId).set(newUserDoc);
+
+      // Create admin notification
+      await adminDb.collection("notifications").add({
+        title: "Novo Usuário Cadastrado! 👤",
+        description: `O administrador ${adminUser.email} cadastrou o usuário ${displayName} (${emailLower}) como ${role.toUpperCase()}.`,
+        read: false,
+        createdAt: new Date(),
+      });
+
+      return res.json({ success: true, userId: userDocId, uid: uid || null });
+    } catch (error: any) {
+      console.error("Error creating user:", error);
+      return res.status(500).json({ error: error.message || "Failed to create user" });
+    }
+  });
+
+  // Admin User CRUD: Update User
+  app.put("/api/admin/users/:id", async (req, res) => {
+    try {
+      const adminUser = await verifyAdminToken(req);
+      if (!adminUser) {
+        return res.status(403).json({ error: "Acesso proibido: Apenas administradores podem executar esta ação." });
+      }
+
+      const { id } = req.params;
+      const { email, displayName, role, approved, cnpj, phone, companyName } = req.body;
+
+      const userDocRef = adminDb.collection("users").doc(id);
+      const userSnap = await userDocRef.get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ error: "Usuário não localizado no sistema." });
+      }
+
+      const userData = userSnap.data() || {};
+      const uid = userData.uid || (id.length > 20 ? id : null);
+
+      const emailLower = email ? email.trim().toLowerCase() : userData.email;
+      const finalDisplayName = displayName ? displayName.trim() : userData.displayName;
+
+      // Update in Firebase Auth if uid exists
+      if (uid) {
+        try {
+          await admin.auth().updateUser(uid, {
+            email: emailLower,
+            displayName: finalDisplayName,
+          });
+        } catch (authErr: any) {
+          console.warn("Could not update user in Firebase Auth:", authErr);
+        }
+      }
+
+      const updatedDoc = {
+        ...userData,
+        email: emailLower,
+        displayName: finalDisplayName,
+        role: role !== undefined ? role : userData.role,
+        approved: approved !== undefined ? approved : userData.approved,
+        cnpj: cnpj !== undefined ? cnpj : userData.cnpj || "",
+        phone: phone !== undefined ? phone : userData.phone || "",
+        companyName: companyName !== undefined ? companyName : userData.companyName || "",
+        updatedAt: new Date().toISOString(),
+      };
+
+      await userDocRef.set(updatedDoc);
+
+      return res.json({ success: true, userId: id });
+    } catch (error: any) {
+      console.error("Error updating user:", error);
+      return res.status(500).json({ error: error.message || "Failed to update user" });
+    }
+  });
+
+  // Admin User CRUD: Change User Password
+  app.put("/api/admin/users/:id/password", async (req, res) => {
+    try {
+      const adminUser = await verifyAdminToken(req);
+      if (!adminUser) {
+        return res.status(403).json({ error: "Acesso proibido: Apenas administradores podem executar esta ação." });
+      }
+
+      const { id } = req.params;
+      const { password } = req.body;
+
+      if (!password || password.trim().length < 6) {
+        return res.status(400).json({ error: "A senha deve ter no mínimo 6 caracteres." });
+      }
+
+      const userDocRef = adminDb.collection("users").doc(id);
+      const userSnap = await userDocRef.get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ error: "Usuário não localizado no sistema." });
+      }
+
+      const userData = userSnap.data() || {};
+      let uid = userData.uid;
+
+      if (uid) {
+        await admin.auth().updateUser(uid, {
+          password: password,
+        });
+      } else {
+        // Create a real Auth account for them with this password
+        const authUser = await admin.auth().createUser({
+          email: userData.email,
+          password: password,
+          displayName: userData.displayName,
+        });
+        uid = authUser.uid;
+
+        const newUserDoc = {
+          ...userData,
+          uid: uid,
+          updatedAt: new Date().toISOString(),
+        };
+
+        await adminDb.collection("users").doc(uid).set(newUserDoc);
+        if (id !== uid) {
+          await userDocRef.delete();
+        }
+      }
+
+      return res.json({ success: true, message: "Senha alterada com sucesso!" });
+    } catch (error: any) {
+      console.error("Error changing password:", error);
+      return res.status(500).json({ error: error.message || "Failed to change password" });
+    }
+  });
+
+  // Admin User CRUD: Delete User
+  app.delete("/api/admin/users/:id", async (req, res) => {
+    try {
+      const adminUser = await verifyAdminToken(req);
+      if (!adminUser) {
+        return res.status(403).json({ error: "Acesso proibido: Apenas administradores podem executar esta ação." });
+      }
+
+      const { id } = req.params;
+
+      if (id === adminUser.uid) {
+        return res.status(400).json({ error: "Você não pode excluir seu próprio usuário." });
+      }
+
+      const userDocRef = adminDb.collection("users").doc(id);
+      const userSnap = await userDocRef.get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ error: "Usuário não localizado no sistema." });
+      }
+
+      const userData = userSnap.data() || {};
+      const uid = userData.uid;
+
+      // Delete from Firebase Auth if exists
+      if (uid) {
+        try {
+          await admin.auth().deleteUser(uid);
+        } catch (authErr: any) {
+          console.warn("Could not delete user from Firebase Auth:", authErr);
+        }
+      }
+
+      // Delete Firestore doc
+      await userDocRef.delete();
+
+      // Log audit
+      await adminDb.collection("audit_logs").add({
+        adminEmail: adminUser.email || "Administrador",
+        timestamp: new Date().toISOString(),
+        changes: [`Excluiu permanentemente o usuário: "${userData.email || id}"`],
+      });
+
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting user:", error);
+      return res.status(500).json({ error: error.message || "Failed to delete user" });
+    }
+  });
+
   // Web Push API: Get Public VAPID Key
   app.get("/api/push/public-key", (req, res) => {
     res.json({ publicKey: vapidKeys.publicKey });

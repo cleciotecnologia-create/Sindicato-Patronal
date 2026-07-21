@@ -5880,12 +5880,33 @@ Agradecemos o seu pagamento!`;
 
     if (!email.includes("@")) {
       try {
-        const q = query(collection(db, "members"), where("cnpj", "==", email));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          loginEmail = snap.docs[0].data().email;
+        let found = false;
+        
+        // 1. Try to find by CNPJ in members first
+        const qMembers = query(collection(db, "members"), where("cnpj", "==", email.trim()));
+        const snapMembers = await getDocs(qMembers);
+        if (!snapMembers.empty) {
+          loginEmail = snapMembers.docs[0].data().email;
+          found = true;
         } else {
-          setAuthError("Usuário/CNPJ não encontrado ou senha incorreta.");
+          // 2. Try to find by name / username in users collection (case-insensitive)
+          const qUsers = query(collection(db, "users"));
+          const snapUsers = await getDocs(qUsers);
+          const matchedUser = snapUsers.docs.find(doc => {
+            const data = doc.data();
+            const name = (data.displayName || "").trim().toLowerCase();
+            const searchInput = email.trim().toLowerCase();
+            return name === searchInput;
+          });
+
+          if (matchedUser) {
+            loginEmail = matchedUser.data().email;
+            found = true;
+          }
+        }
+
+        if (!found) {
+          setAuthError("Usuário, E-mail ou CNPJ não encontrado.");
           setAuthLoading(false);
           return;
         }
@@ -7077,6 +7098,21 @@ Agradecemos o seu pagamento!`;
   const [newUserDisplayName, setNewUserDisplayName] = useState("");
   const [newUserRole, setNewUserRole] = useState("associado");
   const [newUserApproved, setNewUserApproved] = useState(false);
+  const [newUserPassword, setNewUserPassword] = useState("");
+
+  const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
+  const [selectedUserToEdit, setSelectedUserToEdit] = useState<any>(null);
+  const [editUserEmail, setEditUserEmail] = useState("");
+  const [editUserDisplayName, setEditUserDisplayName] = useState("");
+  const [editUserRole, setEditUserRole] = useState("associado");
+  const [editUserApproved, setEditUserApproved] = useState(false);
+  const [editUserCnpj, setEditUserCnpj] = useState("");
+  const [editUserPhone, setEditUserPhone] = useState("");
+  const [editUserCompanyName, setEditUserCompanyName] = useState("");
+
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+  const [selectedUserToChangePassword, setSelectedUserToChangePassword] = useState<any>(null);
+  const [newPasswordForUser, setNewPasswordForUser] = useState("");
   const [approvedUserEmail, setApprovedUserEmail] = useState<{
     email: string;
     displayName: string;
@@ -7316,26 +7352,25 @@ Agradecemos o seu pagamento!`;
     )
       return;
     try {
-      const userToDelete = registeredUsers?.find((u: any) => u.id === userId);
-      const userLabel = userToDelete?.email || userToDelete?.displayName || userId;
-
-      await deleteDoc(doc(db, "users", userId));
-
-      // Gravar log de auditoria automático
-      const logId = `log_${Date.now()}`;
-      await setDoc(doc(db, "audit_logs", logId), {
-        adminEmail: currentUser?.email || "Administrador",
-        timestamp: new Date().toISOString(),
-        changes: [`Excluiu o usuário: "${userLabel}"`],
-        createdAt: serverTimestamp(),
+      const idToken = await currentUser?.getIdToken();
+      const response = await fetch(`/api/admin/users/${userId}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${idToken}`,
+        },
       });
-      refetchAuditLogs();
 
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || "Erro na exclusão");
+      }
+
+      refetchAuditLogs();
       showNotification("success", "Cadastro do usuário removido com sucesso!");
       refetchRegisteredUsers();
     } catch (err: any) {
       console.error("Erro ao excluir usuário:", err);
-      showNotification("error", "Erro ao excluir o usuário do banco.");
+      showNotification("error", err.message || "Erro ao excluir o usuário.");
     }
   };
 
@@ -7347,34 +7382,30 @@ Agradecemos o seu pagamento!`;
     }
 
     try {
-      const emailLower = newUserEmail.trim().toLowerCase();
+      const idToken = await currentUser?.getIdToken();
+      const response = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          email: newUserEmail,
+          displayName: newUserDisplayName,
+          role: newUserRole,
+          approved: newUserApproved,
+          password: newUserPassword,
+        }),
+      });
 
-      // Let's check if there's any user with this email already
-      const q = query(
-        collection(db, "users"),
-        where("email", "==", emailLower),
-      );
-      const querySnap = await getDocs(q);
-      if (!querySnap.empty) {
-        showNotification(
-          "error",
-          "Já existe um usuário cadastrado com este e-mail.",
-        );
-        return;
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || "Erro ao cadastrar");
       }
 
-      const newUserDoc = {
-        email: emailLower,
-        displayName: newUserDisplayName.trim(),
-        role: newUserRole,
-        approved: newUserApproved,
-        createdAt: new Date().toISOString(),
-      };
-
-      await addDoc(collection(db, "users"), newUserDoc);
       showNotification(
         "success",
-        `Usuário pré-cadastrado com sucesso como ${newUserRole.toUpperCase()}!`,
+        `Usuário cadastrado com sucesso como ${newUserRole.toUpperCase()}!`,
       );
 
       // Reset form states
@@ -7382,12 +7413,89 @@ Agradecemos o seu pagamento!`;
       setNewUserDisplayName("");
       setNewUserRole("associado");
       setNewUserApproved(true);
+      setNewUserPassword("");
       setIsAddUserModalOpen(false);
 
       refetchRegisteredUsers();
     } catch (err: any) {
-      console.error("Erro ao pré-cadastrar usuário:", err);
-      showNotification("error", "Erro ao pré-cadastrar o novo usuário.");
+      console.error("Erro ao cadastrar usuário:", err);
+      showNotification("error", err.message || "Erro ao cadastrar o novo usuário.");
+    }
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserToEdit) return;
+
+    try {
+      const idToken = await currentUser?.getIdToken();
+      const response = await fetch(`/api/admin/users/${selectedUserToEdit.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          email: editUserEmail,
+          displayName: editUserDisplayName,
+          role: editUserRole,
+          approved: editUserApproved,
+          cnpj: editUserCnpj,
+          phone: editUserPhone,
+          companyName: editUserCompanyName,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || "Erro ao atualizar");
+      }
+
+      showNotification("success", "Usuário atualizado com sucesso!");
+      setIsEditUserModalOpen(false);
+      refetchRegisteredUsers();
+      if (selectedUserToEdit.id === currentUser?.uid) {
+        refetchUserProfile();
+      }
+    } catch (err: any) {
+      console.error("Erro ao atualizar usuário:", err);
+      showNotification("error", err.message || "Erro ao atualizar usuário.");
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserToChangePassword) return;
+    if (!newPasswordForUser || newPasswordForUser.trim().length < 6) {
+      showNotification("error", "A senha deve conter pelo menos 6 caracteres.");
+      return;
+    }
+
+    try {
+      const idToken = await currentUser?.getIdToken();
+      const response = await fetch(`/api/admin/users/${selectedUserToChangePassword.id}/password`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          password: newPasswordForUser,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || "Erro ao alterar senha");
+      }
+
+      showNotification("success", "Senha alterada com sucesso!");
+      setIsChangePasswordModalOpen(false);
+      setNewPasswordForUser("");
+      refetchRegisteredUsers();
+    } catch (err: any) {
+      console.error("Erro ao alterar senha:", err);
+      showNotification("error", err.message || "Erro ao alterar senha.");
     }
   };
 
@@ -8003,11 +8111,43 @@ Agradecemos o seu pagamento!`;
                               )}
                             </button>
 
+                            {/* Edit Button */}
+                            <button
+                              onClick={() => {
+                                setSelectedUserToEdit(user);
+                                setEditUserEmail(user.email || "");
+                                setEditUserDisplayName(user.displayName || "");
+                                setEditUserRole(user.role || "associado");
+                                setEditUserApproved(!!user.approved);
+                                setEditUserCnpj(user.cnpj || "");
+                                setEditUserPhone(user.phone || "");
+                                setEditUserCompanyName(user.companyName || "");
+                                setIsEditUserModalOpen(true);
+                              }}
+                              className="p-2.5 bg-gray-50 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all shadow-sm cursor-pointer"
+                              title="Editar Usuário"
+                            >
+                              <Pencil className="w-4 h-4 text-blue-600" />
+                            </button>
+
+                            {/* Change Password Button */}
+                            <button
+                              onClick={() => {
+                                setSelectedUserToChangePassword(user);
+                                setNewPasswordForUser("");
+                                setIsChangePasswordModalOpen(true);
+                              }}
+                              className="p-2.5 bg-gray-50 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all shadow-sm cursor-pointer"
+                              title="Alterar Senha"
+                            >
+                              <Key className="w-4 h-4 text-amber-600" />
+                            </button>
+
                             {/* Trash Button */}
                             <button
                               onClick={() => handleDeleteUser(user.id)}
                               disabled={user.id === currentUser?.uid}
-                              className="p-2.5 bg-gray-50 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"
+                              className="p-2.5 bg-gray-50 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all shadow-sm disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                               title="Excluir Usuário"
                             >
                               <X className="w-4 h-4 text-red-600" />
@@ -9420,10 +9560,10 @@ Agradecemos o seu pagamento!`;
                     <div className="space-y-1">
                       <label className="text-[8px] font-black uppercase tracking-widest text-gray-400 px-3">
                         {authType === "admin"
-                          ? "E-mail Corporativo"
+                          ? "E-mail ou Nome de Usuário"
                           : isRegistering
                             ? "E-mail de Cadastro"
-                            : "E-mail ou CNPJ"}
+                            : "E-mail, Nome de Usuário ou CNPJ"}
                       </label>
                       <input
                         type="text"
@@ -9437,10 +9577,10 @@ Agradecemos o seu pagamento!`;
                         }`}
                         placeholder={
                           authType === "admin"
-                            ? "usuario@sinpa.org.br"
+                            ? "E-mail ou Nome Completo"
                             : isRegistering
                               ? "contato@empresa.com.br"
-                              : "00.000.000/0001-00 ou email"
+                              : "CNPJ, E-mail ou Nome de Usuário"
                         }
                       />
                     </div>
@@ -26953,6 +27093,23 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                     </select>
                   </div>
 
+                  {/* Senha Inicial (Opcional) */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      Senha de Acesso (Mínimo 6 caracteres - Opcional)
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Deixe em branco para preencher depois"
+                      value={newUserPassword}
+                      onChange={(e) => setNewUserPassword(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                    />
+                    <p className="text-[10px] text-gray-400 font-medium">
+                      Se informado, o usuário será criado imediatamente no sistema de autenticação e poderá realizar login com esta senha.
+                    </p>
+                  </div>
+
                   {/* Status de Aprovação Imediata */}
                   <div className="bg-gray-50 rounded-3xl p-5 border border-gray-100 flex items-center justify-between gap-4">
                     <div className="space-y-1">
@@ -26988,6 +27145,262 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                       className="flex-1 bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer"
                     >
                       Cadastrar Usuário
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit User Modal */}
+      <AnimatePresence>
+        {isEditUserModalOpen && selectedUserToEdit && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsEditUserModalOpen(false)}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-xl rounded-[44px] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+            >
+              <div className="p-8 lg:p-12 overflow-y-auto custom-scrollbar">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-3xl font-black text-blue-950 font-display tracking-tight">
+                      Editar Usuário
+                    </h3>
+                    <p className="text-gray-500 font-semibold text-xs mt-1">
+                      Modifique as informações cadastrais e permissões do usuário.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsEditUserModalOpen(false)}
+                    className="w-12 h-12 bg-gray-50 flex items-center justify-center rounded-2xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleUpdateUser} className="space-y-6">
+                  {/* Nome Completo */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      Nome Completo *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: João da Silva"
+                      value={editUserDisplayName}
+                      onChange={(e) => setEditUserDisplayName(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                    />
+                  </div>
+
+                  {/* E-mail */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      Endereço de E-mail *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="Ex: joao@empresa.com.br"
+                      value={editUserEmail}
+                      onChange={(e) => setEditUserEmail(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                    />
+                  </div>
+
+                  {/* Cargo / Função */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      Função / Cargo no Sistema
+                    </label>
+                    <select
+                      value={editUserRole}
+                      onChange={(e) => setEditUserRole(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm cursor-pointer appearance-none"
+                    >
+                      <option value="associado">
+                        Associado (Membro do Sindicato)
+                      </option>
+                      <option value="atendimento">
+                        Atendimento (Operacional)
+                      </option>
+                      <option value="gerencia">Gerência (Coordenador)</option>
+                      <option value="diretoria">Diretoria (Diretor)</option>
+                      <option value="presidencia">
+                        Presidência (Gestor Máximo)
+                      </option>
+                      <option value="admin">
+                        Administrador (TI / Suporte)
+                      </option>
+                    </select>
+                  </div>
+
+                  {/* Detalhes de Associado (Opcionais) */}
+                  <div className="border-t border-gray-100 pt-4 space-y-4">
+                    <h4 className="text-xs font-black text-blue-950 uppercase tracking-widest">
+                      Dados Adicionais do Associado
+                    </h4>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-gray-400">
+                          CNPJ da Empresa
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="00.000.000/0000-00"
+                          value={editUserCnpj}
+                          onChange={(e) => setEditUserCnpj(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-4 py-3 rounded-xl text-xs font-bold outline-none transition shadow-sm"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-gray-400">
+                          Telefone / WhatsApp
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="(71) 99999-9999"
+                          value={editUserPhone}
+                          onChange={(e) => setEditUserPhone(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-4 py-3 rounded-xl text-xs font-bold outline-none transition shadow-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-gray-400">
+                        Razão Social / Nome da Empresa
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Nome Fantasia / Razão Social"
+                        value={editUserCompanyName}
+                        onChange={(e) => setEditUserCompanyName(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-4 py-3 rounded-xl text-xs font-bold outline-none transition shadow-sm"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Status de Aprovação */}
+                  <div className="bg-gray-50 rounded-3xl p-5 border border-gray-100 flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <p className="text-xs font-black text-blue-950 uppercase tracking-wider">
+                        Conta Aprovada / Ativa
+                      </p>
+                      <p className="text-[10px] font-medium text-gray-500 leading-relaxed">
+                        Controla se este usuário possui permissão para acessar o sistema.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editUserApproved}
+                        onChange={(e) => setEditUserApproved(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex gap-4 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditUserModalOpen(false)}
+                      className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl text-xs uppercase tracking-widest transition-all border border-gray-100 cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer"
+                    >
+                      Salvar Alterações
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Change Password Modal */}
+      <AnimatePresence>
+        {isChangePasswordModalOpen && selectedUserToChangePassword && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsChangePasswordModalOpen(false)}
+              className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[44px] shadow-2xl flex flex-col overflow-hidden"
+            >
+              <div className="p-8 lg:p-12">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-2xl font-black text-blue-950 font-display tracking-tight">
+                      Alterar Senha
+                    </h3>
+                    <p className="text-gray-500 font-semibold text-xs mt-1">
+                      Defina uma nova senha para o usuário <strong>{selectedUserToChangePassword.displayName || selectedUserToChangePassword.email}</strong>.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsChangePasswordModalOpen(false)}
+                    className="w-12 h-12 bg-gray-50 flex items-center justify-center rounded-2xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleChangePassword} className="space-y-6">
+                  {/* Nova Senha */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      Nova Senha * (Mínimo 6 caracteres)
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Ex: novaSenha123"
+                      value={newPasswordForUser}
+                      onChange={(e) => setNewPasswordForUser(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-100 hover:border-gray-200 focus:border-blue-900 px-5 py-4 rounded-2xl text-xs font-bold outline-none transition shadow-sm"
+                    />
+                  </div>
+
+                  <div className="flex gap-4 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setIsChangePasswordModalOpen(false)}
+                      className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl text-xs uppercase tracking-widest transition-all border border-gray-100 cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 bg-amber-400 hover:bg-blue-900 text-blue-950 hover:text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer"
+                    >
+                      Alterar Senha
                     </button>
                   </div>
                 </form>
