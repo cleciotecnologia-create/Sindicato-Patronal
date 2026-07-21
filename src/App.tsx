@@ -358,9 +358,10 @@ interface Benefit {
 interface BenefitCardProps {
   key?: any;
   benefit: Benefit;
+  showExpiration?: boolean;
 }
 
-function BenefitCard({ benefit }: BenefitCardProps) {
+function BenefitCard({ benefit, showExpiration = false }: BenefitCardProps) {
   const days = benefit.expiresInDays || 30;
   let statusColorText = "text-emerald-600";
   let statusColorBg = "bg-emerald-500";
@@ -412,23 +413,25 @@ function BenefitCard({ benefit }: BenefitCardProps) {
       </div>
 
       {/* Indicador de Status de Renovação Dinâmica */}
-      <div className="pt-4 border-t border-gray-100 flex flex-col gap-2">
-        <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
-          <span className="text-gray-400 flex items-center gap-1">
-            <Clock className="w-3.5 h-3.5" />
-            Vencimento do Convênio
-          </span>
-          <span className={statusColorText}>
-            {statusText}
-          </span>
+      {showExpiration && (
+        <div className="pt-4 border-t border-gray-100 flex flex-col gap-2">
+          <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
+            <span className="text-gray-400 flex items-center gap-1">
+              <Clock className="w-3.5 h-3.5" />
+              Vencimento do Convênio
+            </span>
+            <span className={statusColorText}>
+              {statusText}
+            </span>
+          </div>
+          <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+            <div 
+              className={`${statusColorBg} h-full rounded-full transition-all duration-500`}
+              style={{ width: `${Math.min(100, (days / 365) * 100)}%` }}
+            />
+          </div>
         </div>
-        <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-          <div 
-            className={`${statusColorBg} h-full rounded-full transition-all duration-500`}
-            style={{ width: `${Math.min(100, (days / 365) * 100)}%` }}
-          />
-        </div>
-      </div>
+      )}
     </motion.div>
   );
 }
@@ -882,6 +885,7 @@ function LandingPage() {
     | "team"
     | "publications"
     | "syndicate"
+    | "emails"
   >("dashboard");
   const [memberLoggedIn, setMemberLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -1499,7 +1503,7 @@ function LandingPage() {
   });
   const [isGeneratingCert, setIsGeneratingCert] = useState(false);
   const [domainConfig, setDomainConfig] = useState({
-    domain: "sindicatodigital.org.br",
+    domain: "sinpaba.com.br",
     subdomain: "portal",
     isActive: true,
     sslStatus: "active" as "active" | "pending" | "expired",
@@ -1515,7 +1519,7 @@ function LandingPage() {
     enabled: true,
     apiToken: "cf_token_prod_8f1a23e981bc09a478",
     zoneId: "0fa9882a7f80db3ea8049f50e8bc1a23",
-    domain: "sindicatodigital.org.br",
+    domain: "sinpaba.com.br",
     dnsStatus: "configured" as "configured" | "pending" | "missing",
     spfStatus: "configured" as "configured" | "pending" | "missing",
   });
@@ -1527,10 +1531,10 @@ function LandingPage() {
     enabled: boolean;
     totalForwarded: number;
   }>>([
-    { id: "cf-rule-1", name: "Presidência", source: "presidencia@sindicatodigital.org.br", destination: "cleciotecnologia@gmail.com", enabled: true, totalForwarded: 142 },
-    { id: "cf-rule-2", name: "Suporte Financeiro", source: "financeiro@sindicatodigital.org.br", destination: "cleciotecnologia@gmail.com", enabled: true, totalForwarded: 89 },
-    { id: "cf-rule-3", name: "Secretaria Geral", source: "secretaria@sindicatodigital.org.br", destination: "contato.sinpaba@gmail.com", enabled: true, totalForwarded: 204 },
-    { id: "cf-rule-4", name: "Homologações", source: "homologa@sindicatodigital.org.br", destination: "homologacao.sinpa@outlook.com", enabled: false, totalForwarded: 12 },
+    { id: "cf-rule-1", name: "Presidência", source: "presidencia@sinpaba.com.br", destination: "cleciotecnologia@gmail.com", enabled: true, totalForwarded: 142 },
+    { id: "cf-rule-2", name: "Suporte Financeiro", source: "financeiro@sinpaba.com.br", destination: "cleciotecnologia@gmail.com", enabled: true, totalForwarded: 89 },
+    { id: "cf-rule-3", name: "Secretaria Geral", source: "secretaria@sinpaba.com.br", destination: "contato.sinpaba@gmail.com", enabled: true, totalForwarded: 204 },
+    { id: "cf-rule-4", name: "Homologações", source: "homologa@sinpaba.com.br", destination: "homologacao.sinpa@outlook.com", enabled: false, totalForwarded: 12 },
   ]);
   const [cfDestinations, setCfDestinations] = useState<Array<{
     id: string;
@@ -2493,6 +2497,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
 
   const handleApproveRequest = async (request: any) => {
     try {
+      setIsApprovingRequest(true);
       setGlobalMessage({
         type: "info",
         text: `Aprovando solicitação de ${request.companyName}...`,
@@ -2518,6 +2523,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
           type: "error",
           text: "Este CNPJ já está cadastrado como associado.",
         });
+        setIsApprovingRequest(false);
         return;
       }
 
@@ -2532,6 +2538,8 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
         status: "active", // 'active' conforme regras
         createdAt: serverTimestamp(),
         requestId: request.id,
+        address: request.address || "",
+        capitalSocial: request.capitalSocial ? Number(request.capitalSocial) : 0,
       });
 
       // 2. Gerar 12 mensalidades (Boletos) na sub-coleção
@@ -2565,15 +2573,75 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
         "success",
         `Associado ${request.companyName} aprovado e 12 mensalidades geradas!`,
       );
+      setSelectedRequestForReview(null);
       fetchMembershipRequests();
     } catch (error: any) {
       console.error("Error approving request:", error);
       showNotification("error", "Falha ao aprovar: " + error.message);
+    } finally {
+      setIsApprovingRequest(false);
+      setGlobalMessage(null);
+    }
+  };
+
+  const handleRejectRequest = async (request: any, reason: string) => {
+    if (!request) return;
+    try {
+      setIsRejectingRequest(true);
+      setGlobalMessage({
+        type: "info",
+        text: `Recusando solicitação de ${request.companyName}...`,
+      });
+
+      await updateDoc(doc(db, "membership_requests", request.id), {
+        status: "rejected",
+        rejectedAt: serverTimestamp(),
+        rejectionReason: reason || "Não especificado pelo administrador",
+      });
+
+      // Also add a notification about the rejection (for trace)
+      try {
+        await addDoc(collection(db, "notifications"), {
+          title: "Solicitação de Filiação Recusada ❌",
+          description: `A solicitação da empresa ${request.companyName} foi indeferida pelo administrador. Motivo: ${reason || 'Não informado'}`,
+          read: false,
+          type: "membership",
+          createdAt: Timestamp.now(),
+        });
+      } catch (err) {
+        console.error("Erro ao criar notificação de recusa:", err);
+      }
+
+      showNotification(
+        "success",
+        `Solicitação de ${request.companyName} recusada com sucesso.`
+      );
+      setSelectedRequestForReview(null);
+      setReviewRejectionReason("");
+      setShowRejectionInput(false);
+      fetchMembershipRequests();
+    } catch (error: any) {
+      console.error("Error rejecting request:", error);
+      showNotification("error", "Falha ao recusar solicitação: " + error.message);
+    } finally {
+      setIsRejectingRequest(false);
+      setGlobalMessage(null);
     }
   };
 
   const [membershipRequests, setMembershipRequests] = useState<any[]>([]);
   const [isFetchingRequests, setIsFetchingRequests] = useState(false);
+  const [selectedRequestForReview, setSelectedRequestForReview] = useState<any | null>(null);
+  const [isRejectingRequest, setIsRejectingRequest] = useState(false);
+  const [isApprovingRequest, setIsApprovingRequest] = useState(false);
+  const [reviewRejectionReason, setReviewRejectionReason] = useState("");
+  const [showRejectionInput, setShowRejectionInput] = useState(false);
+  const [checkedReviewSteps, setCheckedReviewSteps] = useState({
+    cnpjRegular: false,
+    capitalSocialCompat: false,
+    repLegalPoderes: false,
+    isentoRestricoes: false,
+  });
 
   const fetchMembershipRequests = async () => {
     setIsFetchingRequests(true);
@@ -7958,6 +8026,458 @@ Agradecemos o seu pagamento!`;
     );
   };
 
+  const renderEmails = () => {
+    // Acesso restrito para admin, gerentes e diretores
+    if (!isAdmin && !hasManagementPower) {
+      return (
+        <div className="flex flex-col items-center justify-center p-20 bg-white border border-gray-100 rounded-[44px] shadow-sm max-w-4xl mx-auto text-center">
+          <ShieldAlert className="w-16 h-16 text-rose-500 mb-6" />
+          <h3 className="text-xl font-black text-blue-950 uppercase tracking-tight">Acesso Restrito</h3>
+          <p className="text-sm text-gray-500 mt-2 max-w-md leading-relaxed">
+            Esta área é restrita a administradores, gerentes e diretores do SINPA BA.
+            Seu perfil atual não possui permissões suficientes para visualizar ou configurar e-mails corporativos.
+          </p>
+        </div>
+      );
+    }
+
+    const totalForwardedSum = cfRules.reduce((acc, rule) => acc + (rule.totalForwarded || 0), 0);
+    const activeEmailsCount = cfRules.filter(r => r.enabled).length;
+
+    return (
+      <div className="space-y-8 max-w-[1600px] mx-auto w-full">
+        {/* Header Hero Banner */}
+        <div className="bg-gradient-to-br from-blue-950 via-blue-900 to-blue-950 text-white rounded-[40px] p-8 md:p-10 shadow-xl border border-white/10 relative overflow-hidden">
+          <div className="absolute right-0 top-0 w-96 h-96 bg-amber-400/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+          <div className="absolute left-1/3 bottom-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -ml-20 -mb-20 pointer-events-none" />
+          
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 relative z-10">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-white/10 rounded-2xl border border-white/10">
+                  <Mail className="w-8 h-8 text-amber-400" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black tracking-widest text-amber-400 uppercase block">Correio Eletrônico Oficial</span>
+                  <h1 className="text-2xl sm:text-3xl font-black font-display tracking-tight">E-mails Corporativos @sinpaba.com.br</h1>
+                </div>
+              </div>
+              <p className="text-sm text-blue-100/80 max-w-2xl leading-relaxed">
+                Crie e configure contas de e-mail institucionais personalizadas para os setores e diretores do sindicato. Todas as mensagens recebidas são encaminhadas automaticamente para os e-mails reais definidos, garantindo facilidade no contato e controle.
+              </p>
+            </div>
+            
+            <div className="flex flex-wrap gap-4 shrink-0 bg-white/5 border border-white/10 p-4 rounded-3xl backdrop-blur-md">
+              <div className="flex items-center gap-3 px-4 py-2">
+                <Globe className="w-5 h-5 text-amber-400" />
+                <div>
+                  <span className="text-[9px] font-black text-blue-300 uppercase block leading-none">Domínio Integrado</span>
+                  <span className="text-xs font-black font-mono">sinpaba.com.br</span>
+                </div>
+              </div>
+              <div className="h-8 w-px bg-white/10 hidden sm:block self-center" />
+              <div className="flex items-center gap-3 px-4 py-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <div>
+                  <span className="text-[9px] font-black text-blue-300 uppercase block leading-none">Status Cloudflare</span>
+                  <span className="text-xs font-black text-emerald-400 uppercase">Ativo & Seguro</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Metrics Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mt-8 pt-8 border-t border-white/10">
+            <div className="bg-white/5 border border-white/5 rounded-2xl p-5 hover:bg-white/10 transition-all">
+              <span className="text-[9px] font-black text-blue-300 uppercase tracking-widest">Contas Criadas</span>
+              <p className="text-2xl font-black text-white mt-1">{cfRules.length}</p>
+              <span className="text-[10px] text-blue-200/60 font-semibold block mt-1">Sufixos ativos no domínio</span>
+            </div>
+            <div className="bg-white/5 border border-white/5 rounded-2xl p-5 hover:bg-white/10 transition-all">
+              <span className="text-[9px] font-black text-blue-300 uppercase tracking-widest">Redirecionamentos Ativos</span>
+              <p className="text-2xl font-black text-emerald-400 mt-1">{activeEmailsCount}</p>
+              <span className="text-[10px] text-blue-200/60 font-semibold block mt-1">Contas em operação</span>
+            </div>
+            <div className="bg-white/5 border border-white/5 rounded-2xl p-5 hover:bg-white/10 transition-all">
+              <span className="text-[9px] font-black text-blue-300 uppercase tracking-widest">Volume Mensal</span>
+              <p className="text-2xl font-black text-amber-400 mt-1">{totalForwardedSum}</p>
+              <span className="text-[10px] text-blue-200/60 font-semibold block mt-1">E-mails encaminhados</span>
+            </div>
+            <div className="bg-white/5 border border-white/5 rounded-2xl p-5 hover:bg-white/10 transition-all">
+              <span className="text-[9px] font-black text-blue-300 uppercase tracking-widest">Destinos Homologados</span>
+              <p className="text-2xl font-black text-white mt-1">{cfDestinations.length}</p>
+              <span className="text-[10px] text-blue-200/60 font-semibold block mt-1">Caixas de entrada de destino</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Left Column: Create E-mail Form */}
+          <div className="lg:col-span-5 space-y-8">
+            <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl relative overflow-hidden">
+              <div className="flex items-center gap-3 pb-6 border-b border-gray-100 mb-6">
+                <div className="p-2 bg-amber-100 text-amber-700 rounded-xl">
+                  <Plus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-blue-950">Criar Novo E-mail</h3>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Configure o redirecionamento instantâneo</p>
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1 mb-2">Nome do Proprietário / Setor</label>
+                  <input
+                    type="text"
+                    value={newCfRule.name}
+                    onChange={(e) => setNewCfRule({ ...newCfRule, name: e.target.value })}
+                    placeholder="Ex: Secretaria Geral, Suporte, Diretor Financeiro"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 font-bold text-blue-950 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1 mb-2">E-mail de Origem</label>
+                  <div className="flex items-center bg-gray-50 border border-gray-200 rounded-2xl focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all overflow-hidden">
+                    <input
+                      type="text"
+                      value={newCfRule.sourcePrefix}
+                      onChange={(e) => setNewCfRule({ ...newCfRule, sourcePrefix: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, "") })}
+                      placeholder="Ex: financeiro, contato, atendimento"
+                      className="flex-1 bg-transparent border-none px-5 py-4 font-bold text-blue-950 focus:outline-none text-sm placeholder:text-gray-400"
+                    />
+                    <span className="bg-blue-900 text-white font-black font-mono text-xs px-5 py-4 border-l border-blue-950 shrink-0">
+                      @sinpaba.com.br
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1 mb-2">E-mail de Destino (Real)</label>
+                  <div className="space-y-3">
+                    <select
+                      value={newCfRule.destinationEmail}
+                      onChange={(e) => setNewCfRule({ ...newCfRule, destinationEmail: e.target.value })}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 font-bold text-blue-955 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm cursor-pointer"
+                    >
+                      <option value="">Selecione um e-mail de destino...</option>
+                      {cfDestinations.map((dest) => (
+                        <option key={dest.id} value={dest.email}>
+                          {dest.email} {dest.verified ? "(Verificado)" : "(Pendente)"}
+                        </option>
+                      ))}
+                      <option value="new_custom">-- Digitar outro e-mail de destino --</option>
+                    </select>
+
+                    {(newCfRule.destinationEmail === "new_custom" || cfDestinations.length === 0) && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-2"
+                      >
+                        <input
+                          type="email"
+                          placeholder="Digite o endereço de e-mail real (Gmail, Outlook, etc.)"
+                          value={newCfDestEmail}
+                          onChange={(e) => setNewCfDestEmail(e.target.value)}
+                          className="w-full bg-amber-50/50 border border-amber-200 rounded-2xl px-5 py-4 font-bold text-blue-950 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm placeholder:text-gray-400"
+                        />
+                        <p className="text-[10px] text-amber-800 font-bold ml-1">
+                          Este novo e-mail será automaticamente homologado e adicionado à lista de destinos confiáveis.
+                        </p>
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button
+                    onClick={async () => {
+                      if (!newCfRule.name || !newCfRule.sourcePrefix) {
+                        showNotification("error", "Por favor, preencha o nome do setor e o prefixo do e-mail!");
+                        return;
+                      }
+
+                      let targetDest = newCfRule.destinationEmail;
+                      if (targetDest === "new_custom" || cfDestinations.length === 0) {
+                        if (!newCfDestEmail || !newCfDestEmail.includes("@")) {
+                          showNotification("error", "Insira um e-mail de destino real válido!");
+                          return;
+                        }
+                        targetDest = newCfDestEmail.trim();
+                      }
+
+                      if (!targetDest) {
+                        showNotification("error", "Selecione ou insira um e-mail de destino!");
+                        return;
+                      }
+
+                      const fullSource = `${newCfRule.sourcePrefix.trim().toLowerCase()}@sinpaba.com.br`;
+                      
+                      if (cfRules.some(r => r.source.toLowerCase() === fullSource.toLowerCase())) {
+                        showNotification("error", `Já existe um roteamento cadastrado para o e-mail ${fullSource}!`);
+                        return;
+                      }
+
+                      setIsAddingCfRule(true);
+                      try {
+                        let updatedDestinations = [...cfDestinations];
+                        if (!cfDestinations.some(d => d.email.toLowerCase() === targetDest.toLowerCase())) {
+                          const newDestObj = {
+                            id: `dest_${Date.now()}`,
+                            email: targetDest,
+                            verified: true,
+                            createdAt: new Date().toISOString()
+                          };
+                          updatedDestinations.push(newDestObj);
+                          setCfDestinations(updatedDestinations);
+                        }
+
+                        const newRuleObj = {
+                          id: `rule_${Date.now()}`,
+                          name: newCfRule.name,
+                          source: fullSource,
+                          destination: targetDest,
+                          enabled: true,
+                          totalForwarded: 0
+                        };
+
+                        const updatedRules = [...cfRules, newRuleObj];
+                        setCfRules(updatedRules);
+
+                        await handleSaveCfConfig(cfConfig, updatedRules, updatedDestinations);
+
+                        showNotification("success", `E-mail ${fullSource} criado e integrado com sucesso!`);
+                        
+                        // Reset forms
+                        setNewCfRule({ name: "", sourcePrefix: "", destinationEmail: "" });
+                        setNewCfDestEmail("");
+                      } catch (err) {
+                        showNotification("error", "Falha ao salvar as configurações de e-mail no banco de dados.");
+                      } finally {
+                        setIsAddingCfRule(false);
+                      }
+                    }}
+                    disabled={isAddingCfRule}
+                    className="w-full bg-blue-900 hover:bg-blue-800 text-white font-black text-xs uppercase tracking-widest py-4 px-6 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isAddingCfRule ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Criando Roteamento...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-amber-400" />
+                        Criar E-mail Corporativo
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* DNS Support Panel */}
+            <div className="bg-gray-50 border border-gray-100 rounded-[32px] p-6 space-y-4">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-blue-900" />
+                <h4 className="text-xs font-black text-blue-950 uppercase tracking-wider">Segurança e DNS Oficial</h4>
+              </div>
+              <p className="text-[11px] text-gray-500 leading-relaxed font-semibold">
+                Para que os e-mails com sufixo <code className="bg-white px-1 py-0.5 rounded border border-gray-200">@sinpaba.com.br</code> funcionem corretamente na infraestrutura do Cloudflare, certifique-se de manter os registros MX apontados para os servidores de e-mail do Cloudflare:
+              </p>
+              <div className="bg-white border border-gray-100 rounded-2xl p-4 space-y-2.5 font-mono text-[9px] text-gray-500">
+                <div className="flex justify-between border-b border-gray-50 pb-1.5">
+                  <span className="font-bold text-blue-950">Tipo</span>
+                  <span className="font-bold text-blue-950">Destino (Valor)</span>
+                  <span className="font-bold text-blue-950">Prioridade</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>MX</span>
+                  <span className="text-blue-900 font-bold">route1.mx.cloudflare.net</span>
+                  <span className="text-gray-400">10</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>MX</span>
+                  <span className="text-blue-900 font-bold">route2.mx.cloudflare.net</span>
+                  <span className="text-gray-400">20</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>MX</span>
+                  <span className="text-blue-900 font-bold">route3.mx.cloudflare.net</span>
+                  <span className="text-gray-400">30</span>
+                </div>
+                <div className="flex justify-between border-t border-gray-50 pt-1.5">
+                  <span>TXT</span>
+                  <span className="text-blue-900 font-bold truncate max-w-[200px]">v=spf1 include:_spf.mx.cloudflare.net ~all</span>
+                  <span className="text-gray-400">SPF</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: E-mails List */}
+          <div className="lg:col-span-7 space-y-6">
+            <div className="bg-white border border-gray-100 rounded-[40px] p-8 shadow-xl min-h-[500px] flex flex-col justify-between">
+              <div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-gray-100 mb-6">
+                  <div>
+                    <h3 className="text-base font-black text-blue-950">Roteamentos e Contas Ativas</h3>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Endereços mapeados do sindicato</p>
+                  </div>
+                  <div className="bg-gray-50 border border-gray-100 px-3.5 py-1.5 rounded-full flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-wider">Ativo</span>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {cfRules.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                      <Mail className="w-12 h-12 text-gray-200 mb-4" />
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nenhuma conta de e-mail criada</p>
+                      <p className="text-[11px] text-gray-400 mt-1">Crie o seu primeiro roteamento no formulário ao lado.</p>
+                    </div>
+                  ) : (
+                    cfRules.map((rule) => {
+                      // Get initials
+                      const initials = rule.name ? rule.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "EM";
+                      
+                      return (
+                        <div
+                          key={rule.id}
+                          className={`border rounded-3xl p-5 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                            rule.enabled 
+                              ? "bg-white border-gray-100 hover:shadow-md hover:border-gray-200" 
+                              : "bg-gray-50/50 border-gray-200/60 opacity-75"
+                          }`}
+                        >
+                          <div className="flex items-start gap-4">
+                            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black text-xs shrink-0 ${
+                              rule.enabled
+                                ? "bg-blue-50 text-blue-900 border border-blue-100/50"
+                                : "bg-gray-200 text-gray-500"
+                            }`}>
+                              {initials}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="font-bold text-xs text-blue-955">{rule.name}</h4>
+                                {!rule.enabled && (
+                                  <span className="text-[8px] font-black uppercase bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">
+                                    Pausado
+                                  </span>
+                                )}
+                              </div>
+                              
+                              <p className="font-mono text-sm font-black text-blue-900 mt-1 select-all break-all">
+                                {rule.source}
+                              </p>
+
+                              <div className="flex items-center gap-2 mt-2 text-[10px] text-gray-400 font-bold flex-wrap">
+                                <span className="bg-gray-100 border border-gray-200/50 px-2 py-0.5 rounded-lg flex items-center gap-1 font-mono break-all">
+                                  <Send className="w-2.5 h-2.5 text-blue-900 shrink-0" />
+                                  ➔ {rule.destination}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex sm:flex-col items-end justify-between sm:justify-center gap-3 shrink-0 pt-3 sm:pt-0 border-t sm:border-t-0 border-gray-100">
+                            {/* Stats */}
+                            <div className="text-right">
+                              <span className="text-[8px] font-black text-gray-400 uppercase tracking-wider block">Encaminhados</span>
+                              <span className="text-xs font-black font-mono text-gray-700">
+                                {rule.totalForwarded || 0} msgs
+                              </span>
+                            </div>
+
+                            {/* Actions & Switch */}
+                            <div className="flex items-center gap-3">
+                              {/* Test simulated router */}
+                              <button
+                                onClick={() => {
+                                  showNotification("success", "Enviando e-mail de teste de rota...");
+                                  setTimeout(() => {
+                                    // Increment total forwarded in state
+                                    const updatedRules = cfRules.map(r => {
+                                      if (r.id === rule.id) {
+                                        return { ...r, totalForwarded: (r.totalForwarded || 0) + 1 };
+                                      }
+                                      return r;
+                                    });
+                                    setCfRules(updatedRules);
+                                    handleSaveCfConfig(cfConfig, updatedRules, cfDestinations);
+
+                                    showNotification("success", `E-mail de teste entregue na caixa de entrada: ${rule.destination}!`);
+                                  }, 1500);
+                                }}
+                                disabled={!rule.enabled}
+                                className={`px-2.5 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
+                                  rule.enabled
+                                    ? "bg-amber-100 text-amber-800 hover:bg-amber-200 cursor-pointer"
+                                    : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                }`}
+                                title="Disparar e-mail de teste para este roteamento"
+                              >
+                                Testar Rota ⚡
+                              </button>
+
+                              {/* Switch */}
+                              <button
+                                onClick={async () => {
+                                  const updatedRules = cfRules.map(r => r.id === rule.id ? { ...r, enabled: !r.enabled } : r);
+                                  setCfRules(updatedRules);
+                                  await handleSaveCfConfig(cfConfig, updatedRules, cfDestinations);
+                                  showNotification("success", `O roteamento de ${rule.source} foi ${!rule.enabled ? "ativado" : "desativado"} com sucesso.`);
+                                }}
+                                className={`w-10 h-5.5 rounded-full relative transition-colors cursor-pointer shrink-0 ${rule.enabled ? "bg-blue-900" : "bg-gray-200"}`}
+                              >
+                                <div className={`absolute top-0.5 w-4.5 h-4.5 bg-white rounded-full shadow-sm transition-all ${rule.enabled ? "right-0.5" : "left-0.5"}`}></div>
+                              </button>
+
+                              {/* Trash */}
+                              <button
+                                onClick={async () => {
+                                  if (confirm(`Tem certeza que deseja excluir o e-mail corporativo ${rule.source}?`)) {
+                                    const updatedRules = cfRules.filter(r => r.id !== rule.id);
+                                    setCfRules(updatedRules);
+                                    await handleSaveCfConfig(cfConfig, updatedRules, cfDestinations);
+                                    showNotification("success", `E-mail corporativo ${rule.source} excluído com sucesso.`);
+                                  }
+                                }}
+                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                                title="Excluir roteamento de e-mail"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Verified Mailbox status footer */}
+              <div className="mt-8 pt-6 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs font-semibold text-gray-400">
+                <span>
+                  Qualquer e-mail enviado para o sufixo configurado será recebido instantaneamente na caixa pessoal cadastrada.
+                </span>
+                <span className="flex items-center gap-1 text-emerald-600 font-bold uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-full text-[10px]">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Conexão TLS Criptografada
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderCarteiraDigital = () => {
     if (isMemberLoading) {
       return (
@@ -9226,6 +9746,11 @@ Agradecemos o seu pagamento!`;
                                 icon: Users,
                               },
                               {
+                                id: "emails",
+                                label: "E-mails Corporativos",
+                                icon: Mail,
+                              },
+                              {
                                 id: "admin",
                                 label: "Administração",
                                 icon: ShieldAlert,
@@ -9337,7 +9862,9 @@ Agradecemos o seu pagamento!`;
                                             : activeDashboardTab ===
                                                 "gestao_usuarios"
                                               ? "Gestão de Usuários"
-                                              : activeDashboardTab === "admin"
+                                              : activeDashboardTab === "emails"
+                                                ? "E-mails Corporativos"
+                                                : activeDashboardTab === "admin"
                                                 ? "Painel Administrativo"
                                                 : "Configurações"}
                       </h2>
@@ -12327,6 +12854,17 @@ Agradecemos o seu pagamento!`;
                         >
                           {renderGestaoUsuarios()}
                         </motion.div>
+                      ) : activeDashboardTab === "emails" ? (
+                        <motion.div
+                          key="emails"
+                          initial={{ opacity: 0, y: 15 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -15 }}
+                          transition={{ duration: 0.3 }}
+                          className="max-w-[1600px] mx-auto w-full"
+                        >
+                          {renderEmails()}
+                        </motion.div>
                       ) : activeDashboardTab === "admin" ? (
                         <motion.div
                           key="admin"
@@ -12400,6 +12938,12 @@ Agradecemos o seu pagamento!`;
                                   {
                                     section: "Digital & Processos",
                                     items: [
+                                      {
+                                        id: "emails",
+                                        label: "E-mails @sinpaba.com.br",
+                                        icon: Mail,
+                                        color: "text-amber-500",
+                                      },
                                       {
                                         id: "juceb",
                                         label: "Integração JUCEB",
@@ -20525,19 +21069,289 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                               </div>
                                             </div>
                                             <button
-                                              onClick={() =>
-                                                handleApproveRequest(req)
-                                              }
-                                              className="bg-blue-900 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-900/10 flex items-center justify-center gap-2 whitespace-nowrap active:scale-95"
+                                              onClick={() => {
+                                                setSelectedRequestForReview(req);
+                                                setShowRejectionInput(false);
+                                                setReviewRejectionReason("");
+                                                setCheckedReviewSteps({
+                                                  cnpjRegular: false,
+                                                  capitalSocialCompat: false,
+                                                  repLegalPoderes: false,
+                                                  isentoRestricoes: false,
+                                                });
+                                              }}
+                                              className="bg-amber-500 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-amber-600 transition-all shadow-xl shadow-amber-500/10 flex items-center justify-center gap-2 whitespace-nowrap active:scale-95 cursor-pointer"
                                             >
-                                              <CheckCircle2 className="w-4 h-4" />{" "}
-                                              Aprovar e Gerar Cobranças
+                                              <Eye className="w-4 h-4" />{" "}
+                                              Análise & Pré-visualizar
                                             </button>
                                           </div>
                                         ))}
                                       </div>
                                     </div>
                                   )}
+
+                                  {/* MODAL DE REVISÃO E HOMOLOGAÇÃO DE FILIAÇÃO */}
+                                  <AnimatePresence>
+                                    {selectedRequestForReview && (
+                                      <div className="fixed inset-0 z-[1500] flex items-center justify-center p-4">
+                                        <motion.div
+                                          initial={{ opacity: 0 }}
+                                          animate={{ opacity: 1 }}
+                                          exit={{ opacity: 0 }}
+                                          onClick={() => {
+                                            if (!isApprovingRequest && !isRejectingRequest) {
+                                              setSelectedRequestForReview(null);
+                                            }
+                                          }}
+                                          className="absolute inset-0 bg-blue-950/80 backdrop-blur-md"
+                                        />
+                                        <motion.div
+                                          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                                          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                          className="relative bg-white w-full max-w-4xl max-h-[90vh] rounded-[40px] shadow-2xl flex flex-col overflow-hidden border border-gray-100 z-10"
+                                        >
+                                          {/* Modal Header */}
+                                          <div className="bg-gradient-to-r from-blue-950 to-blue-900 text-white px-8 py-6 flex items-center justify-between border-b border-white/10 shrink-0">
+                                            <div className="flex items-center gap-3">
+                                              <div className="p-2.5 bg-white/10 rounded-xl">
+                                                <ShieldCheck className="w-5 h-5 text-amber-400" />
+                                              </div>
+                                              <div>
+                                                <span className="text-[9px] font-black tracking-widest text-blue-300 uppercase block">Revisão Administrativa</span>
+                                                <h3 className="text-lg font-black tracking-tight">Homologação de Pré-Filiação</h3>
+                                              </div>
+                                            </div>
+                                            <button
+                                              onClick={() => setSelectedRequestForReview(null)}
+                                              disabled={isApprovingRequest || isRejectingRequest}
+                                              className="p-2 text-white/70 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                                            >
+                                              <X className="w-5 h-5" />
+                                            </button>
+                                          </div>
+
+                                          {/* Scrollable Content */}
+                                          <div className="p-8 overflow-y-auto space-y-6 flex-1 bg-gray-50/50">
+                                            
+                                            {/* Preview Header Banner */}
+                                            <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 border border-amber-200/50 p-6 rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+                                              <div>
+                                                <h4 className="font-black text-blue-950 text-base">{selectedRequestForReview.companyName}</h4>
+                                                <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wider mt-1">CNPJ: {selectedRequestForReview.cnpj}</p>
+                                              </div>
+                                              <div className="bg-amber-500/10 border border-amber-500/20 px-4 py-2 rounded-2xl text-right">
+                                                <span className="text-[8px] font-black text-amber-800 tracking-wider uppercase block">Status da Ficha</span>
+                                                <span className="text-xs font-black text-amber-600 uppercase">PRÉ-CADASTRO PENDENTE</span>
+                                              </div>
+                                            </div>
+
+                                            {/* Splitted Bento Grid: Left - Pre-affiliation document preview, Right - checklist and controls */}
+                                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                                              
+                                              {/* Left Column: Official Document Preview */}
+                                              <div className="lg:col-span-7 bg-white rounded-3xl border border-gray-100 shadow-sm p-6 space-y-6 relative overflow-hidden">
+                                                {/* Simulated watermark */}
+                                                <div className="absolute inset-0 opacity-[0.015] pointer-events-none flex items-center justify-center">
+                                                  <div className="w-96 h-96 border-8 border-blue-900 rounded-full flex items-center justify-center">
+                                                    <span className="text-3xl font-black uppercase text-blue-900">SINPA BA</span>
+                                                  </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+                                                  <div className="flex items-center gap-2">
+                                                    <FileText className="w-5 h-5 text-blue-900" />
+                                                    <span className="text-[10px] font-black text-blue-950 uppercase tracking-wider">Ficha de Pré-Filiação</span>
+                                                  </div>
+                                                  <span className="text-[9px] font-mono font-bold text-gray-400">
+                                                    ID: {selectedRequestForReview.id?.slice(0, 8)}...
+                                                  </span>
+                                                </div>
+
+                                                <div className="space-y-4">
+                                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                    <div>
+                                                      <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block">Razão Social</label>
+                                                      <span className="text-xs font-bold text-gray-800 block mt-1 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">{selectedRequestForReview.companyName}</span>
+                                                    </div>
+                                                    <div>
+                                                      <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block">CNPJ da Empresa</label>
+                                                      <span className="text-xs font-mono font-bold text-blue-950 block mt-1 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">{selectedRequestForReview.cnpj}</span>
+                                                    </div>
+                                                  </div>
+
+                                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                    <div>
+                                                      <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block">Representante Legal</label>
+                                                      <span className="text-xs font-bold text-gray-800 block mt-1 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">{selectedRequestForReview.representative || "Não informado"}</span>
+                                                    </div>
+                                                    <div>
+                                                      <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block">Capital Social Declarado</label>
+                                                      <span className="text-xs font-bold text-gray-800 block mt-1 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                                        R$ {selectedRequestForReview.capitalSocial ? Number(selectedRequestForReview.capitalSocial).toLocaleString("pt-BR", { minimumFractionDigits: 2 }) : "0,00"}
+                                                      </span>
+                                                    </div>
+                                                  </div>
+
+                                                  <div>
+                                                    <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block">Endereço Comercial</label>
+                                                    <span className="text-xs font-bold text-gray-800 block mt-1 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100 whitespace-pre-line leading-relaxed">{selectedRequestForReview.address || "Não informado"}</span>
+                                                  </div>
+
+                                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                                                    <div className="flex items-center gap-2.5 bg-blue-50/50 p-3 rounded-xl border border-blue-100/50">
+                                                      <Send className="w-4 h-4 text-blue-600 shrink-0" />
+                                                      <div className="overflow-hidden">
+                                                        <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest block leading-none">Email de Contato</span>
+                                                        <span className="text-xs font-bold text-blue-950 truncate block mt-0.5">{selectedRequestForReview.email}</span>
+                                                      </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2.5 bg-blue-50/50 p-3 rounded-xl border border-blue-100/50">
+                                                      <Phone className="w-4 h-4 text-blue-600 shrink-0" />
+                                                      <div className="overflow-hidden">
+                                                        <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest block leading-none">Telefone Comercial</span>
+                                                        <span className="text-xs font-bold text-blue-950 truncate block mt-0.5">{selectedRequestForReview.phone}</span>
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                  
+                                                  {selectedRequestForReview.createdAt && (
+                                                    <div className="pt-2 text-right">
+                                                      <span className="text-[9px] font-semibold text-gray-400">
+                                                        Ficha enviada em: {selectedRequestForReview.createdAt.toDate ? selectedRequestForReview.createdAt.toDate().toLocaleString("pt-BR") : new Date(selectedRequestForReview.createdAt).toLocaleString("pt-BR")}
+                                                      </span>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+
+                                              {/* Right Column: Checklist & Homologation Decision */}
+                                              <div className="lg:col-span-5 flex flex-col justify-between gap-6">
+                                                
+                                                {/* Validation Checklist Card */}
+                                                <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 space-y-4">
+                                                  <div className="flex items-center gap-2 pb-3 border-b border-gray-100">
+                                                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                                                    <h5 className="text-xs font-black text-blue-950 uppercase tracking-wider">Homologação de Ficha</h5>
+                                                  </div>
+                                                  
+                                                  <p className="text-[11px] text-gray-400 font-bold leading-relaxed">
+                                                    Marque as validações obrigatórias para homologar este registro definitivamente no sistema:
+                                                  </p>
+
+                                                  <div className="space-y-3 pt-1">
+                                                    {[
+                                                      { id: "cnpjRegular", label: "Situação cadastral do CNPJ ativa na Receita Federal" },
+                                                      { id: "capitalSocialCompat", label: "Capital social confere com a base pública" },
+                                                      { id: "repLegalPoderes", label: "Identificação do sócio/representante válida" },
+                                                      { id: "isentoRestricoes", label: "Empresa isenta de restrições ou pendências" }
+                                                    ].map((step) => (
+                                                      <label
+                                                        key={step.id}
+                                                        className="flex items-start gap-3 p-3 rounded-2xl bg-gray-50 border border-gray-100 hover:bg-blue-50/20 hover:border-blue-100/50 transition-all cursor-pointer group"
+                                                      >
+                                                        <input
+                                                          type="checkbox"
+                                                          checked={(checkedReviewSteps as any)[step.id]}
+                                                          onChange={(e) => setCheckedReviewSteps(prev => ({ ...prev, [step.id]: e.target.checked }))}
+                                                          className="mt-0.5 rounded border-gray-300 text-blue-900 focus:ring-blue-900/10 cursor-pointer"
+                                                        />
+                                                        <span className="text-[11px] font-bold text-gray-600 group-hover:text-blue-950 transition-colors leading-tight">
+                                                          {step.label}
+                                                        </span>
+                                                      </label>
+                                                    ))}
+                                                  </div>
+                                                </div>
+
+                                                {/* Rejection input when needed */}
+                                                {showRejectionInput && (
+                                                  <motion.div
+                                                    initial={{ opacity: 0, height: 0 }}
+                                                    animate={{ opacity: 1, height: "auto" }}
+                                                    className="bg-rose-50/50 border border-rose-100 p-5 rounded-3xl space-y-3"
+                                                  >
+                                                    <label className="text-[9px] font-black text-rose-800 uppercase tracking-widest block">Motivo do Indeferimento</label>
+                                                    <textarea
+                                                      value={reviewRejectionReason}
+                                                      onChange={(e) => setReviewRejectionReason(e.target.value)}
+                                                      placeholder="Informe detalhadamente o motivo da recusa do cadastro..."
+                                                      className="w-full h-24 px-3 py-2 bg-white border border-rose-200 rounded-xl focus:border-rose-500 focus:outline-none text-xs leading-relaxed font-bold text-rose-950"
+                                                    />
+                                                    <div className="flex gap-2">
+                                                      <button
+                                                        onClick={() => handleRejectRequest(selectedRequestForReview, reviewRejectionReason)}
+                                                        disabled={isRejectingRequest || !reviewRejectionReason.trim()}
+                                                        className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 cursor-pointer"
+                                                      >
+                                                        {isRejectingRequest ? "Recusando..." : "Confirmar Recusa"}
+                                                      </button>
+                                                      <button
+                                                        onClick={() => {
+                                                          setShowRejectionInput(false);
+                                                          setReviewRejectionReason("");
+                                                        }}
+                                                        className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                                                      >
+                                                        Voltar
+                                                      </button>
+                                                    </div>
+                                                  </motion.div>
+                                                )}
+
+                                              </div>
+
+                                            </div>
+
+                                          </div>
+
+                                          {/* Modal Footer Actions */}
+                                          <div className="bg-white border-t border-gray-100 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
+                                            <div className="text-[10px] text-gray-400 font-bold">
+                                              Ao homologar, o sistema criará o registro definitivo do associado e gerará os boletos bancários na competência atual.
+                                            </div>
+                                            <div className="flex items-center gap-3 w-full sm:w-auto">
+                                              {!showRejectionInput && (
+                                                <button
+                                                  onClick={() => setShowRejectionInput(true)}
+                                                  disabled={isApprovingRequest || isRejectingRequest}
+                                                  className="w-full sm:w-auto px-5 py-3.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 cursor-pointer disabled:opacity-50 text-center"
+                                                >
+                                                  Indeferir Cadastro
+                                                </button>
+                                              )}
+                                              <button
+                                                onClick={() => handleApproveRequest(selectedRequestForReview)}
+                                                disabled={
+                                                  isApprovingRequest || 
+                                                  isRejectingRequest || 
+                                                  !Object.values(checkedReviewSteps).every(Boolean)
+                                                }
+                                                className={`w-full sm:w-auto px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                                                  Object.values(checkedReviewSteps).every(Boolean)
+                                                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/15 cursor-pointer"
+                                                    : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                                }`}
+                                              >
+                                                {isApprovingRequest ? (
+                                                  <>
+                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                    Homologando...
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <CheckCircle2 className="w-4 h-4" />
+                                                    Homologar & Ativar Associado
+                                                  </>
+                                                )}
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </motion.div>
+                                      </div>
+                                    )}
+                                  </AnimatePresence>
                                   <div className="bg-white border border-gray-100 rounded-[40px] p-10 shadow-xl overflow-hidden relative">
                                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
                                       <div>
@@ -20708,6 +21522,423 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                           ))}
                                         </tbody>
                                       </table>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
+
+                              {adminSubTab === "emails" && (
+                                <motion.div
+                                  key="emails"
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                                  className="max-w-[1600px] mx-auto w-full space-y-8"
+                                >
+                                  {/* Header Section */}
+                                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white border border-gray-100 rounded-[32px] p-8 shadow-sm animate-fadeIn">
+                                    <div className="flex items-start gap-4">
+                                      <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shrink-0 shadow-inner">
+                                        <Mail className="w-7 h-7" />
+                                      </div>
+                                      <div>
+                                        <h3 className="text-xl font-black text-blue-955 flex items-center gap-2">
+                                          Contas de E-mail @sinpaba.com.br
+                                        </h3>
+                                        <p className="text-xs text-gray-500 mt-1 max-w-2xl leading-relaxed font-semibold">
+                                          Crie, gerencie e encaminhe endereços de e-mail institucionais e profissionais do SINPABA.
+                                          O sistema utiliza o <strong className="text-blue-950 font-bold">Cloudflare Email Routing</strong> de forma 100% gratuita para encaminhar mensagens recebidas para suas contas reais (como Gmail ou Outlook).
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-4 bg-emerald-50 border border-emerald-100 px-6 py-4 rounded-2xl self-start md:self-auto shrink-0 shadow-sm">
+                                      <div>
+                                        <p className="text-[10px] font-black text-emerald-800 uppercase tracking-wider">
+                                          Status do Servidor
+                                        </p>
+                                        <p className="text-xs font-black text-emerald-600 flex items-center gap-1.5 mt-0.5">
+                                          <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping"></span>
+                                          Configurado & Ativo
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid lg:grid-cols-12 gap-8">
+                                    {/* Left Main Content - Tab Switcher and Forms */}
+                                    <div className="lg:col-span-8 space-y-8">
+                                      {/* Tabs */}
+                                      <div className="bg-white border border-gray-100 rounded-[32px] p-8 shadow-sm space-y-6">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+                                          <div className="flex items-center gap-4">
+                                            <button
+                                              className="text-sm font-black text-blue-955 border-b-2 border-amber-500 pb-2 px-1 transition-all"
+                                            >
+                                              Regras de Encaminhamento ({cfRules.length})
+                                            </button>
+                                          </div>
+                                          <button
+                                            onClick={() => {
+                                              setNewCfRule({
+                                                name: "",
+                                                sourcePrefix: "",
+                                                destinationEmail: cfDestinations[0]?.email || "",
+                                              });
+                                              setIsAddingCfRule(true);
+                                            }}
+                                            className="bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center gap-2 transition-all self-start sm:self-auto cursor-pointer shadow-md"
+                                          >
+                                            <Plus className="w-4 h-4" />
+                                            Criar Novo E-mail
+                                          </button>
+                                        </div>
+
+                                        {/* New Rule Creation Form */}
+                                        {isAddingCfRule && (
+                                          <div className="bg-gray-50 border border-gray-100 rounded-2xl p-6 space-y-4 animate-fadeIn">
+                                            <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                                              <p className="text-xs font-black text-blue-955 uppercase tracking-wider">Configurar Endereço de E-mail</p>
+                                              <button
+                                                onClick={() => setIsAddingCfRule(false)}
+                                                className="text-gray-400 hover:text-gray-600 font-black text-sm"
+                                              >
+                                                ✕
+                                              </button>
+                                            </div>
+                                            <div className="grid sm:grid-cols-2 gap-4">
+                                              <div>
+                                                <label className="text-[9px] font-black text-gray-400 uppercase block mb-1">Setor ou Responsável (Nome)</label>
+                                                <input
+                                                  type="text"
+                                                  placeholder="Ex: Secretaria Geral, Presidência..."
+                                                  value={newCfRule.name}
+                                                  onChange={(e) => setNewCfRule({ ...newCfRule, name: e.target.value })}
+                                                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-bold text-blue-955 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                                />
+                                              </div>
+                                              <div>
+                                                <label className="text-[9px] font-black text-gray-400 uppercase block mb-1">Endereço de Origem (Prefixo)</label>
+                                                <div className="relative">
+                                                  <input
+                                                    type="text"
+                                                    placeholder="Ex: contato"
+                                                    value={newCfRule.sourcePrefix}
+                                                    onChange={(e) => setNewCfRule({ ...newCfRule, sourcePrefix: e.target.value.toLowerCase().trim() })}
+                                                    className="w-full bg-white border border-gray-200 rounded-xl pl-4 pr-[130px] py-2.5 text-xs font-bold text-blue-955 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                                  />
+                                                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-bold select-none">
+                                                    @sinpaba.com.br
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                            <div>
+                                              <label className="text-[9px] font-black text-gray-400 uppercase block mb-1">Encaminhar Mensagens para (Email Real)</label>
+                                              <div className="flex gap-2">
+                                                <select
+                                                  value={newCfRule.destinationEmail}
+                                                  onChange={(e) => setNewCfRule({ ...newCfRule, destinationEmail: e.target.value })}
+                                                  className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-bold text-blue-955 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                                >
+                                                  <option value="">Selecione um email de destino verificado...</option>
+                                                  {cfDestinations.filter(d => d.verified).map(d => (
+                                                    <option key={d.id} value={d.email}>{d.email}</option>
+                                                  ))}
+                                                </select>
+                                                <button
+                                                  onClick={() => {
+                                                    const dest = prompt("Insira o novo endereço de e-mail de destino para verificação:");
+                                                    if (dest && dest.includes("@")) {
+                                                      const updated = [
+                                                        ...cfDestinations,
+                                                        { id: `cf-dest-${Date.now()}`, email: dest.toLowerCase().trim(), verified: true, createdAt: new Date().toISOString() }
+                                                      ];
+                                                      setCfDestinations(updated);
+                                                      handleSaveCfConfig(cfConfig, cfRules, updated);
+                                                      setNewCfRule(prev => ({ ...prev, destinationEmail: dest }));
+                                                      showNotification("success", `E-mail ${dest} adicionado e verificado automaticamente.`);
+                                                    } else if (dest) {
+                                                      showNotification("error", "Endereço de e-mail inválido.");
+                                                    }
+                                                  }}
+                                                  className="bg-gray-150 hover:bg-gray-200 text-blue-950 font-bold text-xs px-4 rounded-xl border border-gray-200 transition-all cursor-pointer whitespace-nowrap"
+                                                >
+                                                  + Novo Destino
+                                                </button>
+                                              </div>
+                                            </div>
+                                            <div className="flex gap-2 justify-end pt-2 border-t border-gray-100">
+                                              <button
+                                                onClick={() => setIsAddingCfRule(false)}
+                                                className="bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-bold text-xs py-2 px-4 rounded-xl cursor-pointer"
+                                              >
+                                                Cancelar
+                                              </button>
+                                              <button
+                                                onClick={() => {
+                                                  if (!newCfRule.name || !newCfRule.sourcePrefix || !newCfRule.destinationEmail) {
+                                                    showNotification("error", "Preencha todos os campos da regra!");
+                                                    return;
+                                                  }
+                                                  const sourceEmail = `${newCfRule.sourcePrefix}@sinpaba.com.br`;
+                                                  if (cfRules.some(r => r.source === sourceEmail)) {
+                                                    showNotification("error", "Já existe uma regra cadastrada para este e-mail de origem!");
+                                                    return;
+                                                  }
+                                                  const newRuleObj = {
+                                                    id: `rule_${Date.now()}`,
+                                                    name: newCfRule.name,
+                                                    source: sourceEmail,
+                                                    destination: newCfRule.destinationEmail,
+                                                    enabled: true,
+                                                    totalForwarded: 0,
+                                                  };
+                                                  const updatedRules = [...cfRules, newRuleObj];
+                                                  setCfRules(updatedRules);
+                                                  setIsAddingCfRule(false);
+                                                  setNewCfRule({ name: "", sourcePrefix: "", destinationEmail: "" });
+                                                  handleSaveCfConfig(cfConfig, updatedRules, cfDestinations);
+                                                  showNotification("success", `O e-mail profissional ${sourceEmail} foi criado e ativado com sucesso!`);
+                                                }}
+                                                className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs py-2 px-4 rounded-xl shadow-md cursor-pointer"
+                                              >
+                                                Ativar E-mail
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Rules List Table */}
+                                        <div className="overflow-x-auto">
+                                          <table className="w-full text-left">
+                                            <thead>
+                                              <tr className="border-b border-gray-100 text-[10px] font-black text-gray-400 uppercase tracking-wider pb-3">
+                                                <th className="pb-3">Setor/Identificador</th>
+                                                <th className="pb-3">E-mail Profissional</th>
+                                                <th className="pb-3">Redireciona para</th>
+                                                <th className="pb-3 text-center">Contador</th>
+                                                <th className="pb-3 text-right">Ações</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100 text-xs">
+                                              {cfRules.length === 0 ? (
+                                                <tr>
+                                                  <td colSpan={5} className="py-8 text-center text-gray-400 font-semibold">
+                                                    Nenhum e-mail configurado. Crie seu primeiro acima ou use um dos exemplos recomendados!
+                                                  </td>
+                                                </tr>
+                                              ) : (
+                                                cfRules.map((rule) => (
+                                                  <tr key={rule.id} className="group hover:bg-gray-50/50 transition-colors">
+                                                    <td className="py-4">
+                                                      <div className="font-bold text-blue-955">{rule.name}</div>
+                                                    </td>
+                                                    <td className="py-4 font-mono font-bold text-blue-900">
+                                                      <span className="bg-amber-50 text-amber-800 px-2.5 py-1 rounded-lg border border-amber-100/30">
+                                                        {rule.source}
+                                                      </span>
+                                                    </td>
+                                                    <td className="py-4 text-gray-500 font-semibold">
+                                                      {rule.destination}
+                                                    </td>
+                                                    <td className="py-4 text-center">
+                                                      <span className="font-mono font-black bg-gray-100 border border-gray-200 text-gray-700 px-2.5 py-1 rounded-xl">
+                                                        {rule.totalForwarded} msgs
+                                                      </span>
+                                                    </td>
+                                                    <td className="py-4 text-right">
+                                                      <div className="flex items-center justify-end gap-3">
+                                                        <button
+                                                          onClick={() => {
+                                                            const updatedRules = cfRules.map(r => r.id === rule.id ? { ...r, enabled: !r.enabled } : r);
+                                                            setCfRules(updatedRules);
+                                                            handleSaveCfConfig(cfConfig, updatedRules, cfDestinations);
+                                                            showNotification("success", `E-mail ${rule.source} ${!rule.enabled ? "ativado" : "desativado"}.`);
+                                                          }}
+                                                          className={`w-9 h-5 rounded-full relative transition-colors cursor-pointer ${rule.enabled ? "bg-amber-500" : "bg-gray-200"}`}
+                                                        >
+                                                          <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${rule.enabled ? "right-0.5" : "left-0.5"}`}></div>
+                                                        </button>
+                                                        <button
+                                                          onClick={() => {
+                                                            if (confirm(`Deseja realmente excluir o e-mail ${rule.source}?`)) {
+                                                              const updatedRules = cfRules.filter(r => r.id !== rule.id);
+                                                              setCfRules(updatedRules);
+                                                              handleSaveCfConfig(cfConfig, updatedRules, cfDestinations);
+                                                              showNotification("success", `E-mail ${rule.source} excluído.`);
+                                                            }
+                                                          }}
+                                                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
+                                                          title="Excluir regra"
+                                                        >
+                                                          <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                      </div>
+                                                    </td>
+                                                  </tr>
+                                                ))
+                                              )}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </div>
+
+                                      {/* Forwarding destinations card */}
+                                      <div className="bg-white border border-gray-100 rounded-[32px] p-8 shadow-sm space-y-6">
+                                        <div>
+                                          <h4 className="font-bold text-blue-955 text-sm flex items-center gap-2">
+                                            E-mails Reais de Destino (Encaminhamento)
+                                          </h4>
+                                          <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black mt-1">
+                                            Contas reais autorizadas a receber as mensagens redirecionadas
+                                          </p>
+                                        </div>
+
+                                        <div className="grid sm:grid-cols-2 gap-4">
+                                          {cfDestinations.map((dest) => (
+                                            <div key={dest.id} className="bg-gray-50 border border-gray-100 rounded-2xl p-4 flex items-center justify-between">
+                                              <div className="flex items-center gap-2.5">
+                                                <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0">
+                                                  <Mail className="w-4 h-4" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                  <p className="text-xs font-bold text-blue-950 truncate">{dest.email}</p>
+                                                  <p className="text-[9px] text-gray-400 mt-0.5">Cadastrado em {new Date(dest.createdAt).toLocaleDateString("pt-BR")}</p>
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${dest.verified ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                                                  {dest.verified ? "Verificado" : "Pendente"}
+                                                </span>
+                                                <button
+                                                  onClick={() => {
+                                                    if (confirm(`Remover destino ${dest.email}?`)) {
+                                                      const updated = cfDestinations.filter(d => d.id !== dest.id);
+                                                      setCfDestinations(updated);
+                                                      handleSaveCfConfig(cfConfig, cfRules, updated);
+                                                      showNotification("success", `Destino ${dest.email} removido.`);
+                                                    }
+                                                  }}
+                                                  className="p-1 text-gray-400 hover:text-red-500 rounded-lg transition-all cursor-pointer"
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Right Content - Recommended Examples & Setup */}
+                                    <div className="lg:col-span-4 space-y-8">
+                                      {/* Examples Section */}
+                                      <div className="bg-gradient-to-br from-amber-500/5 via-orange-500/5 to-transparent border border-orange-200/30 rounded-[32px] p-8 space-y-6 shadow-sm">
+                                        <div className="flex items-center gap-3">
+                                          <div className="w-10 h-10 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center shadow-inner shrink-0">
+                                            <Zap className="w-5 h-5" />
+                                          </div>
+                                          <div>
+                                            <h4 className="font-bold text-blue-955 text-sm">
+                                              Sugestões & Exemplos
+                                            </h4>
+                                            <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black">
+                                              E-mails Comuns do Sindicato
+                                            </p>
+                                          </div>
+                                        </div>
+
+                                        <p className="text-xs text-gray-500 leading-relaxed font-semibold">
+                                          Clique em um exemplo abaixo para configurar o e-mail de forma automática para o domínio <strong className="text-blue-950">sinpaba.com.br</strong>:
+                                        </p>
+
+                                        <div className="space-y-3.5">
+                                          {[
+                                            { name: "Presidência Geral", prefix: "presidencia", desc: "Para assuntos oficiais da diretoria executiva." },
+                                            { name: "Atendimento Geral", prefix: "contato", desc: "E-mail principal para dúvidas e contato público." },
+                                            { name: "Secretaria Geral", prefix: "secretaria", desc: "Para envio de atas, cadastros e termos." },
+                                            { name: "Suporte Financeiro", prefix: "financeiro", desc: "Cobranças, mensalidades e convênios." },
+                                            { name: "Plantão Jurídico", prefix: "juridico", desc: "Atendimento de processos e dúvidas jurídicas." },
+                                            { name: "Imprensa & Comunicação", prefix: "comunicacao", desc: "Para assessoria de imprensa e notícias." }
+                                          ].map((item, idx) => (
+                                            <div
+                                              key={idx}
+                                              className="bg-white/80 backdrop-blur-sm border border-gray-100 rounded-2xl p-4 hover:border-amber-300 transition-all group flex flex-col justify-between gap-3 shadow-sm"
+                                            >
+                                              <div>
+                                                <div className="flex items-center justify-between">
+                                                  <p className="text-xs font-black text-blue-955 group-hover:text-amber-600 transition-colors">{item.name}</p>
+                                                  <code className="text-[10px] bg-amber-50 font-mono font-bold text-amber-700 px-1.5 py-0.5 rounded">
+                                                    {item.prefix}@
+                                                  </code>
+                                                </div>
+                                                <p className="text-[10px] text-gray-400 mt-1">{item.desc}</p>
+                                              </div>
+                                              <button
+                                                onClick={() => {
+                                                  setNewCfRule({
+                                                    name: item.name,
+                                                    sourcePrefix: item.prefix,
+                                                    destinationEmail: cfDestinations[0]?.email || "",
+                                                  });
+                                                  setIsAddingCfRule(true);
+                                                  showNotification("info", `Preenchendo formulário com o exemplo "${item.name}"`);
+                                                  window.scrollTo({ top: 300, behavior: "smooth" });
+                                                }}
+                                                className="w-full bg-blue-950/5 hover:bg-amber-500 hover:text-white text-blue-955 py-2 rounded-xl text-[10px] font-black tracking-wider uppercase transition-all cursor-pointer text-center"
+                                              >
+                                                Usar Exemplo
+                                              </button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+
+                                      {/* DNS Setup Guidelines Summary */}
+                                      <div className="bg-white border border-gray-100 rounded-[32px] p-8 shadow-sm space-y-6">
+                                        <div className="flex items-center gap-3">
+                                          <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0">
+                                            <Globe className="w-5 h-5" />
+                                          </div>
+                                          <div>
+                                            <h4 className="font-bold text-blue-955 text-sm">
+                                              Instalação DNS
+                                            </h4>
+                                            <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black">
+                                              Requisitos no Cloudflare
+                                            </p>
+                                          </div>
+                                        </div>
+
+                                        <div className="space-y-4 text-xs text-gray-500 leading-relaxed">
+                                          <p>
+                                            Para que o recebimento de e-mails funcione perfeitamente, certifique-se de configurar os seguintes registros DNS na sua zona do domínio <code className="bg-gray-50 px-1 rounded font-mono font-bold">sinpaba.com.br</code>:
+                                          </p>
+
+                                          <div className="bg-gray-50 p-4 rounded-2xl space-y-3 font-mono text-[10px]">
+                                            <div>
+                                              <p className="font-sans font-bold text-blue-955 text-[11px] mb-1">1. Registro MX (Roteamento)</p>
+                                              <p className="text-gray-400">Prioridade 10:</p>
+                                              <p className="text-blue-900 font-bold">route1.mx.cloudflare.net</p>
+                                              <p className="text-gray-400 mt-1">Prioridade 50:</p>
+                                              <p className="text-blue-900 font-bold">route2.mx.cloudflare.net</p>
+                                            </div>
+                                            <div className="border-t border-gray-200/50 pt-2">
+                                              <p className="font-sans font-bold text-blue-955 text-[11px] mb-1">2. Registro TXT (Segurança SPF)</p>
+                                              <p className="text-gray-400">Valor TXT:</p>
+                                              <p className="text-blue-900 font-bold break-all">v=spf1 include:_spf.mx.cloudflare.net ~all</p>
+                                            </div>
+                                          </div>
+
+                                          <div className="bg-amber-50 border border-amber-100 text-amber-800 p-4 rounded-2xl flex items-start gap-2.5">
+                                            <span className="text-base">ℹ️</span>
+                                            <p className="text-[10px] font-medium leading-relaxed">
+                                              Dúvidas de configuração? Acesse as configurações de sistema ou fale com o administrador de TI do SINPABA.
+                                            </p>
+                                          </div>
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
                                 </motion.div>
@@ -22856,6 +24087,7 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                         <BenefitCard
                           key={benefit.id}
                           benefit={benefit}
+                          showExpiration={isAdmin || hasManagementPower}
                         />
                       ))}
                     </div>
