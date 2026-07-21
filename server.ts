@@ -1158,45 +1158,92 @@ async function startServer() {
         return res.status(400).json({ error: "A senha deve ter no mínimo 6 caracteres." });
       }
 
-      const userDocRef = doc(db, "users", id);
-      const userSnap = await getDoc(userDocRef);
+      let userDocRef = doc(db, "users", id);
+      let userSnap = await getDoc(userDocRef);
+      let actualDocId = id;
+
+      if (!userSnap.exists()) {
+        // Fallback 1: Query by uid field
+        const qUid = query(collection(db, "users"), where("uid", "==", id));
+        const uidSnap = await getDocs(qUid);
+        if (!uidSnap.empty) {
+          actualDocId = uidSnap.docs[0].id;
+          userDocRef = doc(db, "users", actualDocId);
+          userSnap = uidSnap.docs[0];
+        } else {
+          // Fallback 2: Query by email field
+          const qEmail = query(collection(db, "users"), where("email", "==", id.toLowerCase()));
+          const emailSnap = await getDocs(qEmail);
+          if (!emailSnap.empty) {
+            actualDocId = emailSnap.docs[0].id;
+            userDocRef = doc(db, "users", actualDocId);
+            userSnap = emailSnap.docs[0];
+          }
+        }
+      }
+
       if (!userSnap.exists()) {
         return res.status(404).json({ error: "Usuário não localizado no sistema." });
       }
 
       const userData = userSnap.data() || {};
-      let uid = userData.uid;
+      let targetUid = userData.uid || (actualDocId.length > 20 ? actualDocId : null);
+      let authUpdated = false;
 
-      if (uid) {
+      // 1. Try updating Auth by UID if available
+      if (targetUid) {
         try {
-          await admin.auth().updateUser(uid, { password });
+          await admin.auth().updateUser(targetUid, { password });
+          authUpdated = true;
         } catch (aErr) {
-          console.warn("Auth update password warning:", aErr);
-        }
-      } else {
-        // Create a real Auth account for them with this password
-        try {
-          const authUser = await admin.auth().createUser({
-            email: userData.email,
-            password: password,
-            displayName: userData.displayName,
-          });
-          uid = authUser.uid;
-          const newUserDoc = {
-            ...userData,
-            uid: uid,
-            updatedAt: new Date().toISOString(),
-          };
-          await setDoc(doc(db, "users", uid), newUserDoc);
-          if (id !== uid) {
-            await deleteDoc(userDocRef);
-          }
-        } catch (aErr) {
-          console.warn("Auth createUser password warning:", aErr);
+          console.warn("Auth update password by UID warning:", aErr);
         }
       }
 
-      return res.json({ success: true, message: "Senha alterada com sucesso!" });
+      // 2. If not updated by UID, try updating or finding Auth by Email
+      if (!authUpdated && userData.email) {
+        try {
+          const authUserByEmail = await admin.auth().getUserByEmail(userData.email);
+          if (authUserByEmail) {
+            await admin.auth().updateUser(authUserByEmail.uid, { password });
+            targetUid = authUserByEmail.uid;
+            authUpdated = true;
+          }
+        } catch (eErr) {
+          console.warn("Auth getUserByEmail warning:", eErr);
+        }
+      }
+
+      // 3. If still not updated, create a new Auth account for this email
+      if (!authUpdated && userData.email) {
+        try {
+          const newAuthUser = await admin.auth().createUser({
+            email: userData.email,
+            password: password,
+            displayName: userData.displayName || userData.name || "Usuário",
+          });
+          targetUid = newAuthUser.uid;
+          authUpdated = true;
+        } catch (cErr: any) {
+          console.warn("Auth createUser warning:", cErr);
+        }
+      }
+
+      // Update Firestore user document with uid and timestamp
+      const updatedUserFields: any = {
+        updatedAt: new Date().toISOString(),
+      };
+      if (targetUid) {
+        updatedUserFields.uid = targetUid;
+      }
+
+      await setDoc(userDocRef, updatedUserFields, { merge: true });
+
+      return res.json({
+        success: true,
+        message: "Senha alterada com sucesso!",
+        uid: targetUid,
+      });
     } catch (error: any) {
       console.error("Error changing password:", error);
       return res.status(500).json({ error: error.message || "Failed to change password" });

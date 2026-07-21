@@ -7109,10 +7109,12 @@ Agradecemos o seu pagamento!`;
   const [editUserCnpj, setEditUserCnpj] = useState("");
   const [editUserPhone, setEditUserPhone] = useState("");
   const [editUserCompanyName, setEditUserCompanyName] = useState("");
+  const [isSavingUserEdit, setIsSavingUserEdit] = useState(false);
 
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [selectedUserToChangePassword, setSelectedUserToChangePassword] = useState<any>(null);
   const [newPasswordForUser, setNewPasswordForUser] = useState("");
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [approvedUserEmail, setApprovedUserEmail] = useState<{
     email: string;
     displayName: string;
@@ -7279,7 +7281,11 @@ Agradecemos o seu pagamento!`;
     queryFn: async () => {
       const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
       const snap = await getDocs(q);
-      return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      return snap.docs.map((doc) => ({
+        ...doc.data(),
+        id: doc.id,
+        uid: (doc.data() as any)?.uid || doc.id,
+      }));
     },
     enabled:
       !!currentUser &&
@@ -7430,26 +7436,62 @@ Agradecemos o seu pagamento!`;
     e.preventDefault();
     if (!selectedUserToEdit) return;
 
+    const targetUserId = selectedUserToEdit.id || selectedUserToEdit.uid;
+    if (!targetUserId) {
+      showNotification("error", "Não foi possível localizar o ID do usuário para atualização.");
+      return;
+    }
+
+    if (!editUserDisplayName.trim()) {
+      showNotification("error", "O Nome Completo do usuário é obrigatório.");
+      return;
+    }
+
+    if (!editUserEmail.trim()) {
+      showNotification("error", "O Endereço de E-mail do usuário é obrigatório.");
+      return;
+    }
+
+    setIsSavingUserEdit(true);
+
     try {
       const updatePayload: any = {
         email: editUserEmail.trim().toLowerCase(),
         displayName: editUserDisplayName.trim(),
         role: editUserRole,
         approved: editUserApproved,
-        cnpj: editUserCnpj || "",
-        phone: editUserPhone || "",
-        companyName: editUserCompanyName || "",
+        cnpj: editUserCnpj ? editUserCnpj.trim() : "",
+        phone: editUserPhone ? editUserPhone.trim() : "",
+        companyName: editUserCompanyName ? editUserCompanyName.trim() : "",
         updatedAt: new Date().toISOString(),
       };
 
       // Direct client-side update to Firestore first
-      await setDoc(doc(db, "users", selectedUserToEdit.id), updatePayload, { merge: true });
+      await setDoc(doc(db, "users", targetUserId), updatePayload, { merge: true });
+
+      // Update associated member record if present
+      try {
+        if (updatePayload.cnpj) {
+          const qMember = query(collection(db, "members"), where("cnpj", "==", updatePayload.cnpj));
+          const snapMember = await getDocs(qMember);
+          for (const memberDoc of snapMember.docs) {
+            await setDoc(doc(db, "members", memberDoc.id), {
+              name: updatePayload.displayName,
+              email: updatePayload.email,
+              phone: updatePayload.phone,
+              cnpj: updatePayload.cnpj,
+            }, { merge: true });
+          }
+        }
+      } catch (mErr) {
+        console.warn("Aviso ao atualizar associado correspondente:", mErr);
+      }
 
       // Sincronizar via API Backend se possível (para atualizar Firebase Auth se necessário)
       try {
         const idToken = await currentUser?.getIdToken();
         if (idToken) {
-          await fetch(`/api/admin/users/${selectedUserToEdit.id}`, {
+          await fetch(`/api/admin/users/${targetUserId}`, {
             method: "PUT",
             headers: {
               "Content-Type": "application/json",
@@ -7465,48 +7507,62 @@ Agradecemos o seu pagamento!`;
       showNotification("success", "Usuário atualizado com sucesso!");
       setIsEditUserModalOpen(false);
       refetchRegisteredUsers();
-      if (selectedUserToEdit.id === currentUser?.uid) {
+      if (targetUserId === currentUser?.uid) {
         refetchUserProfile();
       }
     } catch (err: any) {
       console.error("Erro ao atualizar usuário:", err);
       showNotification("error", err.message || "Erro ao atualizar usuário.");
+    } finally {
+      setIsSavingUserEdit(false);
     }
   };
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserToChangePassword) return;
+
+    const targetUserId = selectedUserToChangePassword.id || selectedUserToChangePassword.uid;
+    if (!targetUserId) {
+      showNotification("error", "Usuário não identificado para alterar a senha.");
+      return;
+    }
+
     if (!newPasswordForUser || newPasswordForUser.trim().length < 6) {
       showNotification("error", "A senha deve conter pelo menos 6 caracteres.");
       return;
     }
 
+    setIsChangingPassword(true);
+
     try {
       const idToken = await currentUser?.getIdToken();
-      const response = await fetch(`/api/admin/users/${selectedUserToChangePassword.id}/password`, {
+      const response = await fetch(`/api/admin/users/${targetUserId}/password`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          password: newPasswordForUser,
+          password: newPasswordForUser.trim(),
         }),
       });
 
+      const resData = await response.json();
+
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Erro ao alterar senha");
+        throw new Error(resData.error || "Erro ao alterar senha");
       }
 
-      showNotification("success", "Senha alterada com sucesso!");
+      showNotification("success", resData.message || "Senha alterada com sucesso!");
       setIsChangePasswordModalOpen(false);
       setNewPasswordForUser("");
       refetchRegisteredUsers();
     } catch (err: any) {
       console.error("Erro ao alterar senha:", err);
       showNotification("error", err.message || "Erro ao alterar senha.");
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -8127,7 +8183,7 @@ Agradecemos o seu pagamento!`;
                               onClick={() => {
                                 setSelectedUserToEdit(user);
                                 setEditUserEmail(user.email || "");
-                                setEditUserDisplayName(user.displayName || "");
+                                setEditUserDisplayName(user.displayName || user.name || "");
                                 setEditUserRole(user.role || "associado");
                                 setEditUserApproved(!!user.approved);
                                 setEditUserCnpj(user.cnpj || "");
@@ -27336,9 +27392,18 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer"
+                      disabled={isSavingUserEdit}
+                      onClick={handleUpdateUser}
+                      className="flex-1 bg-blue-900 hover:bg-amber-400 hover:text-blue-950 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                     >
-                      Salvar Alterações
+                      {isSavingUserEdit ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Salvando...
+                        </>
+                      ) : (
+                        "Salvar Alterações"
+                      )}
                     </button>
                   </div>
                 </form>
@@ -27409,9 +27474,18 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 bg-amber-400 hover:bg-blue-900 text-blue-950 hover:text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer"
+                      disabled={isChangingPassword}
+                      onClick={handleChangePassword}
+                      className="flex-1 bg-amber-400 hover:bg-blue-900 text-blue-950 hover:text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all shadow-md cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                     >
-                      Alterar Senha
+                      {isChangingPassword ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Alterando...
+                        </>
+                      ) : (
+                        "Alterar Senha"
+                      )}
                     </button>
                   </div>
                 </form>
