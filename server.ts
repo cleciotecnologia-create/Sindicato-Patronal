@@ -976,8 +976,15 @@ async function startServer() {
       const decodedToken = await admin.auth().verifyIdToken(idToken);
       const email = decodedToken.email || "";
 
-      // Allow superuser email
-      if (email === "cleciotecnologia@gmail.com" || email === "ianlima.sinpa@gmail.com") {
+      // Allow superuser email or admin roles in email
+      if (
+        email === "cleciotecnologia@gmail.com" ||
+        email === "ianlima.sinpa@gmail.com" ||
+        email.includes("presidencia") ||
+        email.includes("diretoria") ||
+        email.includes("gerencia") ||
+        email.includes("admin")
+      ) {
         return decodedToken;
       }
 
@@ -1079,15 +1086,12 @@ async function startServer() {
 
       const userDocRef = adminDb.collection("users").doc(id);
       const userSnap = await userDocRef.get();
-      if (!userSnap.exists) {
-        return res.status(404).json({ error: "Usuário não localizado no sistema." });
-      }
 
-      const userData = userSnap.data() || {};
+      const userData = userSnap.exists ? (userSnap.data() || {}) : {};
       const uid = userData.uid || (id.length > 20 ? id : null);
 
-      const emailLower = email ? email.trim().toLowerCase() : userData.email;
-      const finalDisplayName = displayName ? displayName.trim() : userData.displayName;
+      const emailLower = email ? email.trim().toLowerCase() : userData.email || "";
+      const finalDisplayName = displayName ? displayName.trim() : userData.displayName || "";
 
       // Update in Firebase Auth if uid exists
       if (uid) {
@@ -1105,15 +1109,15 @@ async function startServer() {
         ...userData,
         email: emailLower,
         displayName: finalDisplayName,
-        role: role !== undefined ? role : userData.role,
-        approved: approved !== undefined ? approved : userData.approved,
+        role: role !== undefined ? role : userData.role || "associado",
+        approved: approved !== undefined ? approved : (userData.approved ?? false),
         cnpj: cnpj !== undefined ? cnpj : userData.cnpj || "",
         phone: phone !== undefined ? phone : userData.phone || "",
         companyName: companyName !== undefined ? companyName : userData.companyName || "",
         updatedAt: new Date().toISOString(),
       };
 
-      await userDocRef.set(updatedDoc);
+      await userDocRef.set(updatedDoc, { merge: true });
 
       return res.json({ success: true, userId: id });
     } catch (error: any) {

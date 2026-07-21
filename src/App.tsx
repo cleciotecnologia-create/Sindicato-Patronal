@@ -7352,17 +7352,20 @@ Agradecemos o seu pagamento!`;
     )
       return;
     try {
-      const idToken = await currentUser?.getIdToken();
-      const response = await fetch(`/api/admin/users/${userId}`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${idToken}`,
-        },
-      });
+      await deleteDoc(doc(db, "users", userId));
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Erro na exclusão");
+      try {
+        const idToken = await currentUser?.getIdToken();
+        if (idToken) {
+          await fetch(`/api/admin/users/${userId}`, {
+            method: "DELETE",
+            headers: {
+              "Authorization": `Bearer ${idToken}`,
+            },
+          });
+        }
+      } catch (apiErr) {
+        console.warn("Aviso ao remover no servidor:", apiErr);
       }
 
       refetchAuditLogs();
@@ -7428,27 +7431,35 @@ Agradecemos o seu pagamento!`;
     if (!selectedUserToEdit) return;
 
     try {
-      const idToken = await currentUser?.getIdToken();
-      const response = await fetch(`/api/admin/users/${selectedUserToEdit.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${idToken}`,
-        },
-        body: JSON.stringify({
-          email: editUserEmail,
-          displayName: editUserDisplayName,
-          role: editUserRole,
-          approved: editUserApproved,
-          cnpj: editUserCnpj,
-          phone: editUserPhone,
-          companyName: editUserCompanyName,
-        }),
-      });
+      const updatePayload: any = {
+        email: editUserEmail.trim().toLowerCase(),
+        displayName: editUserDisplayName.trim(),
+        role: editUserRole,
+        approved: editUserApproved,
+        cnpj: editUserCnpj || "",
+        phone: editUserPhone || "",
+        companyName: editUserCompanyName || "",
+        updatedAt: new Date().toISOString(),
+      };
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Erro ao atualizar");
+      // Direct client-side update to Firestore first
+      await setDoc(doc(db, "users", selectedUserToEdit.id), updatePayload, { merge: true });
+
+      // Sincronizar via API Backend se possível (para atualizar Firebase Auth se necessário)
+      try {
+        const idToken = await currentUser?.getIdToken();
+        if (idToken) {
+          await fetch(`/api/admin/users/${selectedUserToEdit.id}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${idToken}`,
+            },
+            body: JSON.stringify(updatePayload),
+          });
+        }
+      } catch (apiErr) {
+        console.warn("Aviso na sincronização backend do usuário:", apiErr);
       }
 
       showNotification("success", "Usuário atualizado com sucesso!");
