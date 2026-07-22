@@ -23,7 +23,7 @@ service firebase.storage {
     }
 
     function isValidSize() {
-      return request.resource.size < 10 * 1024 * 1024; // 10MB max
+      return request.resource.size < 15 * 1024 * 1024; // 15MB max
     }
 
     // Public documents (published by admin or union)
@@ -38,7 +38,12 @@ service firebase.storage {
       allow write: if isSignedIn() && isImageOrDoc() && isValidSize();
     }
 
-    // User uploads (profile photos, attachments)
+    // User uploads (profile photos, attachments) by UID
+    match /usuarios/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && isImageOrDoc() && isValidSize();
+    }
+
     match /users/{userId}/{fileName} {
       allow read: if isSignedIn();
       allow write: if isOwner(userId) && isImageOrDoc() && isValidSize();
