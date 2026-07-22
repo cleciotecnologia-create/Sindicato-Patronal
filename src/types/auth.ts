@@ -21,6 +21,8 @@ export interface UserProfile {
   ativo: boolean;
   approved?: boolean;
   photoURL?: string;
+  mustChangePassword?: boolean;
+  firstAccess?: boolean;
   createdAt: string;
   updatedAt: string;
 }

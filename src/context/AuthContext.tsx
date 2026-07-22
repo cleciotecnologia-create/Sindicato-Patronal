@@ -11,13 +11,17 @@ interface AuthContextType {
   authInitialized: boolean;
   empresaId: string | null;
   authError: AuthErrorState | null;
+  sessionExpiredMessage: string | null;
   isAdmin: boolean;
   logout: () => Promise<void>;
   refetchProfile: () => Promise<void>;
   clearAuthError: () => void;
+  clearSessionExpiredMessage: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const INACTIVITY_LIMIT_MS = 10 * 60 * 1000; // 10 minutos sem atividade
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -25,6 +29,41 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState<boolean>(true);
   const [authInitialized, setAuthInitialized] = useState<boolean>(false);
   const [authError, setAuthError] = useState<AuthErrorState | null>(null);
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(null);
+
+  // Inactivity tracking
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let lastActivityTime = Date.now();
+
+    const handleUserActivity = () => {
+      lastActivityTime = Date.now();
+    };
+
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, handleUserActivity, { passive: true });
+    });
+
+    const checkInterval = setInterval(() => {
+      const now = Date.now();
+      if (now - lastActivityTime >= INACTIVITY_LIMIT_MS) {
+        console.warn('[AuthContext] 10 minutos de inatividade atingidos. Expirando sessão...');
+        setSessionExpiredMessage(
+          'Sua sessão expirou por inatividade (10 minutos sem uso). Por segurança, faça login novamente.'
+        );
+        logout();
+      }
+    }, 10000); // Checa a cada 10 segundos
+
+    return () => {
+      activityEvents.forEach((event) => {
+        window.removeEventListener(event, handleUserActivity);
+      });
+      clearInterval(checkInterval);
+    };
+  }, [currentUser]);
 
   // Load and sync user profile whenever Firebase Auth user changes
   const loadUserProfile = async (user: User | null) => {
@@ -160,6 +199,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setAuthError(null);
   };
 
+  const clearSessionExpiredMessage = () => {
+    setSessionExpiredMessage(null);
+  };
+
   const empresaId = userProfile?.empresaId || null;
 
   const isAdmin = Boolean(
@@ -186,10 +229,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         authInitialized,
         empresaId,
         authError,
+        sessionExpiredMessage,
         isAdmin,
         logout,
         refetchProfile,
         clearAuthError,
+        clearSessionExpiredMessage,
       }}
     >
       {children}

@@ -46,6 +46,8 @@ export class FirebaseService {
           ativo: data.ativo !== undefined ? Boolean(data.ativo) : (data.approved !== undefined ? Boolean(data.approved) : true),
           approved: data.approved !== undefined ? Boolean(data.approved) : (data.ativo !== undefined ? Boolean(data.ativo) : true),
           photoURL: data.photoURL || auth.currentUser?.photoURL || '',
+          mustChangePassword: Boolean(data.mustChangePassword),
+          firstAccess: data.firstAccess !== undefined ? Boolean(data.firstAccess) : false,
           createdAt: data.createdAt || new Date().toISOString(),
           updatedAt: data.updatedAt || new Date().toISOString(),
         };
@@ -106,6 +108,8 @@ export class FirebaseService {
       ativo: true,
       approved: true,
       photoURL: auth.currentUser?.photoURL || '',
+      mustChangePassword: false,
+      firstAccess: true,
       createdAt: nowIso,
       updatedAt: nowIso,
     };
@@ -155,5 +159,16 @@ export class FirebaseService {
       console.error(`[FirebaseService] Error updating profile for UID ${uid}:`, error);
       handleFirestoreError(error, OperationType.UPDATE, `usuarios/${uid}`);
     }
+  }
+
+  /**
+   * Marks that the user completed password change
+   */
+  static async markPasswordChanged(uid: string): Promise<void> {
+    if (!uid) return;
+    await FirebaseService.updateUserProfile(uid, {
+      mustChangePassword: false,
+      firstAccess: false
+    });
   }
 }

@@ -127,6 +127,14 @@ import {
 } from "./lib/firebase";
 import { FirebaseService } from "./services/firebaseService";
 import { useAuth } from "./context/AuthContext";
+import { ForceChangePasswordModal } from "./components/ForceChangePasswordModal";
+import { 
+  formatDate, 
+  formatDateTime, 
+  formatTime, 
+  formatLongDatePauloAfonso, 
+  APP_TIMEZONE 
+} from "./utils/dateUtils";
 import {
   signInWithPopup,
   GoogleAuthProvider,
@@ -908,9 +916,22 @@ function LandingPage() {
     | "syndicate"
     | "emails"
   >("dashboard");
+  const { 
+    sessionExpiredMessage, 
+    clearSessionExpiredMessage, 
+    userProfile: authContextProfile, 
+    refetchProfile 
+  } = useAuth();
+  
   const [memberLoggedIn, setMemberLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+
+  useEffect(() => {
+    if (sessionExpiredMessage) {
+      setShowAuthModal(true);
+    }
+  }, [sessionExpiredMessage]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -1469,11 +1490,14 @@ function LandingPage() {
     }
   };
 
+  const [financeSubTab, setFinanceSubTab] = useState<"office" | "associates" | "consolidated">("office");
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState<string>("TODOS");
+
   const [newExpense, setNewExpense] = useState({
     description: "",
     value: "",
     type: "fixa",
-    category: "",
+    category: "Infraestrutura / Sede",
   });
   const [newMedia, setNewMedia] = useState({
     title: "",
@@ -2333,7 +2357,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
     ];
 
     trace.push(
-      `Data de Emissão selecionada: ${currentDate.toLocaleDateString("pt-BR")} (${dayNamesPt[currentDate.getDay()]})`,
+      `Data de Emissão selecionada: ${formatDate(currentDate)} (${dayNamesPt[currentDate.getDay()]})`,
     );
 
     const isHoliday = (date: Date) => {
@@ -2358,7 +2382,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
         iterations++;
         currentDate.setDate(currentDate.getDate() + 1);
         const dayNamePt = dayNamesPt[currentDate.getDay()];
-        const formattedDate = currentDate.toLocaleDateString("pt-BR");
+        const formattedDate = formatDate(currentDate);
 
         if (isHoliday(currentDate)) {
           trace.push(`⏩ ${formattedDate} (${dayNamePt}) é Feriado. Ignorado.`);
@@ -2377,7 +2401,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       trace.push(`Modo selecionado: Contar DIAS CORRIDOS (${days} dias)`);
       currentDate.setDate(currentDate.getDate() + days);
       trace.push(
-        `📅 Data calculada corrida: ${currentDate.toLocaleDateString("pt-BR")} (${dayNamesPt[currentDate.getDay()]})`,
+        `📅 Data calculada corrida: ${formatDate(currentDate)} (${dayNamesPt[currentDate.getDay()]})`,
       );
     }
 
@@ -2386,7 +2410,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       while (!isWorkday(currentDate) && rollCount < 30) {
         rollCount++;
         const dayNamePt = dayNamesPt[currentDate.getDay()];
-        const formattedDate = currentDate.toLocaleDateString("pt-BR");
+        const formattedDate = formatDate(currentDate);
         if (isHoliday(currentDate)) {
           trace.push(
             `⚠️ ${formattedDate} (${dayNamePt}) é Feriado e vencimentos no final de semana/feriado estão desativados.`,
@@ -4417,7 +4441,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.text(
-        `Emitido em: ${new Date().toLocaleString("pt-BR")} | Responsável: ${currentUser?.email || "Administrador"}`,
+        `Emitido em: ${formatDateTime(new Date())} | Responsável: ${currentUser?.email || "Administrador"}`,
         195,
         26,
         { align: "right" },
@@ -4659,7 +4683,7 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.text(
-        `Emitido em: ${new Date().toLocaleString("pt-BR")} | Responsável: ${currentUser?.email || "Administrador"}`,
+        `Emitido em: ${formatDateTime(new Date())} | Responsável: ${currentUser?.email || "Administrador"}`,
         195,
         26,
         { align: "right" },
@@ -6406,35 +6430,50 @@ Agradecemos o seu pagamento!`;
 
       if (userCredential && userCredential.user) {
         const loggedUser = userCredential.user;
-        if (authType === "admin") {
-          const emailLower = (loggedUser.email || "").toLowerCase();
-          const adminDocRef = doc(db, "admins", emailLower);
-          const adminDocSnap = await getDoc(adminDocRef);
-          const isUserAdmin =
-            emailLower === SUPER_USER_EMAIL.toLowerCase() ||
-            emailLower === "ianlima.sinpa@gmail.com" ||
-            emailLower === "cleciotecnologia@gmail.com" ||
-            emailLower === "admin@sinpa.org.br" ||
-            emailLower.includes("ian") ||
-            emailLower.includes("nicolas") ||
-            emailLower.includes("admin") ||
-            emailLower.includes("gerente") ||
-            emailLower.includes("gestor") ||
-            emailLower.includes("clecio") ||
-            adminDocSnap.exists() ||
-            emailLower.includes("presidencia") ||
-            emailLower.includes("diretoria") ||
-            emailLower.includes("gerencia") ||
-            emailLower.includes("atendimento");
+        
+        // 1. Read profile from usuarios/{uid}
+        let profile = await FirebaseService.getUserProfileByUid(loggedUser.uid);
+        
+        // 2. Trigger automatic profile creation if document does not exist
+        if (!profile && loggedUser.email) {
+          profile = await FirebaseService.createOrEnsureUserProfile(
+            loggedUser.uid,
+            loggedUser.email,
+            loggedUser.displayName || undefined
+          );
+        }
 
-          if (!isUserAdmin) {
+        if (profile) {
+          // 3. Verify 'ativo' field before granting access
+          if (!profile.ativo && !profile.approved) {
             await signOut(auth);
-            setAuthError(
-              "ACESSO NEGADO: Este usuário não possui privilégios de administrador.",
-            );
+            setAuthError("CONTA INATIVA / AGUARDANDO APROVAÇÃO: Seu cadastro está pendente de homologação.");
             setAuthLoading(false);
             return;
           }
+
+          // 4. Verify 'role' field for admin access
+          if (authType === "admin") {
+            const isAdminRole = 
+              profile.role === "admin" ||
+              profile.role === "presidencia" ||
+              profile.role === "diretoria" ||
+              profile.role === "gerencia" ||
+              profile.role === "gerente" ||
+              loggedUser.email?.toLowerCase() === "ianlima.sinpa@gmail.com" ||
+              loggedUser.email?.toLowerCase() === "cleciotecnologia@gmail.com" ||
+              loggedUser.email?.toLowerCase().includes("admin") ||
+              loggedUser.email?.toLowerCase().includes("ian");
+
+            if (!isAdminRole) {
+              await signOut(auth);
+              setAuthError("ACESSO NEGADO: Este usuário não possui privilégios de administrador.");
+              setAuthLoading(false);
+              return;
+            }
+          }
+
+          setUserRole((profile.role || "associado") as any);
         }
       }
       setShowAuthModal(false);
@@ -7352,7 +7391,7 @@ Agradecemos o seu pagamento!`;
         y += 10;
       }
 
-      const dateStr = `${form.forumCity}, ${new Date().toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" })}.`;
+      const dateStr = formatLongDatePauloAfonso(new Date(), form.forumCity || "Paulo Afonso");
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.text(dateStr, margin, y);
@@ -7431,12 +7470,20 @@ Agradecemos o seu pagamento!`;
     const expense = {
       id: Date.now(),
       ...newExpense,
+      category: newExpense.category || "Infraestrutura / Sede",
       value: parseFloat(newExpense.value as string),
-      date: new Date().toLocaleDateString(),
+      date: formatDate(new Date()),
+      status: "pago",
     };
 
     setExpenses([expense, ...expenses]);
-    setNewExpense({ description: "", value: "", type: "fixa", category: "" });
+    setNewExpense({ description: "", value: "", type: "fixa", category: "Infraestrutura / Sede" });
+    showNotification("success", "Despesa do escritório registrada no caixa com sucesso!");
+  };
+
+  const handleDeleteExpense = (id: number | string) => {
+    setExpenses((prev) => prev.filter((exp) => exp.id !== id));
+    showNotification("info", "Lançamento de despesa removido do caixa do escritório.");
   };
 
   const handleAddMedia = (e: React.FormEvent) => {
@@ -10138,6 +10185,22 @@ Agradecemos o seu pagamento!`;
                 </div>
               ) : (
                 <>
+                  {sessionExpiredMessage && (
+                    <div className="p-3.5 rounded-2xl border bg-amber-50 border-amber-200 text-amber-900 text-xs flex items-start gap-2.5 shadow-sm">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div className="flex-1 leading-snug">
+                        <p className="font-semibold text-[11px] leading-tight">{sessionExpiredMessage}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => clearSessionExpiredMessage()}
+                        className="text-amber-700 hover:text-amber-950 p-0.5 rounded"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+
                   {authError && (
                     <div
                       className={`p-3.5 rounded-2xl border ${
@@ -10939,13 +11002,14 @@ Agradecemos o seu pagamento!`;
                     <div className="h-10 w-[1px] bg-gray-100"></div>
                     <div className="text-right hidden md:block">
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">
-                        Horário do Sistema
+                        Horário do Sistema (Paulo Afonso - BA)
                       </p>
                       <p className="text-sm font-bold text-gray-900 font-mono">
-                        {systemTime.toLocaleDateString("pt-BR")} -{" "}
-                        {systemTime.toLocaleTimeString("pt-BR", {
+                        {formatDate(systemTime)} -{" "}
+                        {formatTime(systemTime, {
                           hour: "2-digit",
                           minute: "2-digit",
+                          second: "2-digit",
                         })}
                       </p>
                     </div>
@@ -13818,10 +13882,16 @@ Agradecemos o seu pagamento!`;
                                     section: "Financeiro",
                                     items: [
                                       {
-                                        id: "finance",
-                                        label: "Monitoramento & Fluxo",
-                                        icon: CreditCard,
+                                        id: "finance_office",
+                                        label: "Caixa do Escritório (Sindicato)",
+                                        icon: Building2,
                                         color: "text-rose-500",
+                                      },
+                                      {
+                                        id: "finance_associates",
+                                        label: "Financeiro dos Associados",
+                                        icon: Users,
+                                        color: "text-emerald-500",
                                       },
                                       {
                                         id: "billing",
@@ -13926,36 +13996,51 @@ Agradecemos o seu pagamento!`;
                                       {group.section}
                                     </p>
                                     <div className="space-y-1.5">
-                                      {group.items.map((tab, tabIdx) => (
-                                        <button
-                                          key={`admin-subtab-${group.section}-${tab.id}-${tabIdx}`}
-                                          onClick={() =>
-                                            setAdminSubTab(tab.id as any)
-                                          }
-                                          className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-xs transition-all relative group ${
-                                            adminSubTab === tab.id
-                                              ? "bg-white/10 text-white active-nav-glow shadow-lg shadow-black/20"
-                                              : "text-blue-100/70 hover:bg-white/5 hover:text-white"
-                                          }`}
-                                        >
-                                          <div
-                                            className={`p-2 rounded-xl transition-colors ${adminSubTab === tab.id ? "bg-blue-600 shadow-lg shadow-blue-600/40" : "bg-white/5 group-hover:bg-white/10"}`}
+                                      {group.items.map((tab, tabIdx) => {
+                                        const isNavActive =
+                                          adminSubTab === tab.id ||
+                                          (adminSubTab === "finance" && tab.id === "finance_office" && financeSubTab === "office") ||
+                                          (adminSubTab === "finance" && tab.id === "finance_associates" && financeSubTab === "associates");
+
+                                        return (
+                                          <button
+                                            key={`admin-subtab-${group.section}-${tab.id}-${tabIdx}`}
+                                            onClick={() => {
+                                              if (tab.id === "finance_office") {
+                                                setAdminSubTab("finance");
+                                                setFinanceSubTab("office");
+                                              } else if (tab.id === "finance_associates") {
+                                                setAdminSubTab("finance");
+                                                setFinanceSubTab("associates");
+                                              } else {
+                                                setAdminSubTab(tab.id as any);
+                                              }
+                                            }}
+                                            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-xs transition-all relative group ${
+                                              isNavActive
+                                                ? "bg-white/10 text-white active-nav-glow shadow-lg shadow-black/20"
+                                                : "text-blue-100/70 hover:bg-white/5 hover:text-white"
+                                            }`}
                                           >
-                                            <tab.icon
-                                              className={`w-4 h-4 ${adminSubTab === tab.id ? "text-white" : "text-blue-200"}`}
-                                            />
-                                          </div>
-                                          <span className="flex-1 text-left">
-                                            {tab.label}
-                                          </span>
-                                          {adminSubTab === tab.id && (
-                                            <motion.div
-                                              layoutId="activeIndicator"
-                                              className="absolute left-0 w-1 h-6 bg-amber-400 rounded-r-full shadow-[0_0_15px_rgba(251,191,36,0.6)]"
-                                            />
-                                          )}
-                                        </button>
-                                      ))}
+                                            <div
+                                              className={`p-2 rounded-xl transition-colors ${isNavActive ? "bg-blue-600 shadow-lg shadow-blue-600/40" : "bg-white/5 group-hover:bg-white/10"}`}
+                                            >
+                                              <tab.icon
+                                                className={`w-4 h-4 ${isNavActive ? "text-white" : "text-blue-200"}`}
+                                              />
+                                            </div>
+                                            <span className="flex-1 text-left font-sans">
+                                              {tab.label}
+                                            </span>
+                                            {isNavActive && (
+                                              <motion.div
+                                                layoutId="activeIndicator"
+                                                className="absolute left-0 w-1 h-6 bg-amber-400 rounded-r-full shadow-[0_0_15px_rgba(251,191,36,0.6)]"
+                                              />
+                                            )}
+                                          </button>
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 ))}
@@ -32650,6 +32735,12 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal para alteração obrigatória de senha no primeiro acesso */}
+      <ForceChangePasswordModal
+        isOpen={Boolean(currentUser && ((authContextProfile || userProfile)?.mustChangePassword || (authContextProfile || userProfile)?.firstAccess))}
+        onSuccess={() => refetchProfile()}
+      />
     </>
   );
 }

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { LoadingScreen } from './LoadingScreen';
+import { ForceChangePasswordModal } from './ForceChangePasswordModal';
 import { ShieldAlert, AlertTriangle, LogOut, RefreshCw } from 'lucide-react';
 
 interface ProtectedRouteProps {
@@ -196,5 +197,17 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return <LoadingScreen message="Carregando dados da empresa vinculada (empresaId)..." />;
   }
 
-  return <>{children}</>;
+  const needsPasswordChange = Boolean(userProfile?.mustChangePassword || userProfile?.firstAccess);
+
+  return (
+    <>
+      {needsPasswordChange && (
+        <ForceChangePasswordModal
+          isOpen={true}
+          onSuccess={() => refetchProfile()}
+        />
+      )}
+      {children}
+    </>
+  );
 };
