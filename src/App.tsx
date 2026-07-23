@@ -75,10 +75,13 @@ import {
   ArrowLeft,
   Calendar,
   Eye,
+  EyeOff,
+  Scissors,
   Loader2,
   Pencil,
   Copy,
   RefreshCw,
+  RotateCw,
   Database,
   Scale,
   Gavel,
@@ -87,6 +90,9 @@ import {
   Key,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  Move,
   Filter,
   Maximize2,
 } from "lucide-react";
@@ -495,11 +501,16 @@ function LandingPage() {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printMarginTop, setPrintMarginTop] = useState<number>(25); // mm
   const [printMarginBottom, setPrintMarginBottom] = useState<number>(15); // mm
-  const [printMarginSides, setPrintMarginSides] = useState<number>(15); // mm
+  const [printMarginLeft, setPrintMarginLeft] = useState<number>(15); // mm
+  const [printMarginRight, setPrintMarginRight] = useState<number>(15); // mm
   const [unifyMargins, setUnifyMargins] = useState<boolean>(false);
   const [signatureX, setSignatureX] = useState<number>(0); // mm (-25 to +25)
   const [signatureY, setSignatureY] = useState<number>(0); // mm (-15 to +35)
   const [printLogoScale, setPrintLogoScale] = useState<number>(100); // % (50% to 180%)
+  const [printLogoRotate, setPrintLogoRotate] = useState<number>(0); // degrees (0 to 360)
+  const [printLogoX, setPrintLogoX] = useState<number>(0); // mm (-50 to +50)
+  const [printLogoY, setPrintLogoY] = useState<number>(0); // mm (-50 to +50)
+  const [showCropGuides, setShowCropGuides] = useState<boolean>(true); // guias visuais de área de corte
   const [whatsappNumber] = useState("5500000000000"); // Configure o número aqui
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedPublicCategory, setSelectedPublicCategory] = useState<string>("all");
@@ -28352,18 +28363,18 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                       @page {
                         margin-top: ${printMarginTop}mm !important;
                         margin-bottom: ${printMarginBottom}mm !important;
-                        margin-left: ${printMarginSides}mm !important;
-                        margin-right: ${printMarginSides}mm !important;
+                        margin-left: ${printMarginLeft}mm !important;
+                        margin-right: ${printMarginRight}mm !important;
                       }
                       .printable-certidao {
                         padding-top: ${printMarginTop}mm !important;
                         padding-bottom: ${printMarginBottom}mm !important;
-                        padding-left: ${printMarginSides}mm !important;
-                        padding-right: ${printMarginSides}mm !important;
+                        padding-left: ${printMarginLeft}mm !important;
+                        padding-right: ${printMarginRight}mm !important;
                       }
                       .printable-logo, .printable-header-logo, .certidao-header-logo {
-                        transform: scale(${printLogoScale / 100}) !important;
-                        transform-origin: top center !important;
+                        transform: translate(${printLogoX}mm, ${printLogoY}mm) scale(${printLogoScale / 100}) rotate(${printLogoRotate}deg) !important;
+                        transform-origin: center center !important;
                       }
                     }
                   `}</style>
@@ -28551,17 +28562,62 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                           )}
                         </div>
 
+                        {/* Alternar Visibilidade de Guias Visuais (Área de Corte) */}
+                        <div className="bg-white p-3.5 rounded-2xl border border-blue-100 shadow-sm flex items-center justify-between gap-3">
+                          <label htmlFor="crop-guides-checkbox" className="flex items-center gap-3 cursor-pointer select-none flex-1">
+                            <input
+                              type="checkbox"
+                              id="crop-guides-checkbox"
+                              checked={showCropGuides}
+                              onChange={(e) => setShowCropGuides(e.target.checked)}
+                              className="w-4 h-4 text-blue-900 rounded accent-blue-900 cursor-pointer"
+                            />
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                                {showCropGuides ? (
+                                  <Eye className="w-3.5 h-3.5 text-blue-600" />
+                                ) : (
+                                  <EyeOff className="w-3.5 h-3.5 text-gray-400" />
+                                )}
+                                Guias Visuais da Área de Corte
+                              </span>
+                              <span className="text-[10px] text-gray-400">
+                                Exibe marcas e áreas de margem topo ({printMarginTop}mm), rodapé ({printMarginBottom}mm) e lateral ({printMarginSides}mm)
+                              </span>
+                            </div>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setShowCropGuides((prev) => !prev)}
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
+                              showCropGuides
+                                ? "bg-blue-900 text-white border-blue-900 shadow-xs"
+                                : "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
+                            }`}
+                          >
+                            {showCropGuides ? (
+                              <>
+                                <Eye className="w-3 h-3" /> Visível
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="w-3 h-3" /> Ocultas
+                              </>
+                            )}
+                          </button>
+                        </div>
+
                         {/* Sliders para Margens */}
                         <div className="space-y-4 pt-1">
                           {/* Margem Superior */}
-                          <div className={`space-y-1.5 p-3.5 rounded-2xl border transition-all ${
+                          <div className={`space-y-2 p-3.5 rounded-2xl border transition-all ${
                             unifyMargins
                               ? "bg-gray-100/70 border-gray-200 opacity-60"
                               : "bg-white border-gray-100 shadow-sm"
                           }`}>
                             <div className="flex items-center justify-between text-xs font-bold text-gray-700">
                               <span className="flex items-center gap-1.5">
-                                Margem Topo (Cabeçalho)
+                                Margem Superior (0mm a 50mm)
                                 {unifyMargins && <Lock className="w-3 h-3 text-gray-400" />}
                               </span>
                               <span className="text-blue-900 font-mono font-black">{printMarginTop} mm</span>
@@ -28569,15 +28625,60 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                             <input
                               type="range"
                               min="0"
-                              max="60"
+                              max="50"
+                              step="1"
                               value={printMarginTop}
                               disabled={unifyMargins}
                               onChange={(e) => setPrintMarginTop(Number(e.target.value))}
                               className={`w-full accent-blue-900 ${unifyMargins ? "cursor-not-allowed" : "cursor-pointer"}`}
                             />
-                            <p className="text-[10px] text-gray-400">
-                              {unifyMargins ? "Bloqueado pelo modo unificado" : "Reserva de topo do timbre físico"}
+                            <p className="text-[10px] text-gray-400 leading-tight">
+                              {unifyMargins
+                                ? "Bloqueado pelo modo unificado"
+                                : "Ajuste o espaçamento inicial de 0mm a 50mm para acomodar timbres maiores no topo do papel."}
                             </p>
+                            {!unifyMargins && (
+                              <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-gray-100">
+                                <span className="text-[10px] font-bold text-gray-400 uppercase">
+                                  Ajuste Rápido:
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setPrintMarginTop(0)}
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                      printMarginTop === 0
+                                        ? "bg-blue-900 text-white shadow-xs"
+                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                    }`}
+                                  >
+                                    0mm
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPrintMarginTop(25)}
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                      printMarginTop === 25
+                                        ? "bg-blue-900 text-white shadow-xs"
+                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                    }`}
+                                  >
+                                    25mm (Padrão)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPrintMarginTop(50)}
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                      printMarginTop === 50
+                                        ? "bg-blue-900 text-white shadow-xs"
+                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                    }`}
+                                  >
+                                    50mm (Máx)
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           {/* Margem Inferior */}
@@ -28707,6 +28808,223 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                                 }`}
                               >
                                 125% (Expandido)
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Seção de Ajuste da Rotação do Logotipo */}
+                        <div className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm space-y-3">
+                          <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <RotateCw className="w-4 h-4 text-blue-600" />
+                              <h5 className="text-xs font-black uppercase tracking-wider text-blue-950">
+                                Rotação do Logotipo
+                              </h5>
+                            </div>
+                            <span className="text-xs font-mono font-black text-blue-900 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                              {printLogoRotate}°
+                            </span>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-[11px] font-bold text-gray-700">
+                              <span>Ângulo de Inclinação</span>
+                              <span className="text-gray-400 font-normal text-[10px]">Min: 0° | Máx: 360°</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="360"
+                              step="1"
+                              value={printLogoRotate}
+                              onChange={(e) => setPrintLogoRotate(Number(e.target.value))}
+                              className="w-full accent-blue-900 cursor-pointer"
+                            />
+                            <p className="text-[10px] text-gray-400 leading-tight">
+                              Ajuste fino de rotação (0° a 360°) para alinhamento preciso com papéis timbrados.
+                            </p>
+                          </div>
+
+                          {/* Presets Rápidos de Rotação */}
+                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-gray-50">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase">
+                              Ângulos Rápidos:
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setPrintLogoRotate(0)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                  printLogoRotate === 0
+                                    ? "bg-blue-900 text-white shadow-xs"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                              >
+                                0° (Reto)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPrintLogoRotate(90)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                  printLogoRotate === 90
+                                    ? "bg-blue-900 text-white shadow-xs"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                              >
+                                90°
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPrintLogoRotate(180)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                  printLogoRotate === 180
+                                    ? "bg-blue-900 text-white shadow-xs"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                              >
+                                180°
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPrintLogoRotate(270)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                  printLogoRotate === 270
+                                    ? "bg-blue-900 text-white shadow-xs"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                              >
+                                270°
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Seção de Ajuste Direcional da Posição do Logotipo (D-Pad 1mm) */}
+                        <div className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm space-y-3">
+                          <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <Move className="w-4 h-4 text-blue-600" />
+                              <h5 className="text-xs font-black uppercase tracking-wider text-blue-950">
+                                Posição do Logotipo (Direcional 1mm)
+                              </h5>
+                            </div>
+                            <span className="text-xs font-mono font-black text-blue-900 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                              X: {printLogoX >= 0 ? `+${printLogoX}` : printLogoX}mm | Y: {printLogoY >= 0 ? `+${printLogoY}` : printLogoY}mm
+                            </span>
+                          </div>
+
+                          <p className="text-[11px] text-gray-500 leading-tight">
+                            Utilize os botões direcionais para mover o logotipo no cabeçalho em passos precisos de 1mm.
+                          </p>
+
+                          <div className="flex items-center justify-center pt-1 pb-1">
+                            <div className="grid grid-cols-3 gap-1.5 w-44 h-44 bg-blue-50/60 p-2 rounded-2xl border border-blue-100/80 shadow-inner">
+                              {/* Célula Vazia Superior Esquerda */}
+                              <div />
+
+                              {/* Botão Cima */}
+                              <button
+                                type="button"
+                                title="Mover Para Cima (-1mm Y)"
+                                onClick={() => setPrintLogoY((prev) => Math.max(-50, prev - 1))}
+                                className="bg-white hover:bg-blue-900 text-blue-950 hover:text-white border border-blue-200 hover:border-blue-900 rounded-xl flex flex-col items-center justify-center font-bold transition-all active:scale-90 shadow-xs cursor-pointer group"
+                              >
+                                <ChevronUp className="w-5 h-5 text-blue-800 group-hover:text-white" />
+                                <span className="text-[9px] font-black leading-none mt-0.5">-1mm</span>
+                              </button>
+
+                              {/* Célula Vazia Superior Direita */}
+                              <div />
+
+                              {/* Botão Esquerda */}
+                              <button
+                                type="button"
+                                title="Mover Para Esquerda (-1mm X)"
+                                onClick={() => setPrintLogoX((prev) => Math.max(-50, prev - 1))}
+                                className="bg-white hover:bg-blue-900 text-blue-950 hover:text-white border border-blue-200 hover:border-blue-900 rounded-xl flex flex-col items-center justify-center font-bold transition-all active:scale-90 shadow-xs cursor-pointer group"
+                              >
+                                <ChevronLeft className="w-5 h-5 text-blue-800 group-hover:text-white" />
+                                <span className="text-[9px] font-black leading-none mt-0.5">-1mm</span>
+                              </button>
+
+                              {/* Botão Centro (Reset / 0,0) */}
+                              <button
+                                type="button"
+                                title="Resetar Posição (0,0)"
+                                onClick={() => {
+                                  setPrintLogoX(0);
+                                  setPrintLogoY(0);
+                                }}
+                                className="bg-blue-900 hover:bg-blue-950 text-white border border-blue-950 rounded-xl flex flex-col items-center justify-center font-black text-[10px] transition-all active:scale-90 shadow-sm cursor-pointer"
+                              >
+                                <span>0,0</span>
+                                <span className="text-[8px] opacity-80 leading-none">Center</span>
+                              </button>
+
+                              {/* Botão Direita */}
+                              <button
+                                type="button"
+                                title="Mover Para Direita (+1mm X)"
+                                onClick={() => setPrintLogoX((prev) => Math.min(50, prev + 1))}
+                                className="bg-white hover:bg-blue-900 text-blue-950 hover:text-white border border-blue-200 hover:border-blue-900 rounded-xl flex flex-col items-center justify-center font-bold transition-all active:scale-90 shadow-xs cursor-pointer group"
+                              >
+                                <ChevronRight className="w-5 h-5 text-blue-800 group-hover:text-white" />
+                                <span className="text-[9px] font-black leading-none mt-0.5">+1mm</span>
+                              </button>
+
+                              {/* Célula Vazia Inferior Esquerda */}
+                              <div />
+
+                              {/* Botão Baixo */}
+                              <button
+                                type="button"
+                                title="Mover Para Baixo (+1mm Y)"
+                                onClick={() => setPrintLogoY((prev) => Math.min(50, prev + 1))}
+                                className="bg-white hover:bg-blue-900 text-blue-950 hover:text-white border border-blue-200 hover:border-blue-900 rounded-xl flex flex-col items-center justify-center font-bold transition-all active:scale-90 shadow-xs cursor-pointer group"
+                              >
+                                <ChevronDown className="w-5 h-5 text-blue-800 group-hover:text-white" />
+                                <span className="text-[9px] font-black leading-none mt-0.5">+1mm</span>
+                              </button>
+
+                              {/* Célula Vazia Inferior Direita */}
+                              <div />
+                            </div>
+                          </div>
+
+                          {/* Atalhos de Deslocamento Rápido */}
+                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-gray-50">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase">
+                              Saltos Rápidos:
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setPrintLogoX((prev) => Math.max(-50, prev - 5))}
+                                className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all cursor-pointer"
+                              >
+                                -5mm X
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPrintLogoX((prev) => Math.min(50, prev + 5))}
+                                className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all cursor-pointer"
+                              >
+                                +5mm X
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPrintLogoY((prev) => Math.max(-50, prev - 5))}
+                                className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all cursor-pointer"
+                              >
+                                -5mm Y
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPrintLogoY((prev) => Math.min(50, prev + 5))}
+                                className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all cursor-pointer"
+                              >
+                                +5mm Y
                               </button>
                             </div>
                           </div>
@@ -28851,48 +29169,119 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
 
                       {/* Coluna da Pré-Visualização ao Vivo da Folha A4 */}
                       <div className="lg:col-span-5 flex flex-col items-center">
-                        <div className="w-full text-center mb-3">
+                        <div className="w-full flex items-center justify-between mb-3 px-1">
                           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-800 text-[11px] font-black uppercase tracking-wider border border-amber-200">
                             <Sliders className="w-3.5 h-3.5 text-amber-600" />
                             Pré-visualização Ao Vivo
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowCropGuides((prev) => !prev)}
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                              showCropGuides
+                                ? "bg-blue-900 text-white border-blue-900 shadow-xs"
+                                : "bg-white text-gray-600 border-gray-300 hover:bg-gray-100"
+                            }`}
+                          >
+                            {showCropGuides ? <Eye className="w-3 h-3 text-blue-200" /> : <EyeOff className="w-3 h-3 text-gray-400" />}
+                            <span>{showCropGuides ? "Guias Ativas" : "Sem Guias"}</span>
+                          </button>
                         </div>
 
                         {/* Folha A4 Simulada */}
                         <div className="w-full max-w-[260px] aspect-[210/297] bg-white rounded-lg border-2 border-slate-300 shadow-2xl relative overflow-hidden transition-all duration-300 ease-out flex flex-col justify-between">
-                          {/* Zona de Reserva de Margem Superior (Timbre) */}
-                          <div
-                            className="absolute top-0 left-0 right-0 bg-blue-500/10 border-b border-dashed border-blue-400/80 transition-all duration-300 ease-out z-10 pointer-events-none flex items-center justify-center"
-                            style={{ height: `${(printMarginTop / 297) * 100}%` }}
-                          >
-                            {printMarginTop > 12 && (
-                              <span className="text-[9px] font-black text-blue-700 uppercase tracking-tight bg-white/90 px-2 py-0.5 rounded shadow-xs border border-blue-200">
-                                Reserva Timbre ({printMarginTop}mm)
-                              </span>
-                            )}
-                          </div>
+                          {/* Guias Visuais da Área de Corte e Margens (Renderizadas condicionalmente) */}
+                          {showCropGuides && (
+                            <>
+                              {/* Zona de Reserva de Margem Superior (Timbre) */}
+                              <div
+                                className="absolute top-0 left-0 right-0 bg-blue-500/15 border-b-2 border-dashed border-blue-500/90 transition-all duration-300 ease-out z-20 pointer-events-none flex items-center justify-center"
+                                style={{ height: `${(printMarginTop / 297) * 100}%` }}
+                              >
+                                {printMarginTop > 10 && (
+                                  <span className="text-[8.5px] font-black text-blue-900 uppercase tracking-tight bg-white/95 px-2 py-0.5 rounded shadow-xs border border-blue-300 flex items-center gap-1">
+                                    <Scissors className="w-2.5 h-2.5 text-blue-600" />
+                                    Reserva Timbre ({printMarginTop}mm)
+                                  </span>
+                                )}
+                              </div>
 
-                          {/* Zona de Reserva de Margem Inferior (Rodapé) */}
-                          <div
-                            className="absolute bottom-0 left-0 right-0 bg-amber-500/10 border-t border-dashed border-amber-400/80 transition-all duration-300 ease-out z-10 pointer-events-none flex items-center justify-center"
-                            style={{ height: `${(printMarginBottom / 297) * 100}%` }}
-                          >
-                            {printMarginBottom > 10 && (
-                              <span className="text-[8px] font-black text-amber-800 uppercase tracking-tight bg-white/90 px-1.5 py-0.5 rounded shadow-xs border border-amber-200">
-                                Rodapé ({printMarginBottom}mm)
-                              </span>
-                            )}
-                          </div>
+                              {/* Zona de Reserva de Margem Inferior (Rodapé) */}
+                              <div
+                                className="absolute bottom-0 left-0 right-0 bg-amber-500/15 border-t-2 border-dashed border-amber-500/90 transition-all duration-300 ease-out z-20 pointer-events-none flex items-center justify-center"
+                                style={{ height: `${(printMarginBottom / 297) * 100}%` }}
+                              >
+                                {printMarginBottom > 8 && (
+                                  <span className="text-[8px] font-black text-amber-900 uppercase tracking-tight bg-white/95 px-1.5 py-0.5 rounded shadow-xs border border-amber-300 flex items-center gap-1">
+                                    <Scissors className="w-2.5 h-2.5 text-amber-600" />
+                                    Rodapé ({printMarginBottom}mm)
+                                  </span>
+                                )}
+                              </div>
 
-                          {/* Linhas Guia de Margens Laterais */}
-                          <div
-                            className="absolute top-0 bottom-0 border-l border-dashed border-gray-300 pointer-events-none transition-all duration-300 z-10"
-                            style={{ left: `${(printMarginSides / 210) * 100}%` }}
-                          />
-                          <div
-                            className="absolute top-0 bottom-0 border-r border-dashed border-gray-300 pointer-events-none transition-all duration-300 z-10"
-                            style={{ right: `${(printMarginSides / 210) * 100}%` }}
-                          />
+                              {/* Sobrelay e Linhas de Margem Lateral Esquerda */}
+                              <div
+                                className="absolute top-0 bottom-0 left-0 bg-emerald-500/10 border-r-2 border-dashed border-emerald-500/80 pointer-events-none transition-all duration-300 z-10 flex items-center justify-center"
+                                style={{ width: `${(printMarginSides / 210) * 100}%` }}
+                              >
+                                {printMarginSides >= 15 && (
+                                  <span className="text-[7px] font-bold text-emerald-800 -rotate-90 whitespace-nowrap bg-white/90 px-1 py-0.2 rounded border border-emerald-200">
+                                    Lat ({printMarginSides}mm)
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Sobrelay e Linhas de Margem Lateral Direita */}
+                              <div
+                                className="absolute top-0 bottom-0 right-0 bg-emerald-500/10 border-l-2 border-dashed border-emerald-500/80 pointer-events-none transition-all duration-300 z-10 flex items-center justify-center"
+                                style={{ width: `${(printMarginSides / 210) * 100}%` }}
+                              >
+                                {printMarginSides >= 15 && (
+                                  <span className="text-[7px] font-bold text-emerald-800 rotate-90 whitespace-nowrap bg-white/90 px-1 py-0.2 rounded border border-emerald-200">
+                                    Lat ({printMarginSides}mm)
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Cantos de Marcação de Corte Grafico */}
+                              <div
+                                className="absolute pointer-events-none z-30 transition-all duration-300"
+                                style={{
+                                  top: `${(printMarginTop / 297) * 100}%`,
+                                  left: `${(printMarginSides / 210) * 100}%`,
+                                }}
+                              >
+                                <div className="w-2 h-2 -mt-1 -ml-1 border-t-2 border-l-2 border-red-500/90" />
+                              </div>
+                              <div
+                                className="absolute pointer-events-none z-30 transition-all duration-300"
+                                style={{
+                                  top: `${(printMarginTop / 297) * 100}%`,
+                                  right: `${(printMarginSides / 210) * 100}%`,
+                                }}
+                              >
+                                <div className="w-2 h-2 -mt-1 -mr-1 border-t-2 border-r-2 border-red-500/90" />
+                              </div>
+                              <div
+                                className="absolute pointer-events-none z-30 transition-all duration-300"
+                                style={{
+                                  bottom: `${(printMarginBottom / 297) * 100}%`,
+                                  left: `${(printMarginSides / 210) * 100}%`,
+                                }}
+                              >
+                                <div className="w-2 h-2 -mb-1 -ml-1 border-b-2 border-l-2 border-red-500/90" />
+                              </div>
+                              <div
+                                className="absolute pointer-events-none z-30 transition-all duration-300"
+                                style={{
+                                  bottom: `${(printMarginBottom / 297) * 100}%`,
+                                  right: `${(printMarginSides / 210) * 100}%`,
+                                }}
+                              >
+                                <div className="w-2 h-2 -mb-1 -mr-1 border-b-2 border-r-2 border-red-500/90" />
+                              </div>
+                            </>
+                          )}
 
                           {/* Conteúdo do Documento que Desloca Dinamicamente */}
                           <div
@@ -28907,9 +29296,9 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                             {/* Bloco de Cabeçalho do Documento */}
                             <div className="space-y-1 text-center pb-1 border-b border-gray-200/80 overflow-hidden flex flex-col items-center justify-center">
                               <div
-                                className="flex items-center justify-center gap-1 transition-all duration-200 origin-top"
+                                className="flex items-center justify-center gap-1 transition-all duration-200 origin-center"
                                 style={{
-                                  transform: `scale(${printLogoScale / 100})`,
+                                  transform: `translate(${printLogoX * 0.8}px, ${printLogoY * 0.8}px) scale(${printLogoScale / 100}) rotate(${printLogoRotate}deg)`,
                                 }}
                               >
                                 <div className="w-3.5 h-3.5 rounded-full bg-[#004899] flex items-center justify-center text-[7px] text-white font-bold shadow-xs shrink-0">
@@ -28999,7 +29388,7 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                           </span>
                           <span>•</span>
                           <span className="font-bold text-blue-900 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
-                            Logo: {printLogoScale}%
+                            Logo: {printLogoScale}% / {printLogoRotate}° ({printLogoX >= 0 ? `+${printLogoX}` : printLogoX}, {printLogoY >= 0 ? `+${printLogoY}` : printLogoY})mm
                           </span>
                           <span>•</span>
                           <span className="font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
