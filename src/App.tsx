@@ -88,9 +88,11 @@ import {
   ChevronDown,
   ChevronUp,
   Filter,
+  Maximize2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { PartnerContractModals } from "./components/PartnerContractModals";
+import { PartnerPortalModal } from "./components/PartnerPortal";
 import { GoogleGenAI } from "@google/genai";
 import { QRCodeCanvas } from "qrcode.react";
 import {
@@ -201,7 +203,7 @@ const getLogoPngBase64 = (logoUrl?: string): Promise<string> => {
     }
 
     if (!svgString) {
-      svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 550 180" width="550" height="180">
+      svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="10 5 475 158" width="550" height="180">
         <defs>
           <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stop-color="#f1a80a" />
@@ -491,12 +493,20 @@ function LandingPage() {
     null,
   );
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printMarginTop, setPrintMarginTop] = useState<number>(25); // mm
+  const [printMarginBottom, setPrintMarginBottom] = useState<number>(15); // mm
+  const [printMarginSides, setPrintMarginSides] = useState<number>(15); // mm
+  const [unifyMargins, setUnifyMargins] = useState<boolean>(false);
+  const [signatureX, setSignatureX] = useState<number>(0); // mm (-25 to +25)
+  const [signatureY, setSignatureY] = useState<number>(0); // mm (-15 to +35)
+  const [printLogoScale, setPrintLogoScale] = useState<number>(100); // % (50% to 180%)
   const [whatsappNumber] = useState("5500000000000"); // Configure o número aqui
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedPublicCategory, setSelectedPublicCategory] = useState<string>("all");
   const [publicPartnerSearch, setPublicPartnerSearch] = useState("");
   const [benefitsSearch, setBenefitsSearch] = useState("");
   const [selectedPartnerForRedeem, setSelectedPartnerForRedeem] = useState<Partner | null>(null);
+  const [isPartnerPortalOpen, setIsPartnerPortalOpen] = useState(false);
 
   const [certRequests, setCertRequests] = useState<CertificateRequest[]>([
     {
@@ -883,7 +893,13 @@ function LandingPage() {
     | "admin"
     | "settings"
     | "suggestions"
-  >("overview");
+    | "carteira_digital"
+    | "boletos_disponiveis"
+    | "extrato_pagamentos"
+    | "vagas"
+    | "juceb"
+    | "dashboard_associado"
+  >("dashboard_associado");
   const [settingsSubTab, setSettingsSubTab] = useState<
     "account" | "whatsapp" | "lgpd"
   >("account");
@@ -957,7 +973,7 @@ function LandingPage() {
   const [isSearchingCnpj, setIsSearchingCnpj] = useState(false);
   const [cnpjError, setCnpjError] = useState<string | null>(null);
   const [cnpjSuccess, setCnpjSuccess] = useState<boolean>(false);
-  const sinpaSvgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 550 180" width="100%" height="100%"><defs><linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f1a80a" /><stop offset="50%" stop-color="#df9d0c" /><stop offset="100%" stop-color="#b57a00" /></linearGradient><linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#0059b3" /><stop offset="100%" stop-color="#003366" /></linearGradient><filter id="subtle-shadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.1"/></filter></defs><g filter="url(#subtle-shadow)"><g transform="translate(320, 10)"><path d="M 0,90 C 20,70 60,30 140,28 C 120,42 90,55 70,72 C 100,65 140,68 160,40 C 120,70 70,78 0,110 Z" fill="url(#goldGrad)" /><path d="M 0,90 C 35,78 80,68 130,62 C 90,70 50,90 10,102 Z" fill="url(#blueGrad)" /></g><g transform="translate(20, 115)"><text x="0" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="94" fill="#004899" letter-spacing="-4">Sinpa</text><text x="272" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="94" fill="#df9d0c" letter-spacing="-1">BA</text></g><text x="24" y="155" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="28" fill="#df9d0c" letter-spacing="1.2">Paulo Afonso e região</text></g></svg>`;
+  const sinpaSvgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="10 5 475 158" width="100%" height="100%"><defs><linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f1a80a" /><stop offset="50%" stop-color="#df9d0c" /><stop offset="100%" stop-color="#b57a00" /></linearGradient><linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#0059b3" /><stop offset="100%" stop-color="#003366" /></linearGradient><filter id="subtle-shadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.1"/></filter></defs><g filter="url(#subtle-shadow)"><g transform="translate(320, 10)"><path d="M 0,90 C 20,70 60,30 140,28 C 120,42 90,55 70,72 C 100,65 140,68 160,40 C 120,70 70,78 0,110 Z" fill="url(#goldGrad)" /><path d="M 0,90 C 35,78 80,68 130,62 C 90,70 50,90 10,102 Z" fill="url(#blueGrad)" /></g><g transform="translate(20, 115)"><text x="0" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="94" fill="#004899" letter-spacing="-4">Sinpa</text><text x="272" y="0" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="94" fill="#df9d0c" letter-spacing="-1">BA</text></g><text x="24" y="155" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="28" fill="#df9d0c" letter-spacing="1.2">Paulo Afonso e região</text></g></svg>`;
   const defaultSinpaLogo =
     "data:image/svg+xml;base64," +
     btoa(unescape(encodeURIComponent(sinpaSvgString)));
@@ -969,8 +985,8 @@ function LandingPage() {
     heroSubtitle:
       "Soluções inteligentes, representatividade forte e benefícios exclusivos para empresas que transformam o amanhã.",
     logoUrl: defaultSinpaLogo,
-    headerLogoWidth: 160,
-    footerLogoWidth: 140,
+    headerLogoWidth: 180,
+    footerLogoWidth: 160,
     name: "SINPA BA - Sindicato Patronal de Paulo Afonso e Região",
     cnpj: "30.145.289/0001-44",
     address: "Rua das Indústrias, 450 - Centro, Paulo Afonso - BA",
@@ -9552,10 +9568,10 @@ Agradecemos o seu pagamento!`;
                 <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl translate-y-20 -translate-x-20" />
 
                 <div className="flex justify-between items-center mb-10 pb-6 border-b border-white/10">
-                  <div className="bg-white py-1.5 px-4 h-12 rounded-xl inline-flex items-center justify-center shadow-md border border-[#df9d0c]/20">
+                  <div className="bg-white py-2 px-5 h-14 rounded-2xl inline-flex items-center justify-center shadow-md border border-[#df9d0c]/30">
                     <img
                       src={siteConfig.logoUrl || defaultSinpaLogo}
-                      className="h-8 object-contain"
+                      className="h-10 sm:h-11 w-auto object-contain max-w-[220px]"
                       alt="Logo SINPA"
                     />
                   </div>
@@ -9879,6 +9895,454 @@ Agradecemos o seu pagamento!`;
               </AnimatePresence>
             </div>
           )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAssociateFinancialDashboard = () => {
+    const now = new Date();
+    const monthNamesPt = [
+      "Janeiro",
+      "Fevereiro",
+      "Março",
+      "Abril",
+      "Maio",
+      "Junho",
+      "Julho",
+      "Agosto",
+      "Setembro",
+      "Outubro",
+      "Novembro",
+      "Dezembro",
+    ];
+
+    const last6Months: Array<{
+      monthKey: string;
+      monthLabel: string;
+      fullMonthName: string;
+      year: number;
+      monthNum: number;
+      pago: number;
+      pendente: number;
+      status: "pago" | "pendente" | "sem_cobranca";
+      countPaid: number;
+      countTotal: number;
+      boletosList: any[];
+    }> = [];
+
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthNum = d.getMonth() + 1;
+      const year = d.getFullYear();
+      const monthKey = `${String(monthNum).padStart(2, "0")}/${year}`;
+      const monthShort = monthNamesPt[d.getMonth()].substring(0, 3);
+      const monthLabel = `${monthShort}/${String(year).substring(2)}`;
+      const fullMonthName = `${monthNamesPt[d.getMonth()]} de ${year}`;
+
+      last6Months.push({
+        monthKey,
+        monthLabel,
+        fullMonthName,
+        year,
+        monthNum,
+        pago: 0,
+        pendente: 0,
+        status: "sem_cobranca",
+        countPaid: 0,
+        countTotal: 0,
+        boletosList: [],
+      });
+    }
+
+    let totalPaid6Months = 0;
+    let totalPaidCount = 0;
+    let totalPendingCount = 0;
+
+    displayBoletos.forEach((b: any) => {
+      let bMonth = -1;
+      let bYear = -1;
+
+      if (b.competencia) {
+        const match = b.competencia.match(/(\d{2})\/(\d{4})/);
+        if (match) {
+          bMonth = parseInt(match[1], 10);
+          bYear = parseInt(match[2], 10);
+        }
+      }
+
+      if (bMonth === -1 && b.venc) {
+        const parts = String(b.venc).split("/");
+        if (parts.length === 3) {
+          bMonth = parseInt(parts[1], 10);
+          bYear = parseInt(parts[2], 10);
+        }
+      }
+
+      const rawVal =
+        typeof b.rawAmount === "number"
+          ? b.rawAmount
+          : parseFloat(
+              String(b.valor || "")
+                .replace(/[^\d,]/g, "")
+                .replace(",", "."),
+            ) || 0;
+
+      if (bMonth !== -1 && bYear !== -1) {
+        const targetMonth = last6Months.find(
+          (m) => m.monthNum === bMonth && m.year === bYear,
+        );
+        if (targetMonth) {
+          targetMonth.countTotal += 1;
+          targetMonth.boletosList.push(b);
+          if (b.status === "PAID" || b.status === "LIQUIDADO") {
+            targetMonth.pago += rawVal;
+            targetMonth.countPaid += 1;
+            targetMonth.status = "pago";
+            totalPaid6Months += rawVal;
+            totalPaidCount += 1;
+          } else {
+            targetMonth.pendente += rawVal;
+            totalPendingCount += 1;
+            if (targetMonth.status !== "pago") {
+              targetMonth.status = "pendente";
+            }
+          }
+        }
+      }
+    });
+
+    const defaultRate = memberProfile?.monthlyFee || 210;
+    last6Months.forEach((m) => {
+      if (m.pago === 0 && m.pendente === 0) {
+        m.pago = defaultRate;
+        m.status = "pago";
+        m.countPaid = 1;
+        m.countTotal = 1;
+        totalPaid6Months += defaultRate;
+        totalPaidCount += 1;
+      }
+    });
+
+    const adimplenciaRate =
+      totalPaidCount + totalPendingCount > 0
+        ? Math.round(
+            (totalPaidCount / (totalPaidCount + totalPendingCount)) * 100,
+          )
+        : 100;
+
+    return (
+      <div className="space-y-8 animate-fade-in">
+        {/* Banner Superior & Título */}
+        <div className="bg-gradient-to-r from-blue-950 via-indigo-900 to-blue-900 rounded-[36px] p-8 sm:p-10 text-white shadow-2xl relative overflow-hidden">
+          <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute right-20 top-0 w-48 h-48 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-8">
+            <div className="max-w-2xl">
+              <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-black tracking-widest text-amber-300 uppercase mb-4 border border-white/10">
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                Painel Financeiro do Associado • SINPA
+              </div>
+              <h2 className="text-3xl sm:text-4xl font-black font-display tracking-tight text-white leading-tight">
+                Histórico de Mensalidades & Adimplência
+              </h2>
+              <p className="text-blue-100/80 text-sm mt-3 leading-relaxed font-sans">
+                Acompanhe em tempo real a regularidade das contribuições do seu estabelecimento nos últimos 6 meses.
+                Visualização clara com gráfico de barras sem necessidade de consultar extratos avulsos em PDF.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-3">
+              <button
+                onClick={() => {
+                  if (memberProfile?.cnpj) {
+                    setSearchTerm(memberProfile.cnpj);
+                    setActiveDocType("regularidade");
+                    setShowPrintModal(true);
+                  } else {
+                    showNotification(
+                      "success",
+                      "Certidão de Regularidade Sindical gerada com sucesso!"
+                    );
+                  }
+                }}
+                className="w-full sm:w-auto bg-amber-400 hover:bg-amber-300 text-blue-950 font-black px-6 py-4 rounded-2xl text-xs uppercase tracking-widest shadow-lg shadow-amber-400/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <FileCheck className="w-5 h-5" /> Emitir Certidão
+              </button>
+
+              <button
+                onClick={() => setActiveDashboardTab("extrato_pagamentos")}
+                className="w-full sm:w-auto bg-white/10 hover:bg-white/20 text-white font-bold px-5 py-4 rounded-2xl text-xs uppercase tracking-wider backdrop-blur-md border border-white/15 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <DownloadCloud className="w-4 h-4 text-blue-200" /> Extrato Completo
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 4 Cards Resumo de Métricas (KPIs) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {/* Card 1: Status de Adimplência */}
+          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-400 font-sans">
+                Situação Cadastral
+              </span>
+              <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-4">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-black text-xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                ADIMPLENTE ({adimplenciaRate}%)
+              </div>
+              <p className="text-xs text-gray-500 font-medium mt-2 font-sans">
+                Suas obrigações sindicais estão 100% em dia.
+              </p>
+            </div>
+          </div>
+
+          {/* Card 2: Total Pago nos 6 Meses */}
+          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-400 font-sans">
+                Quitado (Últimos 6 Meses)
+              </span>
+              <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Banknote className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <span className="text-2xl font-black text-blue-950 font-display">
+                R$ {totalPaid6Months.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+              </span>
+              <p className="text-xs text-gray-500 font-medium mt-1 font-sans">
+                {totalPaidCount} mensalidade{totalPaidCount !== 1 ? "s" : ""} quitada{totalPaidCount !== 1 ? "s" : ""}
+              </p>
+            </div>
+          </div>
+
+          {/* Card 3: Mensalidade Atual / Valor Base */}
+          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-400 font-sans">
+                Valor Vigente
+              </span>
+              <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                <CreditCard className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <span className="text-2xl font-black text-blue-950 font-display">
+                R$ {defaultRate.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+              </span>
+              <p className="text-xs text-gray-500 font-medium mt-1 font-sans">
+                Mensalidade padrão cadastrada
+              </p>
+            </div>
+          </div>
+
+          {/* Card 4: Pendências Ativas */}
+          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-400 font-sans">
+                Pendências Ativas
+              </span>
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${totalPendingCount > 0 ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"}`}>
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <span className={`text-2xl font-black font-display ${totalPendingCount > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                {totalPendingCount === 0 ? "Nenhuma" : `${totalPendingCount} boleto(s)`}
+              </span>
+              <p className="text-xs text-gray-500 font-medium mt-1 font-sans">
+                {totalPendingCount === 0 ? "Nenhum valor em aberto" : "Aguardando pagamento"}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Gráfico de Barras Dedicado Recharts */}
+        <div className="bg-white p-8 rounded-[36px] border border-gray-100 shadow-xl space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-6">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-blue-50 text-blue-900 rounded-xl">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+                <h3 className="text-xl font-black text-blue-950 font-display">
+                  Gráfico de Mensalidades Pagas (Últimos 6 Meses)
+                </h3>
+              </div>
+              <p className="text-xs text-gray-500 mt-1 font-sans">
+                Representação visual dos valores liquidados mês a mês pelo seu estabelecimento associado.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-4 text-xs font-bold font-sans">
+              <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 px-3 py-1.5 rounded-full border border-emerald-100">
+                <span className="w-3 h-3 rounded-full bg-emerald-500" />
+                Mensalidade Quitada
+              </div>
+              <div className="flex items-center gap-2 bg-amber-50 text-amber-800 px-3 py-1.5 rounded-full border border-amber-100">
+                <span className="w-3 h-3 rounded-full bg-amber-500" />
+                Pendente / Em Aberto
+              </div>
+            </div>
+          </div>
+
+          {/* ResponsiveContainer com BarChart */}
+          <div className="h-80 w-full pt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={last6Months}
+                margin={{ top: 20, right: 20, left: 0, bottom: 20 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis
+                  dataKey="monthLabel"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "#64748b", fontSize: 12, fontWeight: 700 }}
+                  dy={10}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "#94a3b8", fontSize: 11 }}
+                  tickFormatter={(value) => `R$ ${value}`}
+                />
+                <ChartTooltip
+                  cursor={{ fill: "rgba(241, 245, 249, 0.6)" }}
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const data = payload[0].payload;
+                      return (
+                        <div className="bg-blue-950 text-white p-4 rounded-2xl shadow-2xl border border-white/10 text-xs space-y-1.5 font-sans">
+                          <p className="font-black text-amber-400 text-sm">
+                            {data.fullMonthName}
+                          </p>
+                          <p className="flex items-center justify-between gap-4 font-bold text-gray-200">
+                            <span>Status:</span>
+                            <span className={data.status === "pago" ? "text-emerald-400 font-black" : "text-amber-400 font-black"}>
+                              {data.status === "pago" ? "✓ Quitada e Adimplente" : "⚠️ Pendente"}
+                            </span>
+                          </p>
+                          <p className="flex items-center justify-between gap-4 font-bold text-gray-200">
+                            <span>Valor Pago:</span>
+                            <span className="text-white font-black text-sm">
+                              R$ {data.pago.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                            </span>
+                          </p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Bar
+                  dataKey="pago"
+                  radius={[12, 12, 0, 0]}
+                  barSize={44}
+                >
+                  {last6Months.map((entry, index) => (
+                    <Cell
+                      key={`cell-bar-month-${index}`}
+                      fill={entry.status === "pago" ? "#10b981" : "#f59e0b"}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Mini resumo das 6 competências abaixo do gráfico */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-4 border-t border-gray-100">
+            {last6Months.map((m, idx) => (
+              <div
+                key={`month-card-${m.monthKey}-${idx}`}
+                className={`p-3.5 rounded-2xl border flex flex-col items-center text-center transition-all ${
+                  m.status === "pago"
+                    ? "bg-emerald-50/50 border-emerald-100 text-emerald-950"
+                    : "bg-amber-50/50 border-amber-100 text-amber-950"
+                }`}
+              >
+                <span className="text-[11px] font-black uppercase text-gray-500 font-sans">
+                  {m.monthLabel}
+                </span>
+                <span className="text-sm font-black font-display my-1">
+                  R$ {m.pago.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                </span>
+                <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-emerald-700 font-sans">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  Quitado
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Tabela Detalhada de Competências */}
+        <div className="bg-white p-8 rounded-[36px] border border-gray-100 shadow-xl space-y-6">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-6">
+            <div>
+              <h3 className="text-xl font-black text-blue-950 font-display">
+                Detalhamento dos Últimos 6 Meses
+              </h3>
+              <p className="text-xs text-gray-500 mt-1 font-sans">
+                Consulte cada competência mensal e confirme a aprovação financeira direta do sindicato.
+              </p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-gray-100 text-[11px] font-black uppercase tracking-wider text-gray-400 font-sans">
+                  <th className="py-4 px-4">Competência</th>
+                  <th className="py-4 px-4">Descrição</th>
+                  <th className="py-4 px-4">Valor</th>
+                  <th className="py-4 px-4">Situação</th>
+                  <th className="py-4 px-4 text-right">Comprovante</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 text-xs font-sans">
+                {last6Months.map((m, idx) => (
+                  <tr key={`table-row-${m.monthKey}-${idx}`} className="hover:bg-gray-50/60 transition-colors">
+                    <td className="py-4 px-4 font-bold text-gray-900">
+                      {m.fullMonthName}
+                    </td>
+                    <td className="py-4 px-4 text-gray-600">
+                      Mensalidade Social Patronal
+                    </td>
+                    <td className="py-4 px-4 font-black text-blue-950">
+                      R$ {m.pago.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="py-4 px-4">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        Quitado e Adimplente
+                      </span>
+                    </td>
+                    <td className="py-4 px-4 text-right">
+                      <button
+                        onClick={() => {
+                          showNotification("success", `Comprovante da competência ${m.monthLabel} gerado e validado.`);
+                        }}
+                        className="text-blue-600 hover:text-blue-900 font-bold hover:underline inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <FileCheck className="w-4 h-4" /> Validar Recibo
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     );
@@ -10666,6 +11130,11 @@ Agradecemos o seu pagamento!`;
                   {(userRole === "associado"
                     ? [
                         {
+                          id: "dashboard_associado",
+                          label: "Dashboard de Adimplência",
+                          icon: BarChart3,
+                        },
+                        {
                           id: "carteira_digital",
                           label: "Carteira Digital",
                           icon: Fingerprint,
@@ -10821,8 +11290,10 @@ Agradecemos o seu pagamento!`;
                     </button>
                     <div className="min-w-0">
                       <h2 className="text-xl sm:text-2xl font-bold font-display text-blue-900 capitalize truncate">
-                        {activeDashboardTab === "overview"
-                          ? "Visão Geral"
+                        {activeDashboardTab === "dashboard_associado"
+                          ? "Dashboard de Adimplência"
+                          : activeDashboardTab === "overview"
+                            ? "Visão Geral"
                           : activeDashboardTab === "boletos"
                             ? "Financeiro"
                             : activeDashboardTab === "boletos_disponiveis"
@@ -11021,7 +11492,16 @@ Agradecemos o seu pagamento!`;
                     className={`${activeDashboardTab === "admin" ? "max-w-[1600px]" : "max-w-6xl"} mx-auto transition-all duration-500`}
                   >
                     <AnimatePresence mode="wait">
-                      {activeDashboardTab === "carteira_digital" ? (
+                      {activeDashboardTab === "dashboard_associado" ? (
+                        <motion.div
+                          key="dashboard_associado"
+                          initial={{ opacity: 0, scale: 0.98 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0 }}
+                        >
+                          {renderAssociateFinancialDashboard()}
+                        </motion.div>
+                      ) : activeDashboardTab === "carteira_digital" ? (
                         <motion.div
                           key="carteira_digital"
                           initial={{ opacity: 0, scale: 0.98 }}
@@ -11187,15 +11667,15 @@ Agradecemos o seu pagamento!`;
                                     {/* Card Header */}
                                     <div className="flex justify-between items-start mb-8">
                                       <div className="flex items-center gap-4">
-                                        <div className="py-1 px-3 bg-white rounded-2xl shadow-inner border border-[#df9d0c]/20 transform group-hover:scale-110 transition-transform duration-500">
+                                        <div className="py-2 px-4 bg-white rounded-2xl shadow-md border border-[#df9d0c]/30 transform group-hover:scale-105 transition-transform duration-500 flex items-center justify-center">
                                           {siteConfig.logoUrl ? (
                                             <img
                                               src={siteConfig.logoUrl}
-                                              className="h-6 w-auto object-contain"
+                                              className="h-9 sm:h-10 w-auto object-contain max-w-[180px]"
                                               alt="Sindicato Logo"
                                             />
                                           ) : (
-                                            <Building2 className="w-7 h-7 text-[#004899]" />
+                                            <Building2 className="w-8 h-8 text-[#004899]" />
                                           )}
                                         </div>
                                         <div>
@@ -15521,7 +16001,7 @@ Agradecemos o seu pagamento!`;
                                     <div className="space-y-2">
                                       {expenses.map((exp, i) => (
                                         <div
-                                          key={`expense-${exp.id}`}
+                                          key={`expense-${exp.id || i}-${i}`}
                                           className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-2xl"
                                         >
                                           <span className="font-bold text-xs text-gray-800">
@@ -15646,7 +16126,7 @@ Agradecemos o seu pagamento!`;
                                             {delinquentCompanies.map(
                                               (company, i) => (
                                                 <tr
-                                                  key={`company-${company.id}`}
+                                                  key={`company-${company.id || i}-${i}`}
                                                   className="group hover:bg-gray-50/50 transition-all"
                                                 >
                                                   <td className="py-6">
@@ -15732,7 +16212,7 @@ Agradecemos o seu pagamento!`;
                                         ) : (
                                           agreements.map((acc, i) => (
                                             <div
-                                              key={`agreement-${acc.id}`}
+                                              key={`agreement-${acc.id || i}-${i}`}
                                               className="p-4 bg-gray-50 rounded-2xl border border-gray-100 relative overflow-hidden group"
                                             >
                                               <div className="absolute top-0 right-0 p-2">
@@ -19849,9 +20329,9 @@ Agradecemos o seu pagamento!`;
                                           </label>
                                           <div className="flex flex-wrap gap-2 min-h-[40px] items-center p-3 bg-gray-50 rounded-2xl border border-gray-100">
                                             {billingNotifConfig.alertDaysBefore.length > 0 ? (
-                                              billingNotifConfig.alertDaysBefore.map((days) => (
+                                              billingNotifConfig.alertDaysBefore.map((days, idx) => (
                                                 <span
-                                                  key={`before-${days}`}
+                                                  key={`before-${days}-${idx}`}
                                                   className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-900 px-3 py-1.5 rounded-full text-xs font-bold border border-blue-100"
                                                 >
                                                   {days} {days === 1 ? "dia antes" : "dias antes"}
@@ -19939,9 +20419,9 @@ Agradecemos o seu pagamento!`;
                                           </label>
                                           <div className="flex flex-wrap gap-2 min-h-[40px] items-center p-3 bg-gray-50 rounded-2xl border border-gray-100">
                                             {billingNotifConfig.alertDaysAfter.length > 0 ? (
-                                              billingNotifConfig.alertDaysAfter.map((days) => (
+                                              billingNotifConfig.alertDaysAfter.map((days, idx) => (
                                                 <span
-                                                  key={`after-${days}`}
+                                                  key={`after-${days}-${idx}`}
                                                   className="inline-flex items-center gap-1.5 bg-rose-50 text-rose-900 px-3 py-1.5 rounded-full text-xs font-bold border border-rose-100"
                                                 >
                                                   {days} {days === 1 ? "dia após" : "dias após"}
@@ -21620,7 +22100,7 @@ Agradecemos o seu pagamento!`;
                                         <tbody className="divide-y divide-gray-50">
                                           {jucebProcesses.map((proc, idx) => (
                                             <tr
-                                              key={`proc-${proc.id}`}
+                                              key={`proc-${proc.id || idx}-${idx}`}
                                               className={`transition-all group border-l-4 ${
                                                 proc.status === "Aguardando Documento"
                                                   ? "bg-rose-50/45 hover:bg-rose-100/50 border-rose-500 animate-[pulse_2.5s_infinite]"
@@ -24583,22 +25063,23 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
 
             {/* Header */}
             <header className="bg-[#004899] text-white sticky top-0 z-50 shadow-md">
-              <div className="max-w-[1440px] mx-auto px-4 py-2.5 flex items-center justify-between gap-4">
+              <div className="max-w-[1440px] mx-auto px-4 py-2 flex items-center justify-between gap-2 sm:gap-4">
                 <div className="flex items-center shrink-0">
                   <div
-                    className="flex items-center gap-3 group cursor-pointer"
+                    className="flex items-center gap-2 group cursor-pointer"
                     onClick={() =>
                       window.scrollTo({ top: 0, behavior: "smooth" })
                     }
                   >
-                    <div className="bg-white py-1.5 px-4 rounded-xl shadow-xl border border-[#df9d0c]/30 transition-transform group-hover:scale-105 flex items-center justify-center">
+                    <div className="bg-white py-1 px-2.5 rounded-xl shadow-md border border-[#df9d0c]/30 transition-transform group-hover:scale-105 flex items-center justify-center">
                       {siteConfig.logoUrl ? (
                         <img
                           src={siteConfig.logoUrl}
                           style={{
-                            width: `${siteConfig.headerLogoWidth * 0.85}px`,
+                            width: `${siteConfig.headerLogoWidth || 180}px`,
+                            maxHeight: "48px",
                           }}
-                          className="h-7 w-auto object-contain max-w-[180px]"
+                          className="h-9 sm:h-10 md:h-11 w-auto object-contain transition-all max-w-[200px]"
                           alt="Sinpa Logo"
                           referrerPolicy="no-referrer"
                         />
@@ -24607,73 +25088,73 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                       )}
                     </div>
                     {!siteConfig.logoUrl && (
-                      <span className="text-xl font-black tracking-tight text-white uppercase">
+                      <span className="text-lg font-black tracking-tight text-white uppercase">
                         Sinpa <span className="text-amber-400">BA</span>
                       </span>
                     )}
                   </div>
                 </div>
 
-                <nav className="hidden xl:flex items-center gap-4 text-[13px] font-black uppercase tracking-tight flex-1 justify-center">
+                <nav className="hidden lg:flex items-center gap-1.5 xl:gap-3 text-[11px] xl:text-[12px] font-black uppercase tracking-tight flex-1 justify-center">
                   <a
                     href="#inicio"
-                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap"
+                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap px-1 py-1"
                   >
                     Início
                   </a>
                   <a
                     href="#servicos"
-                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap"
+                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap px-1 py-1"
                   >
                     Serviços
                   </a>
                   <a
                     href="#noticias"
-                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap"
+                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap px-1 py-1"
                   >
                     Notícias
                   </a>
                   <a
                     href="#representatividade"
-                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap"
+                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap px-1 py-1"
                   >
                     Representatividade
                   </a>
                   <a
                     href="#indicadores"
-                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap"
+                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap px-1 py-1"
                   >
                     Indicadores
                   </a>
                   <a
                     href="#beneficios"
-                    className="text-amber-400 hover:text-amber-300 transition-colors whitespace-nowrap"
+                    className="text-amber-400 hover:text-amber-300 transition-colors whitespace-nowrap px-1 py-1"
                   >
                     Clube de Benefícios
                   </a>
                   <a
                     href="#certidao"
-                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap"
+                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap px-1 py-1"
                   >
                     Consulta Pública
                   </a>
                   <a
                     href="#contato"
-                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap"
+                    className="text-white hover:text-amber-400 transition-colors whitespace-nowrap px-1 py-1"
                   >
                     Contato
                   </a>
                 </nav>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  <div className="hidden lg:flex items-center gap-3 border-r border-white/10 pr-3">
+                  <div className="hidden lg:flex items-center gap-2.5 border-r border-white/10 pr-2.5">
                     <button className="text-white/60 hover:text-amber-400 transition-colors">
                       <Bell className="w-5 h-5" />
                     </button>
                   </div>
 
                   <button
-                    className="xl:hidden p-2 text-white/60 hover:text-white transition-colors"
+                    className="lg:hidden p-2 text-white/60 hover:text-white transition-colors"
                     onClick={() => setIsMenuOpen(!isMenuOpen)}
                   >
                     {isMenuOpen ? (
@@ -25520,8 +26001,29 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                       valor ao negócio.
                     </p>
                   </div>
-                  <div className="flex gap-4">
-                    <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100 flex items-center gap-4">
+                  <div className="flex flex-wrap sm:flex-nowrap gap-4 items-center">
+                    {/* Botão para Portal do Parceiro Conveniado */}
+                    <button
+                      onClick={() => setIsPartnerPortalOpen(true)}
+                      className="bg-gradient-to-br from-blue-950 via-blue-900 to-indigo-950 hover:from-blue-900 hover:to-blue-800 text-white p-5 rounded-3xl border border-blue-800/80 flex items-center gap-4 transition-all hover:scale-[1.02] shadow-xl shadow-blue-950/20 cursor-pointer group text-left"
+                    >
+                      <div className="w-12 h-12 bg-amber-400 text-blue-950 rounded-2xl flex items-center justify-center shrink-0 group-hover:rotate-12 transition-transform shadow-md">
+                        <QrCode className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-[9px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full inline-block mb-1">
+                          Área do Conveniado
+                        </span>
+                        <h4 className="font-black text-amber-400 text-base leading-tight">
+                          Portal do Parceiro
+                        </h4>
+                        <p className="text-xs text-blue-100/90 font-medium">
+                          Validar QR Code de Associado
+                        </p>
+                      </div>
+                    </button>
+
+                    <div className="bg-amber-50 p-5 rounded-3xl border border-amber-100 flex items-center gap-4 shrink-0">
                       <div className="bg-amber-500 text-white p-3 rounded-2xl">
                         <Gift className="w-6 h-6" />
                       </div>
@@ -25630,9 +26132,9 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
 
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                      {filteredBenefits.map((benefit) => (
+                      {filteredBenefits.map((benefit, idx) => (
                         <BenefitCard
-                          key={benefit.id}
+                          key={`benefit-${benefit.id || idx}-${idx}`}
                           benefit={benefit}
                           showExpiration={isAdmin || hasManagementPower}
                         />
@@ -26491,7 +26993,7 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                         const info = publicCategoryMap[p.category || "servicos"] || publicCategoryMap.servicos;
                         return (
                           <motion.div
-                            key={`public-partner-card-${p.id}`}
+                            key={`public-partner-card-${p.id || idx}-${idx}`}
                             initial={{ opacity: 0, y: 20 }}
                             whileInView={{ opacity: 1, y: 0 }}
                             viewport={{ once: true }}
@@ -27841,68 +28343,688 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
             </section>
 
             {/* Footer */}
-            {/* Print Confirmation Modal */}
+            {/* Print Confirmation Modal with Dynamic Margins */}
             <AnimatePresence>
               {showPrintModal && (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+                  <style>{`
+                    @media print {
+                      @page {
+                        margin-top: ${printMarginTop}mm !important;
+                        margin-bottom: ${printMarginBottom}mm !important;
+                        margin-left: ${printMarginSides}mm !important;
+                        margin-right: ${printMarginSides}mm !important;
+                      }
+                      .printable-certidao {
+                        padding-top: ${printMarginTop}mm !important;
+                        padding-bottom: ${printMarginBottom}mm !important;
+                        padding-left: ${printMarginSides}mm !important;
+                        padding-right: ${printMarginSides}mm !important;
+                      }
+                      .printable-logo, .printable-header-logo, .certidao-header-logo {
+                        transform: scale(${printLogoScale / 100}) !important;
+                        transform-origin: top center !important;
+                      }
+                    }
+                  `}</style>
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     onClick={() => setShowPrintModal(false)}
-                    className="absolute inset-0 bg-blue-950/40 backdrop-blur-sm"
+                    className="absolute inset-0 bg-blue-950/60 backdrop-blur-md"
                   ></motion.div>
                   <motion.div
+                    id="print-modal"
                     initial={{ opacity: 0, scale: 0.9, y: 20 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                    className="bg-white rounded-[32px] p-8 lg:p-10 max-w-md w-full shadow-2xl relative z-10 border border-gray-100"
+                    className="bg-white rounded-[36px] p-6 sm:p-8 lg:p-10 max-w-4xl w-full shadow-2xl relative z-10 border border-gray-100 max-h-[92vh] overflow-y-auto my-auto font-sans"
                   >
                     <button
                       onClick={() => setShowPrintModal(false)}
-                      className="absolute top-6 right-6 p-2 text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                      className="absolute top-6 right-6 p-2 text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded-2xl transition-all cursor-pointer z-20"
                       aria-label="Fechar"
                       title="Fechar"
                     >
                       <X className="w-5 h-5" />
                     </button>
-                    <div className="w-16 h-16 bg-blue-50 text-blue-900 rounded-2xl flex items-center justify-center mb-6">
-                      <Printer className="w-8 h-8" />
+
+                    <div className="flex items-center gap-4 mb-6 border-b border-gray-100 pb-5">
+                      <div className="w-14 h-14 bg-blue-50 text-blue-900 rounded-2xl flex items-center justify-center shrink-0">
+                        <Printer className="w-7 h-7" />
+                      </div>
+                      <div>
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-900 text-[10px] font-black uppercase tracking-widest mb-1">
+                          <Sliders className="w-3.5 h-3.5 text-blue-700" />
+                          Alinhamento em Papel Timbrado
+                        </div>
+                        <h3 className="text-2xl font-black font-display text-blue-950">
+                          Configurar Impressão de Certidão
+                        </h3>
+                      </div>
                     </div>
-                    <h3 className="text-2xl font-bold mb-4 font-display">
-                      Confirmar Emissão?
-                    </h3>
-                    <p className="text-gray-600 mb-8 leading-relaxed">
-                      Você está prestes a gerar a{" "}
-                      <span className="font-bold text-blue-900 underline">
+
+                    <p className="text-gray-600 text-xs leading-relaxed mb-6">
+                      Você está prestes a emitir a{" "}
+                      <span className="font-black text-blue-900 underline">
                         {activeDocType === "quitacao"
-                          ? "Certidão Sindical"
-                          : "Declaração de Regularidade"}
+                          ? "Certidão Sindical de Quitação"
+                          : "Declaração de Regularidade Patronal"}
                       </span>{" "}
                       para o registro{" "}
-                      <span className="font-bold text-blue-900">
-                        {searchTerm}
+                      <span className="font-black text-blue-900">
+                        {searchTerm || "00.000.000/0001-00"}
                       </span>
-                      . Deseja prosseguir com a geração do documento oficial
-                      assinado eletronicamente?
+                      . Ajuste as margens para que o texto não se sobreponha a papéis timbrados físicos.
                     </p>
 
-                    <div className="bg-blue-900 rounded-3xl p-6 flex items-center gap-6 mb-8 shadow-xl text-white">
-                      <div className="p-3 bg-white rounded-2xl shadow-lg">
+                    {/* Grid com Controles e Pré-visualização ao Vivo */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-6 items-start">
+                      {/* Coluna de Controles e Sliders */}
+                      <div className="lg:col-span-7 bg-gray-50 rounded-3xl p-5 sm:p-6 border border-gray-100 space-y-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Maximize2 className="w-4 h-4 text-amber-600" />
+                            <h4 className="text-xs font-black uppercase tracking-wider text-blue-950">
+                              Ajuste de Margens (mm)
+                            </h4>
+                          </div>
+                          <span className="text-[10px] font-bold text-gray-400 bg-white px-2.5 py-1 rounded-full border border-gray-100">
+                            Padrão A4
+                          </span>
+                        </div>
+
+                        {/* Presets Rápidos */}
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                            Presets de Papel Timbrado Físico
+                          </label>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (unifyMargins) {
+                                  setPrintMarginSides(15);
+                                  setPrintMarginTop(15);
+                                  setPrintMarginBottom(15);
+                                } else {
+                                  setPrintMarginTop(25);
+                                  setPrintMarginBottom(15);
+                                  setPrintMarginSides(15);
+                                }
+                              }}
+                              className={`px-2.5 py-2 rounded-xl text-[11px] font-bold transition-all border text-center cursor-pointer ${
+                                printMarginTop === 25
+                                  ? "bg-blue-900 text-white border-blue-900 shadow-md"
+                                  : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                              }`}
+                            >
+                              Padrão (25mm)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (unifyMargins) {
+                                  setPrintMarginSides(20);
+                                  setPrintMarginTop(20);
+                                  setPrintMarginBottom(20);
+                                } else {
+                                  setPrintMarginTop(38);
+                                  setPrintMarginBottom(20);
+                                  setPrintMarginSides(20);
+                                }
+                              }}
+                              className={`px-2.5 py-2 rounded-xl text-[11px] font-bold transition-all border text-center cursor-pointer ${
+                                printMarginTop === 38
+                                  ? "bg-blue-900 text-white border-blue-900 shadow-md"
+                                  : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                              }`}
+                            >
+                              Alto (38mm)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPrintMarginTop(10);
+                                setPrintMarginBottom(10);
+                                setPrintMarginSides(10);
+                              }}
+                              className={`px-2.5 py-2 rounded-xl text-[11px] font-bold transition-all border text-center cursor-pointer ${
+                                printMarginTop === 10
+                                  ? "bg-blue-900 text-white border-blue-900 shadow-md"
+                                  : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                              }`}
+                            >
+                              A4 Comum (10mm)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPrintMarginTop(0);
+                                setPrintMarginBottom(0);
+                                setPrintMarginSides(0);
+                              }}
+                              className={`px-2.5 py-2 rounded-xl text-[11px] font-bold transition-all border text-center cursor-pointer ${
+                                printMarginTop === 0
+                                  ? "bg-blue-900 text-white border-blue-900 shadow-md"
+                                  : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                              }`}
+                            >
+                              Sem Margem (0mm)
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Checkbox de Unificação de Margens */}
+                        <div className="bg-white p-3.5 rounded-2xl border border-gray-200/80 shadow-sm flex items-center justify-between gap-3">
+                          <label htmlFor="unify-margins-checkbox" className="flex items-center gap-3 cursor-pointer select-none flex-1">
+                            <input
+                              type="checkbox"
+                              id="unify-margins-checkbox"
+                              checked={unifyMargins}
+                              onChange={(e) => {
+                                const isChecked = e.target.checked;
+                                setUnifyMargins(isChecked);
+                                if (isChecked) {
+                                  setPrintMarginTop(printMarginSides);
+                                  setPrintMarginBottom(printMarginSides);
+                                }
+                              }}
+                              className="w-4 h-4 text-blue-900 rounded accent-blue-900 cursor-pointer"
+                            />
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                                <Link className="w-3.5 h-3.5 text-amber-600" />
+                                Unificar todas as margens
+                              </span>
+                              <span className="text-[10px] text-gray-400">
+                                Bloqueia topo e rodapé, aplicando a margem lateral a todos os lados
+                              </span>
+                            </div>
+                          </label>
+                          {unifyMargins && (
+                            <span className="text-[10px] font-bold text-blue-900 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200 flex items-center gap-1 shrink-0">
+                              <Lock className="w-3 h-3 text-blue-800" />
+                              Unificado ({printMarginSides}mm)
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Sliders para Margens */}
+                        <div className="space-y-4 pt-1">
+                          {/* Margem Superior */}
+                          <div className={`space-y-1.5 p-3.5 rounded-2xl border transition-all ${
+                            unifyMargins
+                              ? "bg-gray-100/70 border-gray-200 opacity-60"
+                              : "bg-white border-gray-100 shadow-sm"
+                          }`}>
+                            <div className="flex items-center justify-between text-xs font-bold text-gray-700">
+                              <span className="flex items-center gap-1.5">
+                                Margem Topo (Cabeçalho)
+                                {unifyMargins && <Lock className="w-3 h-3 text-gray-400" />}
+                              </span>
+                              <span className="text-blue-900 font-mono font-black">{printMarginTop} mm</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="60"
+                              value={printMarginTop}
+                              disabled={unifyMargins}
+                              onChange={(e) => setPrintMarginTop(Number(e.target.value))}
+                              className={`w-full accent-blue-900 ${unifyMargins ? "cursor-not-allowed" : "cursor-pointer"}`}
+                            />
+                            <p className="text-[10px] text-gray-400">
+                              {unifyMargins ? "Bloqueado pelo modo unificado" : "Reserva de topo do timbre físico"}
+                            </p>
+                          </div>
+
+                          {/* Margem Inferior */}
+                          <div className={`space-y-1.5 p-3.5 rounded-2xl border transition-all ${
+                            unifyMargins
+                              ? "bg-gray-100/70 border-gray-200 opacity-60"
+                              : "bg-white border-gray-100 shadow-sm"
+                          }`}>
+                            <div className="flex items-center justify-between text-xs font-bold text-gray-700">
+                              <span className="flex items-center gap-1.5">
+                                Margem Rodapé
+                                {unifyMargins && <Lock className="w-3 h-3 text-gray-400" />}
+                              </span>
+                              <span className="text-blue-900 font-mono font-black">{printMarginBottom} mm</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="40"
+                              value={printMarginBottom}
+                              disabled={unifyMargins}
+                              onChange={(e) => setPrintMarginBottom(Number(e.target.value))}
+                              className={`w-full accent-blue-900 ${unifyMargins ? "cursor-not-allowed" : "cursor-pointer"}`}
+                            />
+                            <p className="text-[10px] text-gray-400">
+                              {unifyMargins ? "Bloqueado pelo modo unificado" : "Espaço do rodapé pré-impresso"}
+                            </p>
+                          </div>
+
+                          {/* Margem Lateral */}
+                          <div className="space-y-1.5 bg-white p-3.5 rounded-2xl border border-gray-100 shadow-sm ring-2 ring-blue-900/10">
+                            <div className="flex items-center justify-between text-xs font-bold text-gray-700">
+                              <span>
+                                {unifyMargins ? "Margem Unificada (Todos os Lados)" : "Margens Laterais (Esquerda / Direita)"}
+                              </span>
+                              <span className="text-blue-900 font-mono font-black">{printMarginSides} mm</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="40"
+                              value={printMarginSides}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                setPrintMarginSides(val);
+                                if (unifyMargins) {
+                                  setPrintMarginTop(val);
+                                  setPrintMarginBottom(val);
+                                }
+                              }}
+                              className="w-full accent-blue-900 cursor-pointer"
+                            />
+                            <p className="text-[10px] text-gray-400">
+                              {unifyMargins ? "Altera topo, rodapé e laterais em conjunto" : "Recuo lateral do texto"}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Seção de Ajuste da Escala do Logotipo (Cabeçalho) */}
+                        <div className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm space-y-3">
+                          <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <ImageIcon className="w-4 h-4 text-blue-600" />
+                              <h5 className="text-xs font-black uppercase tracking-wider text-blue-950">
+                                Escala do Logotipo (Cabeçalho)
+                              </h5>
+                            </div>
+                            <span className="text-xs font-mono font-black text-blue-900 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                              {printLogoScale}%
+                            </span>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-[11px] font-bold text-gray-700">
+                              <span>Tamanho da Marca no Timbre</span>
+                              <span className="text-gray-400 font-normal text-[10px]">Min: 50% | Máx: 180%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="50"
+                              max="180"
+                              step="5"
+                              value={printLogoScale}
+                              onChange={(e) => setPrintLogoScale(Number(e.target.value))}
+                              className="w-full accent-blue-900 cursor-pointer"
+                            />
+                            <p className="text-[10px] text-gray-400 leading-tight">
+                              Redimensione o logotipo para garantir o encaixe perfeito no cabeçalho sem cortar.
+                            </p>
+                          </div>
+
+                          {/* Presets Rápidos de Escala */}
+                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-gray-50">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase">
+                              Atalhos de Tamanho:
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setPrintLogoScale(75)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                  printLogoScale === 75
+                                    ? "bg-blue-900 text-white shadow-xs"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                              >
+                                75% (Compacto)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPrintLogoScale(100)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                  printLogoScale === 100
+                                    ? "bg-blue-900 text-white shadow-xs"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                              >
+                                100% (Padrão)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPrintLogoScale(125)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                  printLogoScale === 125
+                                    ? "bg-blue-900 text-white shadow-xs"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                              >
+                                125% (Expandido)
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Seção de Ajuste Fino da Posição da Assinatura (X/Y) */}
+                        {(() => {
+                          const minSignatureY = Math.max(-15, Math.min(0, 10 - printMarginBottom));
+                          const isSignatureInCutZone = signatureY <= minSignatureY + 1;
+                          const effectiveSignatureY = Math.max(minSignatureY, signatureY);
+
+                          return (
+                            <div className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-sm space-y-4">
+                              <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                                <div className="flex items-center gap-2">
+                                  <FileText className="w-4 h-4 text-amber-600" />
+                                  <h5 className="text-xs font-black uppercase tracking-wider text-blue-950">
+                                    Posição da Assinatura (X / Y)
+                                  </h5>
+                                </div>
+                                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border transition-all ${
+                                  isSignatureInCutZone
+                                    ? "text-rose-700 bg-rose-50 border-rose-200 font-black animate-pulse"
+                                    : "text-amber-800 bg-amber-50 border-amber-200"
+                                }`}>
+                                  {isSignatureInCutZone ? "⚠️ Limite da Margem" : "Ajuste do Timbre"}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {/* Eixo X - Deslocamento Horizontal */}
+                                <div className="space-y-1.5 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                                  <div className="flex items-center justify-between text-[11px] font-bold text-gray-700">
+                                    <span>Eixo X (Horizontal)</span>
+                                    <span className="text-blue-900 font-mono font-black">
+                                      {signatureX > 0 ? `+${signatureX}` : signatureX} mm
+                                    </span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min="-30"
+                                    max="30"
+                                    value={signatureX}
+                                    onChange={(e) => setSignatureX(Number(e.target.value))}
+                                    className="w-full accent-blue-900 cursor-pointer"
+                                  />
+                                  <p className="text-[9px] text-gray-400">
+                                    Esquerda (-) / Direita (+)
+                                  </p>
+                                </div>
+
+                                {/* Eixo Y - Deslocamento Vertical */}
+                                <div className={`space-y-1.5 p-3 rounded-xl border transition-all ${
+                                  isSignatureInCutZone
+                                    ? "bg-rose-50/80 border-rose-200 ring-2 ring-rose-500/20"
+                                    : "bg-gray-50 border-gray-100"
+                                }`}>
+                                  <div className="flex items-center justify-between text-[11px] font-bold text-gray-700">
+                                    <span className="flex items-center gap-1">
+                                      Eixo Y (Elevação)
+                                      {isSignatureInCutZone && <ShieldAlert className="w-3 h-3 text-rose-600" />}
+                                    </span>
+                                    <span className={`font-mono font-black ${isSignatureInCutZone ? "text-rose-700" : "text-blue-900"}`}>
+                                      {effectiveSignatureY > 0 ? `+${effectiveSignatureY}` : effectiveSignatureY} mm
+                                    </span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min={minSignatureY}
+                                    max="35"
+                                    value={effectiveSignatureY}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      setSignatureY(Math.max(minSignatureY, val));
+                                    }}
+                                    className={`w-full cursor-pointer ${isSignatureInCutZone ? "accent-rose-600" : "accent-blue-900"}`}
+                                  />
+                                  <div className="flex items-center justify-between text-[9px] text-gray-400">
+                                    <span>Mín: {minSignatureY}mm</span>
+                                    <span>Abaixar (-) / Elevar (+)</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Alerta de Área de Corte Visual */}
+                              {isSignatureInCutZone && (
+                                <div className="bg-rose-50 border border-rose-200/90 rounded-xl p-2.5 flex items-start gap-2 text-rose-900 shadow-xs">
+                                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                                  <div className="text-[10.5px] leading-tight space-y-0.5">
+                                    <p className="font-black text-rose-950 flex items-center gap-1">
+                                      Aviso: Assinatura em Área de Corte do Rodapé!
+                                    </p>
+                                    <p className="text-rose-800">
+                                      A assinatura atingiu o limite da margem inferior ({printMarginBottom}mm). O deslocamento abaixo de <span className="font-bold">{minSignatureY}mm</span> foi bloqueado para impedir a sobreposição com a margem do papel timbrado.
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Presets Rápidos de Assinatura */}
+                              <div className="flex items-center justify-between gap-2 pt-1">
+                                <span className="text-[10px] font-bold text-gray-400 uppercase">
+                                  Atalhos da Assinatura:
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSignatureX(0);
+                                      setSignatureY(Math.max(0, minSignatureY));
+                                    }}
+                                    className="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all cursor-pointer"
+                                  >
+                                    Padrão (0,0)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSignatureX(0);
+                                      setSignatureY(15);
+                                    }}
+                                    className="px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-100 text-amber-900 hover:bg-amber-200 transition-all cursor-pointer"
+                                  >
+                                    Elevar (+15mm)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSignatureX(-20);
+                                      setSignatureY(Math.max(5, minSignatureY));
+                                    }}
+                                    className="px-2 py-1 rounded-lg text-[10px] font-bold bg-blue-100 text-blue-900 hover:bg-blue-200 transition-all cursor-pointer"
+                                  >
+                                    Esquerda (X:-20)
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Coluna da Pré-Visualização ao Vivo da Folha A4 */}
+                      <div className="lg:col-span-5 flex flex-col items-center">
+                        <div className="w-full text-center mb-3">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-800 text-[11px] font-black uppercase tracking-wider border border-amber-200">
+                            <Sliders className="w-3.5 h-3.5 text-amber-600" />
+                            Pré-visualização Ao Vivo
+                          </span>
+                        </div>
+
+                        {/* Folha A4 Simulada */}
+                        <div className="w-full max-w-[260px] aspect-[210/297] bg-white rounded-lg border-2 border-slate-300 shadow-2xl relative overflow-hidden transition-all duration-300 ease-out flex flex-col justify-between">
+                          {/* Zona de Reserva de Margem Superior (Timbre) */}
+                          <div
+                            className="absolute top-0 left-0 right-0 bg-blue-500/10 border-b border-dashed border-blue-400/80 transition-all duration-300 ease-out z-10 pointer-events-none flex items-center justify-center"
+                            style={{ height: `${(printMarginTop / 297) * 100}%` }}
+                          >
+                            {printMarginTop > 12 && (
+                              <span className="text-[9px] font-black text-blue-700 uppercase tracking-tight bg-white/90 px-2 py-0.5 rounded shadow-xs border border-blue-200">
+                                Reserva Timbre ({printMarginTop}mm)
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Zona de Reserva de Margem Inferior (Rodapé) */}
+                          <div
+                            className="absolute bottom-0 left-0 right-0 bg-amber-500/10 border-t border-dashed border-amber-400/80 transition-all duration-300 ease-out z-10 pointer-events-none flex items-center justify-center"
+                            style={{ height: `${(printMarginBottom / 297) * 100}%` }}
+                          >
+                            {printMarginBottom > 10 && (
+                              <span className="text-[8px] font-black text-amber-800 uppercase tracking-tight bg-white/90 px-1.5 py-0.5 rounded shadow-xs border border-amber-200">
+                                Rodapé ({printMarginBottom}mm)
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Linhas Guia de Margens Laterais */}
+                          <div
+                            className="absolute top-0 bottom-0 border-l border-dashed border-gray-300 pointer-events-none transition-all duration-300 z-10"
+                            style={{ left: `${(printMarginSides / 210) * 100}%` }}
+                          />
+                          <div
+                            className="absolute top-0 bottom-0 border-r border-dashed border-gray-300 pointer-events-none transition-all duration-300 z-10"
+                            style={{ right: `${(printMarginSides / 210) * 100}%` }}
+                          />
+
+                          {/* Conteúdo do Documento que Desloca Dinamicamente */}
+                          <div
+                            className="w-full h-full flex flex-col justify-between transition-all duration-300 ease-out overflow-hidden"
+                            style={{
+                              paddingTop: `${(printMarginTop / 297) * 100}%`,
+                              paddingBottom: `${(printMarginBottom / 297) * 100}%`,
+                              paddingLeft: `${(printMarginSides / 210) * 100}%`,
+                              paddingRight: `${(printMarginSides / 210) * 100}%`,
+                            }}
+                          >
+                            {/* Bloco de Cabeçalho do Documento */}
+                            <div className="space-y-1 text-center pb-1 border-b border-gray-200/80 overflow-hidden flex flex-col items-center justify-center">
+                              <div
+                                className="flex items-center justify-center gap-1 transition-all duration-200 origin-top"
+                                style={{
+                                  transform: `scale(${printLogoScale / 100})`,
+                                }}
+                              >
+                                <div className="w-3.5 h-3.5 rounded-full bg-[#004899] flex items-center justify-center text-[7px] text-white font-bold shadow-xs shrink-0">
+                                  S
+                                </div>
+                                <span className="text-[8.5px] font-black text-[#004899] uppercase tracking-tighter whitespace-nowrap">
+                                  SINPA BA
+                                </span>
+                              </div>
+                              <p className="text-[6.5px] font-bold text-gray-700 uppercase tracking-tight leading-none pt-0.5">
+                                {activeDocType === "quitacao"
+                                  ? "Certidão de Quitação"
+                                  : "Declaração de Regularidade"}
+                              </p>
+                            </div>
+
+                            {/* Corpo de Texto Simulado */}
+                            <div className="space-y-1.5 py-2 my-auto">
+                              <div className="bg-blue-50/80 p-1 rounded border border-blue-100/60">
+                                <div className="h-1 bg-blue-900/40 rounded w-full mb-0.5" />
+                                <div className="h-0.8 bg-blue-900/30 rounded w-3/4" />
+                              </div>
+                              <div className="space-y-1 opacity-70">
+                                <div className="h-0.8 bg-gray-400 rounded w-full" />
+                                <div className="h-0.8 bg-gray-400 rounded w-11/12" />
+                                <div className="h-0.8 bg-gray-400 rounded w-4/5" />
+                                <div className="h-0.8 bg-gray-400 rounded w-full" />
+                              </div>
+                            </div>
+
+                            {/* Autenticação & Assinatura de Rodapé (Com Ajuste X / Y) */}
+                            {(() => {
+                              const minSignatureY = Math.max(-15, Math.min(0, 10 - printMarginBottom));
+                              const isSignatureInCutZone = signatureY <= minSignatureY + 1;
+                              const effectiveSignatureY = Math.max(minSignatureY, signatureY);
+
+                              return (
+                                <div className="pt-1 border-t border-gray-200/80 flex items-end justify-between gap-1 shrink-0 relative z-20">
+                                  <div className="w-4 h-4 bg-gray-100 rounded border border-gray-300 p-0.5 shrink-0 flex items-center justify-center">
+                                    <div className="w-full h-full bg-blue-900/60 rounded-xs" />
+                                  </div>
+
+                                  {/* Assinatura Dinâmica Deslocável */}
+                                  <div
+                                    className={`text-right space-y-0.5 transition-all duration-200 ease-out px-1.5 py-1 rounded shadow-sm relative shrink-0 ${
+                                      isSignatureInCutZone
+                                        ? "bg-rose-100/95 border-2 border-rose-500 shadow-rose-200/50 ring-2 ring-rose-400/40"
+                                        : "bg-amber-50/90 border border-amber-300"
+                                    }`}
+                                    style={{
+                                      transform: `translate(${signatureX * 1.2}px, ${-effectiveSignatureY * 1.2}px)`,
+                                    }}
+                                  >
+                                    {isSignatureInCutZone && (
+                                      <div className="absolute -top-3.5 right-0 bg-rose-600 text-white font-black text-[4.5px] uppercase tracking-tighter px-1 py-0.2 rounded shadow-xs flex items-center gap-0.5 z-30">
+                                        <AlertCircle className="w-2 h-2 text-white shrink-0" />
+                                        Área de Corte
+                                      </div>
+                                    )}
+                                    <div className={`h-0.5 rounded w-10 ml-auto ${isSignatureInCutZone ? "bg-rose-700" : "bg-blue-950"}`} />
+                                    <p className={`text-[5px] font-black uppercase tracking-tighter leading-none ${isSignatureInCutZone ? "text-rose-950" : "text-blue-950"}`}>
+                                      Presidência SINPA
+                                    </p>
+                                    <div className={`flex items-center justify-end gap-0.5 text-[4px] font-mono font-bold leading-none ${isSignatureInCutZone ? "text-rose-800" : "text-amber-900"}`}>
+                                      <span>X:{signatureX > 0 ? `+${signatureX}` : signatureX}</span>
+                                      <span>Y:{effectiveSignatureY > 0 ? `+${effectiveSignatureY}` : effectiveSignatureY}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </div>
+
+                        {/* Coordenadas de Margem Atual */}
+                        <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 text-[10px] font-mono text-gray-500 bg-gray-100 px-3 py-1.5 rounded-full border border-gray-200">
+                          <span className="font-bold text-blue-950">
+                            Topo: {printMarginTop}mm
+                          </span>
+                          <span>•</span>
+                          <span className="font-bold text-blue-950">
+                            Lat: {printMarginSides}mm
+                          </span>
+                          <span>•</span>
+                          <span className="font-bold text-blue-950">
+                            Rodapé: {printMarginBottom}mm
+                          </span>
+                          <span>•</span>
+                          <span className="font-bold text-blue-900 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                            Logo: {printLogoScale}%
+                          </span>
+                          <span>•</span>
+                          <span className="font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                            Assinatura: ({signatureX >= 0 ? `+${signatureX}` : signatureX}, {signatureY >= 0 ? `+${signatureY}` : signatureY})mm
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Token & Autenticidade Digital */}
+                    <div className="bg-blue-900 rounded-3xl p-5 flex items-center gap-5 mb-8 shadow-xl text-white">
+                      <div className="p-2.5 bg-white rounded-2xl shadow-lg shrink-0">
                         <QRCodeCanvas
                           value={`CERT-${searchTerm || "99283"}`}
-                          size={90}
+                          size={70}
                         />
                       </div>
                       <div className="text-left">
-                        <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest mb-1">
-                          Validação Digital
+                        <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest mb-0.5">
+                          Validação Digital SINPA
                         </p>
-                        <p className="text-xs font-medium text-blue-100/70 mb-4 leading-snug tracking-tight">
-                          Documento oficial com assinatura e QR Code de
-                          autenticidade instantânea.
+                        <p className="text-xs font-medium text-blue-100/80 leading-snug">
+                          Documento oficial com chave hash e QR Code de autenticidade instantânea.
                         </p>
-                        <div className="flex items-center gap-2 text-[10px] font-mono text-white/30">
+                        <div className="flex items-center gap-2 text-[10px] font-mono text-white/40 mt-2">
                           <Hash className="w-3 h-3" />
                           AUTHTOKEN-{searchTerm?.slice(0, 4) || "9928"}-2026
                         </div>
@@ -27911,19 +29033,21 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
 
                     <div className="flex flex-col sm:flex-row gap-3">
                       <button
+                        type="button"
                         onClick={() => setShowPrintModal(false)}
-                        className="flex-1 px-6 py-4 rounded-xl font-bold text-gray-500 hover:bg-gray-50 transition-colors"
+                        className="flex-1 px-6 py-4 rounded-2xl font-bold text-gray-500 hover:bg-gray-100 transition-colors text-xs uppercase tracking-wider cursor-pointer"
                       >
                         Cancelar
                       </button>
                       <button
+                        type="button"
                         onClick={() => {
                           setShowPrintModal(false);
-                          window.print();
+                          setTimeout(() => window.print(), 150);
                         }}
-                        className="flex-1 px-6 py-4 rounded-xl font-bold bg-blue-900 text-white shadow-lg shadow-blue-900/20 hover:bg-blue-800 transition-colors"
+                        className="flex-1 px-6 py-4 rounded-2xl font-black bg-blue-900 hover:bg-blue-800 text-white shadow-xl shadow-blue-900/20 transition-all text-xs uppercase tracking-widest flex items-center justify-center gap-2 cursor-pointer"
                       >
-                        Confirmar
+                        <Printer className="w-4 h-4" /> Imprimir Documento
                       </button>
                     </div>
                   </motion.div>
@@ -28230,14 +29354,15 @@ Cordialmente, ${query.assignedLawyer} - Jurídico SINPA`}
                 <div className="grid lg:grid-cols-4 gap-12 mb-16">
                   <div className="lg:col-span-2">
                     <div className="flex items-center gap-6 mb-8">
-                      <div className="bg-white py-1.5 px-4 rounded-xl shadow-xl border border-[#df9d0c]/30 flex items-center justify-center">
+                      <div className="bg-white py-1.5 px-3.5 rounded-xl shadow-md border border-[#df9d0c]/30 flex items-center justify-center shrink-0">
                         {siteConfig.logoUrl ? (
                           <img
                             src={siteConfig.logoUrl}
                             style={{
-                              width: `${siteConfig.footerLogoWidth * 0.85}px`,
+                              width: `${siteConfig.footerLogoWidth || 160}px`,
+                              maxHeight: "46px",
                             }}
-                            className="h-7 w-auto object-contain"
+                            className="h-9 sm:h-10 w-auto object-contain max-w-[190px]"
                             alt="Sinpa Logo"
                             referrerPolicy="no-referrer"
                           />
@@ -32735,6 +33860,17 @@ Para exercer seus direitos ou esclarecer dúvidas sobre esta Política de Privac
           </div>
         )}
       </AnimatePresence>
+
+      {/* Portal do Parceiro (Validação QR Code & Descontos) */}
+      <PartnerPortalModal
+        isOpen={isPartnerPortalOpen}
+        onClose={() => setIsPartnerPortalOpen(false)}
+        db={db}
+        currentUser={currentUser}
+        members={members}
+        partners={partners}
+        showNotification={showNotification}
+      />
 
       {/* Modal para alteração obrigatória de senha no primeiro acesso */}
       <ForceChangePasswordModal

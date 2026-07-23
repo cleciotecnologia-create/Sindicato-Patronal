@@ -12,6 +12,9 @@ import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
 
 dotenv.config();
 
+// Enforce timezone to America/Bahia (Paulo Afonso) for backend operations, timestamps, and Firestore documents
+process.env.TZ = "America/Bahia";
+
 // Read Firebase config from file for server-side initialization
 const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
 const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
